@@ -1,0 +1,178 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:lucide_icons/lucide_icons.dart';
+import '../services/config_service.dart';
+import '../models/site.dart';
+import '../widgets/zen_ui.dart';
+import '../widgets/edit_dialog.dart';
+
+class SourceManagePage extends ConsumerStatefulWidget {
+  const SourceManagePage({super.key});
+
+  @override
+  ConsumerState<SourceManagePage> createState() => _SourceManagePageState();
+}
+
+class _SourceManagePageState extends ConsumerState<SourceManagePage> {
+  List<SiteConfig> _sites = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  void _load() async {
+    final sites = await ref.read(configServiceProvider).getSites();
+    setState(() => _sites = sites);
+  }
+
+  void _showSiteDialog({SiteConfig? site, int? index}) {
+    final nameController = TextEditingController(text: site?.name);
+    final apiController = TextEditingController(text: site?.api);
+    showDialog(
+      context: context,
+      builder: (context) => EditDialog(
+        title: Text(site == null ? '添加视频源' : '编辑视频源', style: const TextStyle(fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController, 
+              decoration: InputDecoration(
+                labelText: '名称',
+                filled: true,
+                fillColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.05),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: apiController, 
+              decoration: InputDecoration(
+                labelText: 'API 地址',
+                filled: true,
+                fillColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.05),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          ZenButton(
+            isSecondary: true,
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          ZenButton(
+            onPressed: () async {
+              if (apiController.text.isNotEmpty) {
+                final newSite = SiteConfig(
+                  key: site?.key ?? DateTime.now().millisecondsSinceEpoch.toString(),
+                  name: nameController.text.isEmpty ? '新站点' : nameController.text,
+                  api: apiController.text,
+                );
+                if (index != null) {
+                  _sites[index] = newSite;
+                } else {
+                  _sites.add(newSite);
+                }
+                await ref.read(configServiceProvider).saveSites(_sites);
+                _load();
+                Navigator.pop(context);
+              }
+            },
+            child: Text(site == null ? '添加' : '保存'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isPC = MediaQuery.of(context).size.width > 800;
+    final horizontalPadding = isPC ? 48.0 : 24.0;
+
+    return ZenScaffold(
+      body: CustomScrollView(
+        slivers: [
+          ZenSliverAppBar(
+            title: '视频源管理',
+            subtitle: '管理和配置 CMS 资源接口',
+            actions: [
+              IconButton(
+                onPressed: () => _showSiteDialog(), 
+                icon: const Icon(LucideIcons.plusCircle, size: 20)
+              ),
+            ],
+          ),
+          
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(horizontalPadding, 4, horizontalPadding, 16),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final site = _sites[index];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: ZenGlassContainer(
+                      borderRadius: 20,
+                      blur: 10,
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                        title: Text(site.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        subtitle: Text(site.api, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: theme.colorScheme.secondary, fontSize: 12)),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: Icon(LucideIcons.edit3, size: 18, color: theme.colorScheme.primary.withValues(alpha: 0.6)),
+                              onPressed: () => _showSiteDialog(site: site, index: index),
+                            ),
+                            IconButton(
+                              icon: const Icon(LucideIcons.trash2, size: 18, color: Colors.redAccent),
+                              onPressed: () async {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (context) => EditDialog(
+                                    title: const Text('确认删除'),
+                                    content: Text('确定要删除视频源 "${site.name}" 吗？'),
+                                    actions: [
+                                      ZenButton(
+                                        isSecondary: true,
+                                        onPressed: () => Navigator.pop(context, false),
+                                        child: const Text('取消'),
+                                      ),
+                                      ZenButton(
+                                        backgroundColor: Colors.redAccent,
+                                        onPressed: () => Navigator.pop(context, true),
+                                        child: const Text('删除'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (confirm == true) {
+                                  _sites.removeAt(index);
+                                  await ref.read(configServiceProvider).saveSites(_sites);
+                                  _load();
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+                childCount: _sites.length,
+              ),
+            ),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 100)),
+        ],
+      ),
+    );
+  }
+}
