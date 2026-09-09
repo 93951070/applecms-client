@@ -1,0 +1,46 @@
+name: 苹果cms客户端-未签名iOS构建
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ipa:
+    name: 构建未签名 iOS IPA (macOS)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: 构建未签名 App
+        run: flutter build ios --release --no-codesign
+
+      - name: 打包为未签名 IPA
+        run: |
+          APP_DIR="build/ios/iphoneos/Runner.app"
+          if [ ! -d "$APP_DIR" ]; then
+            echo "::error::未找到 Runner.app，构建可能失败"
+            ls -la build/ios/iphoneos/ || true
+            exit 1
+          fi
+          mkdir -p Payload
+          cp -r "$APP_DIR" Payload/
+          zip -qr applecms-client-unsigned.ipa Payload
+          echo "构建完成: $(ls -lh applecms-client-unsigned.ipa | awk '{print $5}')"
+
+      - name: 上传未签名 IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: applecms-client-unsigned-ipa
+          path: applecms-client-unsigned.ipa
