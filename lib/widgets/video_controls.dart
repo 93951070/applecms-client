@@ -70,7 +70,6 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
     super.initState();
     _localSkipConfig = widget.skipConfig;
     _lastVolume = widget.initialVolume;
-    windowManager.addListener(this);
     _initBrightness();
   }
 
