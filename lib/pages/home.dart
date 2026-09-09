@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import '../services/douban_service.dart';
+import '../services/cms_service.dart';
+import '../services/config_service.dart';
 import '../services/update_service.dart';
 import '../providers/history_provider.dart';
 import '../models/movie.dart';
@@ -12,19 +13,40 @@ import 'video_detail.dart';
 import 'package:go_router/go_router.dart';
 
 final hotMoviesProvider = FutureProvider<List<DoubanSubject>>((ref) async {
-  final service = ref.watch(doubanServiceProvider);
-  return service.getRexxarList('movie', '热门', '全部', count: 12);
+  final config = ref.read(configServiceProvider);
+  final cms = ref.read(cmsServiceProvider);
+  final sites = await config.getSites();
+  final list = await cms.getCategoryList(sites, 1, page: 1, pageSize: 12);
+  return list.map(_toSubject).toList();
 });
 
 final hotTvShowsProvider = FutureProvider<List<DoubanSubject>>((ref) async {
-  final service = ref.watch(doubanServiceProvider);
-  return service.getRexxarList('tv', 'tv', 'tv', count: 12);
+  final config = ref.read(configServiceProvider);
+  final cms = ref.read(cmsServiceProvider);
+  final sites = await config.getSites();
+  final list = await cms.getCategoryList(sites, 2, page: 1, pageSize: 12);
+  return list.map(_toSubject).toList();
 });
 
 final hotVarietyShowsProvider = FutureProvider<List<DoubanSubject>>((ref) async {
-  final service = ref.watch(doubanServiceProvider);
-  return service.getRexxarList('tv', 'show', 'show', count: 12);
+  final config = ref.read(configServiceProvider);
+  final cms = ref.read(cmsServiceProvider);
+  final sites = await config.getSites();
+  final list = await cms.getCategoryList(sites, 4, page: 1, pageSize: 12);
+  return list.map(_toSubject).toList();
 });
+
+/// 将 CMS 的 VideoDetail 桥接为页面展示用的 DoubanSubject
+DoubanSubject _toSubject(VideoDetail d) {
+  return DoubanSubject(
+    id: d.id,
+    title: d.title,
+    rate: '0.0',
+    cover: d.poster,
+    year: d.year,
+    description: d.desc,
+  );
+}
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});

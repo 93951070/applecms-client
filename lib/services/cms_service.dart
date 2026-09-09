@@ -150,6 +150,83 @@ class CmsService {
     return allResults;
   }
 
+  /// 按分类拉取列表（顶级分类自动聚合子分类），并发搜索所有启用站点
+  Future<List<VideoDetail>> getCategoryList(List<SiteConfig> sites, int typeId, {int page = 1, int pageSize = 20}) async {
+    final activeSites = sites.where((s) => !s.disabled).toList();
+    if (activeSites.isEmpty) {
+      return [];
+    }
+
+    final results = await Future.wait(
+      activeSites.map((site) async {
+        try {
+          return await _fetchCategoryBySite(site, typeId, page: page, pageSize: pageSize);
+        } catch (e) {
+          return <VideoDetail>[];
+        }
+      })
+    );
+
+    return results.expand((x) => x).where((res) => res.playGroups.isNotEmpty).toList();
+  }
+
+  Future<List<VideoDetail>> _fetchCategoryBySite(SiteConfig site, int typeId, {int page = 1, int pageSize = 20}) async {
+    try {
+      final url = '${site.api}?ac=videolist&t=$typeId&pg=$page&pagesize=$pageSize';
+      final response = await _dio.get(url);
+      if (response.data == null) {
+        return [];
+      }
+
+      Map<String, dynamic> data;
+      if (response.data is String) {
+        try {
+          data = jsonDecode(response.data);
+        } catch (e) {
+          return [];
+        }
+      } else if (response.data is Map) {
+        data = Map<String, dynamic>.from(response.data);
+      } else {
+        return [];
+      }
+
+      final listData = data['list'];
+      if (listData == null) {
+        return [];
+      }
+
+      List list;
+      if (listData is String) {
+        try {
+          final decoded = jsonDecode(listData);
+          list = decoded is List ? decoded : [];
+        } catch (e) {
+          return [];
+        }
+      } else if (listData is List) {
+        list = listData;
+      } else {
+        return [];
+      }
+
+      final List<VideoDetail> results = [];
+      for (var item in list) {
+        try {
+          final detail = _parseVideoItem(item, site);
+          if (detail.playGroups.isNotEmpty) {
+            results.add(detail);
+          }
+        } catch (e) {
+          // Skip invalid items
+        }
+      }
+      return results;
+    } catch (e) {
+      return [];
+    }
+  }
+
   /// 流式搜索：并发搜索所有站点，每个站点有结果就立即返回
   /// 返回的 Stream 会持续发送累积的结果列表
   Stream<List<VideoDetail>> searchAllStream(List<SiteConfig> sites, String query) async* {

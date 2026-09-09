@@ -6,7 +6,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/movie.dart';
 import '../models/site.dart';
 import '../services/cms_service.dart';
-import '../services/douban_service.dart';
 import '../services/config_service.dart';
 import '../providers/history_provider.dart';
 import '../services/video_quality_service.dart';
@@ -31,7 +30,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   late HistoryNotifier _historyNotifier;
   
   DoubanSubject? _fullSubject;
-  bool _isDetailLoading = true;
+  bool _isDetailLoading = false;
   String _doubanId = '';
   
   // 核心数据
@@ -109,7 +108,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   }
 
   void _loadData() async {
-    final doubanService = ref.read(doubanServiceProvider);
     final cmsService = ref.read(cmsServiceProvider);
     final configService = ref.read(configServiceProvider);
 
@@ -118,44 +116,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       _loadingMessage = '🔍 正在搜索播放源...';
     });
 
-    // 如果没有豆瓣 ID，尝试根据标题搜索一个
-    if (_doubanId.isEmpty) {
-      try {
-        final searchResults = await doubanService.search(widget.subject.title);
-        if (searchResults.isNotEmpty) {
-          final targetTitle = widget.subject.title.replaceAll(' ', '').toLowerCase();
-          final bestMatch = searchResults.firstWhere(
-            (s) => s.title.replaceAll(' ', '').toLowerCase() == targetTitle,
-            orElse: () => searchResults.first,
-          );
-          _doubanId = bestMatch.id;
-          debugPrint('🎬 通过搜索找到豆瓣 ID: $_doubanId');
-        }
-      } catch (e) {
-        debugPrint('❌ 搜索豆瓣 ID 失败: $e');
-      }
-    }
-
-    if (_doubanId.isNotEmpty) {
-      doubanService.getDetail(_doubanId).then((val) {
-        if (val == null) {
-          debugPrint('⚠️ 豆瓣详情获取为空: id=$_doubanId');
-        } else {
-          debugPrint('✅ 豆瓣详情获取成功: ${val.title}');
-        }
-        if (mounted) {
-          setState(() {
-            _fullSubject = val;
-            _isDetailLoading = false;
-          });
-        }
-      }).catchError((e) {
-        debugPrint('❌ 豆瓣详情获取失败: $e');
-        if (mounted) setState(() => _isDetailLoading = false);
-      });
-    } else {
-      setState(() => _isDetailLoading = false);
-    }
+    // 已彻底二开对接 CMS，不再通过豆瓣补全详情
 
     final sites = await configService.getSites();
     final activeSites = sites.where((s) => !s.disabled).toList();
