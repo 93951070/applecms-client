@@ -121,7 +121,7 @@ class ConfigService {
 
   // 内置默认站点（占位符，用户可在「视频源管理」修改 API 地址）
   SiteConfig _defaultSite() {
-    return const SiteConfig(
+    return SiteConfig(
       key: 'default_local',
       name: '我的站点',
       api: 'http://your-domain.com/api/provide/vod',
