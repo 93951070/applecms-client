@@ -249,6 +249,46 @@ class AppApiService {
     );
   }
 
+  /// 系统消息列表（分页），需登录令牌。
+  Future<Map<String, dynamic>> fetchMessages(
+    String base, {
+    int page = 1,
+    int limit = 20,
+    String? token,
+  }) async {
+    return _request(
+      base,
+      method: 'GET',
+      path: '$_apiPrefix/messages',
+      query: _encodeQuery({'page': '$page', 'limit': '$limit'}),
+      token: token,
+    );
+  }
+
+  /// 标记单条消息已读。
+  Future<void> markMessageRead(
+    String base,
+    String messageId, {
+    String? token,
+  }) async {
+    await _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/messages/$messageId/read',
+      token: token,
+    );
+  }
+
+  /// 全部标记已读。
+  Future<void> markAllMessagesRead(String base, {String? token}) async {
+    await _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/messages/read-all',
+      token: token,
+    );
+  }
+
   /// 会员校验并解析直连地址。`token` 为账号令牌（未登录可不传）。
   Future<AppPlayResult> play(
     String base, {

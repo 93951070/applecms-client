@@ -69,6 +69,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   bool _commentsLoaded = false;
   List<DanmakuItem> _danmaku = const [];
   String _danmakuEpisodeKey = '';
+  bool _danmakuEnabled = true;
 
   final GlobalKey<EchoVideoPlayerState> _playerKey = GlobalKey<EchoVideoPlayerState>();
 
@@ -452,6 +453,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           _savePlayRecord(pos, dur, isFinal: isFinal),
       onEnded: _autoPlayNext ? _playNextEpisode : null,
       danmaku: _danmaku,
+      danmakuEnabled: _danmakuEnabled,
     );
   }
 
@@ -541,8 +543,43 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           const SizedBox(width: 22),
           _buildContentTab(theme, '评论', 1),
           const Spacer(),
+          _buildDanmakuToggle(),
+          const SizedBox(width: 8),
           _buildDanmakuButton(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDanmakuToggle() {
+    return GestureDetector(
+      onTap: () => setState(() => _danmakuEnabled = !_danmakuEnabled),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: _danmakuEnabled ? AppColors.pinkLight : Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _danmakuEnabled
+                  ? Icons.chat_bubble
+                  : Icons.chat_bubble_outline,
+              size: 13,
+              color: _danmakuEnabled ? AppColors.pink : Colors.grey,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              _danmakuEnabled ? '弹幕开' : '弹幕关',
+              style: TextStyle(
+                fontSize: 12,
+                color: _danmakuEnabled ? AppColors.pink : Colors.grey,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -835,16 +872,22 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       return;
     }
     try {
-      final created =
+      final result =
           await ref.read(cmsServiceProvider).postComment(video.id, text);
       if (!mounted) return;
+      final created = result.comment;
       if (created != null) {
-        setState(() {
-          _comments.insert(0, created);
-          _commentTotal += 1;
-          _commentController.clear();
-        });
+        if (!result.pending) {
+          setState(() {
+            _comments.insert(0, created);
+            _commentTotal += 1;
+          });
+        }
+        _commentController.clear();
         FocusScope.of(context).unfocus();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result.pending ? '评论已提交，等待审核' : '评论已发送')),
+        );
       }
     } on AppApiException catch (e) {
       if (!mounted) return;
@@ -908,14 +951,14 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
     final position = _playerKey.currentState?.currentPosition ?? Duration.zero;
     try {
-      final ok = await ref.read(cmsServiceProvider).postDanmaku(
+      final result = await ref.read(cmsServiceProvider).postDanmaku(
             video.id,
             episode: _currentEpisodeIndex,
             timeMs: position.inMilliseconds,
             content: text,
           );
       if (!mounted) return;
-      if (ok) {
+      if (result.ok && !result.pending) {
         setState(() {
           _danmaku = [..._danmaku, DanmakuItem(
             timeMs: position.inMilliseconds,
@@ -923,8 +966,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           )]..sort((a, b) => a.timeMs.compareTo(b.timeMs));
         });
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(ok ? '弹幕已发送' : '弹幕发送失败')));
+      final msg = !result.ok
+          ? '弹幕发送失败'
+          : (result.pending ? '弹幕已提交，等待审核' : '弹幕已发送');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)

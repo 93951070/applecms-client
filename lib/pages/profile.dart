@@ -12,6 +12,7 @@ import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
 import '../widgets/cover_image.dart';
 import 'video_detail.dart';
+import 'messages_page.dart';
 
 final profileSiteProvider = FutureProvider<SiteConfig>((ref) async {
   return ref.read(configServiceProvider).getPrimarySite();
@@ -176,6 +177,48 @@ class ProfilePage extends ConsumerWidget {
                 ],
               ),
             ),
+          ),
+          IconButton(
+            onPressed: () {
+              context.push('/messages');
+            },
+            icon: Builder(builder: (context) {
+              final unread =
+                  ref.watch(unreadMessageCountProvider).maybeWhen(
+                        data: (v) => v,
+                        orElse: () => 0,
+                      );
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Icon(Icons.notifications_none_rounded,
+                      size: 23, color: theme.colorScheme.secondary),
+                  if (unread > 0)
+                    Positioned(
+                      right: -3,
+                      top: -3,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 4, vertical: 1),
+                        constraints:
+                            const BoxConstraints(minWidth: 15, minHeight: 15),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF4D4F),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          unread > 99 ? '99+' : '$unread',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            }),
           ),
           IconButton(
             onPressed: () => context.push('/settings'),

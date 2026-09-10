@@ -23,6 +23,7 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
   final Function(Duration position, Duration duration, {bool isFinal})? onProgress;
   final VoidCallback? onEnded;
   final List<DanmakuItem> danmaku;
+  final bool danmakuEnabled;
 
   const EchoVideoPlayer({
     super.key,
@@ -38,6 +39,7 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
     this.onProgress,
     this.onEnded,
     this.danmaku = const [],
+    this.danmakuEnabled = true,
   });
 
   @override
@@ -82,6 +84,10 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
     }
     if (oldWidget.danmaku != widget.danmaku) {
       _spawnedDanmaku.clear();
+      _activeDanmaku.clear();
+    }
+    if (oldWidget.danmakuEnabled != widget.danmakuEnabled &&
+        !widget.danmakuEnabled) {
       _activeDanmaku.clear();
     }
   }
@@ -206,7 +212,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   }
 
   void _updateDanmaku(Duration position) {
-    if (widget.danmaku.isEmpty || !mounted) return;
+    if (!widget.danmakuEnabled || widget.danmaku.isEmpty || !mounted) return;
     final nowMs = position.inMilliseconds;
     var changed = false;
     for (var i = 0; i < widget.danmaku.length; i++) {
@@ -378,7 +384,9 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   }
 
   Widget _buildDanmakuOverlay() {
-    if (_activeDanmaku.isEmpty) return const SizedBox.shrink();
+    if (!widget.danmakuEnabled || _activeDanmaku.isEmpty) {
+      return const SizedBox.shrink();
+    }
     return IgnorePointer(
       child: AnimatedBuilder(
         animation: _danmakuTicker,

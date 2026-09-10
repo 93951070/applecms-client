@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/comment.dart';
 import '../models/site.dart';
+import '../models/system_message.dart';
 import 'app_api_service.dart';
 import 'config_service.dart';
 
@@ -232,8 +233,8 @@ class CmsService {
     );
   }
 
-  /// 发表评论，返回是否成功（失败时抛出 [AppApiException]）。
-  Future<VideoComment?> postComment(String vodId, String content) async {
+  /// 发表评论，返回结果（失败时抛出 [AppApiException]）。
+  Future<PostCommentResult> postComment(String vodId, String content) async {
     final token = await _ref.read(configServiceProvider).getAuthToken();
     final data = await _api.postComment(
       await _base(),
@@ -241,12 +242,15 @@ class CmsService {
       content,
       token: token,
     );
-    if (data['success'] != true) return null;
-    return VideoComment(
-      id: (data['comment_id'] ?? '').toString(),
-      userName: '我',
-      content: content.trim(),
-      createdAt: _asInt(data['created_at']),
+    if (data['success'] != true) return const PostCommentResult();
+    return PostCommentResult(
+      pending: data['pending'] == true,
+      comment: VideoComment(
+        id: (data['comment_id'] ?? '').toString(),
+        userName: '我',
+        content: content.trim(),
+        createdAt: _asInt(data['created_at']),
+      ),
     );
   }
 
@@ -260,8 +264,8 @@ class CmsService {
     return items.map(DanmakuItem.fromJson).toList();
   }
 
-  /// 发送弹幕，返回是否成功。
-  Future<bool> postDanmaku(
+  /// 发送弹幕，返回结果。
+  Future<PostDanmakuResult> postDanmaku(
     String vodId, {
     required int episode,
     required int timeMs,
@@ -280,8 +284,63 @@ class CmsService {
       mode: mode,
       token: token,
     );
-    return data['success'] == true;
+    return PostDanmakuResult(
+      ok: data['success'] == true,
+      pending: data['pending'] == true,
+    );
   }
+
+  /// 系统消息列表。
+  Future<MessagePage> getMessages({int page = 1, int limit = 20}) async {
+    final token = await _ref.read(configServiceProvider).getAuthToken();
+    if (token == null || token.isEmpty) return const MessagePage();
+    final data = await _api.fetchMessages(
+      await _base(),
+      page: page,
+      limit: limit,
+      token: token,
+    );
+    final items = <SystemMessage>[];
+    final raw = data['items'];
+    if (raw is List) {
+      for (final e in raw) {
+        if (e is Map) {
+          items.add(SystemMessage.fromJson(Map<String, dynamic>.from(e)));
+        }
+      }
+    }
+    return MessagePage(unread: _asInt(data['unread']), items: items);
+  }
+
+  /// 标记单条消息已读。
+  Future<void> markMessageRead(String messageId) async {
+    final token = await _ref.read(configServiceProvider).getAuthToken();
+    if (token == null || token.isEmpty) return;
+    await _api.markMessageRead(await _base(), messageId, token: token);
+  }
+
+  /// 全部标记已读。
+  Future<void> markAllMessagesRead() async {
+    final token = await _ref.read(configServiceProvider).getAuthToken();
+    if (token == null || token.isEmpty) return;
+    await _api.markAllMessagesRead(await _base(), token: token);
+  }
+}
+
+/// 发表评论结果。
+class PostCommentResult {
+  final VideoComment? comment;
+  final bool pending;
+
+  const PostCommentResult({this.comment, this.pending = false});
+}
+
+/// 发送弹幕结果。
+class PostDanmakuResult {
+  final bool ok;
+  final bool pending;
+
+  const PostDanmakuResult({this.ok = false, this.pending = false});
 }
 
 /// 评论分页结果。
