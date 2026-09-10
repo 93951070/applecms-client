@@ -39,6 +39,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   late HistoryNotifier _historyNotifier;
 
   bool _descExpanded = false;
+  int _contentTab = 0;
+  bool _favorited = false;
   
   DoubanSubject? _fullSubject;
   bool _isDetailLoading = false;
@@ -382,13 +384,19 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return ZenScaffold(
       body: SafeArea(
         bottom: false,
         child: Column(
           children: [
             _buildPlayerArea(),
-            Expanded(child: _buildInfoArea()),
+            _buildContentTabs(theme),
+            Expanded(
+              child: _contentTab == 0
+                  ? _buildVideoTab(theme)
+                  : _buildCommentTab(theme),
+            ),
           ],
         ),
       ),
@@ -481,18 +489,109 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   // ==================== 信息区 ====================
 
-  Widget _buildInfoArea() {
-    final theme = Theme.of(context);
+  // ==================== 视频 / 评论 Tab ====================
+
+  Widget _buildContentTabs(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+      child: Row(
+        children: [
+          _buildContentTab(theme, '视频', 0),
+          const SizedBox(width: 22),
+          _buildContentTab(theme, '评论', 1),
+          const Spacer(),
+          _buildDanmakuButton(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContentTab(ThemeData theme, String label, int index) {
+    final active = _contentTab == index;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => setState(() => _contentTab = index),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: active ? FontWeight.w800 : FontWeight.w500,
+              color: active ? AppColors.pink : theme.colorScheme.secondary,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Container(
+            width: 22,
+            height: 3,
+            decoration: BoxDecoration(
+              color: active ? AppColors.pink : Colors.transparent,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDanmakuButton() {
+    return GestureDetector(
+      onTap: () => _comingSoon('弹幕'),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 5, 5, 5),
+        decoration: BoxDecoration(
+          color: AppColors.pinkLight,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('点我发弹幕',
+                style: TextStyle(fontSize: 12, color: AppColors.pink)),
+            const SizedBox(width: 8),
+            Container(
+              width: 22,
+              height: 22,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppColors.pink,
+                borderRadius: BorderRadius.circular(7),
+              ),
+              child: const Text('弹',
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _comingSoon(String name) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('$name 敬请期待'),
+      duration: const Duration(seconds: 1),
+    ));
+  }
+
+  // ==================== 视频 Tab ====================
+
+  Widget _buildVideoTab(ThemeData theme) {
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
         _buildTitleRow(theme),
         _buildDescRow(theme),
+        _buildActionRow(theme),
         Divider(
             height: 26, indent: 14, endIndent: 14, color: theme.dividerColor),
         _buildSourceRow(theme),
         _buildSourceChain(theme),
-        _buildEpisodeControls(theme),
+        _buildEpisodeHeader(theme),
         _buildEpisodeChips(theme),
         const SizedBox(height: 6),
         _buildRecommend(theme),
@@ -500,10 +599,25 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     );
   }
 
+  Widget _buildCommentTab(ThemeData theme) {
+    return ListView(
+      padding: const EdgeInsets.only(top: 120),
+      children: [
+        Icon(Icons.forum_outlined,
+            size: 46, color: theme.colorScheme.secondary),
+        const SizedBox(height: 12),
+        Center(
+          child: Text('暂无评论，快来抢沙发',
+              style:
+                  TextStyle(fontSize: 13, color: theme.colorScheme.secondary)),
+        ),
+      ],
+    );
+  }
+
   Widget _buildTitleRow(ThemeData theme) {
-    final text2 = theme.colorScheme.secondary;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
       child: Row(
         children: [
           Expanded(
@@ -511,16 +625,55 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               widget.subject.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
           ),
-          const Icon(Icons.star_rounded, size: 20, color: AppColors.vipGold),
-          const SizedBox(width: 14),
-          Icon(Icons.download_outlined, size: 20, color: text2),
-          const SizedBox(width: 14),
-          Icon(Icons.ios_share, size: 19, color: text2),
+          GestureDetector(
+            onTap: () => setState(() => _descending = !_descending),
+            child:
+                const Icon(Icons.swap_horiz, size: 20, color: AppColors.pink),
+          ),
         ],
       ),
+    );
+  }
+
+  Widget _buildActionRow(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () => setState(() => _favorited = !_favorited),
+            child: Icon(
+              _favorited ? Icons.star_rounded : Icons.star_border_rounded,
+              size: 26,
+              color: _favorited
+                  ? AppColors.vipGold
+                  : theme.colorScheme.secondary,
+            ),
+          ),
+          const Spacer(),
+          _buildActionIcon(Icons.favorite_rounded, const Color(0xFFFF6B9D),
+              () => setState(() => _favorited = true)),
+          const SizedBox(width: 20),
+          _buildActionIcon(Icons.download_rounded, const Color(0xFFFF9F43),
+              () => _comingSoon('缓存下载')),
+          const SizedBox(width: 20),
+          _buildActionIcon(Icons.share_rounded, const Color(0xFF3B82F6),
+              () => _comingSoon('分享')),
+          const SizedBox(width: 20),
+          _buildActionIcon(Icons.edit_rounded, AppColors.pink,
+              () => _comingSoon('编辑')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionIcon(IconData icon, Color color, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Icon(icon, size: 24, color: color),
     );
   }
 
@@ -576,25 +729,13 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       child: Row(
         children: [
           const Text('来源',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-          const SizedBox(width: 10),
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+          const Spacer(),
           Text(info,
               style:
-                  TextStyle(fontSize: 11, color: theme.colorScheme.secondary)),
-          const Spacer(),
-          if (_isOptimizing)
-            Row(children: [
-              const SizedBox(
-                width: 11,
-                height: 11,
-                child: CircularProgressIndicator(
-                    strokeWidth: 1.5, color: AppColors.pink),
-              ),
-              const SizedBox(width: 6),
-              Text('测速中',
-                  style: TextStyle(
-                      fontSize: 11, color: theme.colorScheme.secondary)),
-            ]),
+                  TextStyle(fontSize: 12, color: theme.colorScheme.secondary)),
+          Icon(Icons.chevron_right,
+              size: 16, color: theme.colorScheme.secondary),
         ],
       ),
     );
@@ -615,7 +756,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         children: [
           for (var i = 0; i < _availableSources.length; i++) ...[
             _buildSourceSegment(theme, _availableSources[i]),
-            if (i != _availableSources.length - 1) const SizedBox(width: 8),
+            if (i != _availableSources.length - 1) const SizedBox(width: 10),
           ],
         ],
       ),
@@ -624,82 +765,47 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   Widget _buildSourceSegment(ThemeData theme, VideoDetail res) {
     final selected = res == _currentSource;
+    final n = res.playGroups.first.urls.length;
     return GestureDetector(
       onTap: () => _switchSource(res),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected
-              ? AppColors.pink
-              : theme.colorScheme.onSurface.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Text(
-          '${res.sourceName} · ${res.playGroups.first.urls.length}',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? Colors.white : theme.colorScheme.onSurface,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEpisodeControls(ThemeData theme) {
-    if (_currentSource == null) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
-      child: Row(
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          GestureDetector(
-            onTap: () => setState(() => _autoPlayNext = !_autoPlayNext),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: _autoPlayNext
-                    ? AppColors.pink.withValues(alpha: 0.1)
-                    : theme.colorScheme.onSurface.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+            decoration: BoxDecoration(
+              color: selected
+                  ? AppColors.pinkLight
+                  : theme.colorScheme.onSurface.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: selected ? AppColors.pink : Colors.transparent,
+                width: 1.2,
               ),
-              child: Row(
-                children: [
-                  Icon(
-                    _autoPlayNext
-                        ? LucideIcons.playCircle
-                        : LucideIcons.stopCircle,
-                    size: 14,
-                    color: _autoPlayNext
-                        ? AppColors.pink
-                        : theme.colorScheme.secondary,
-                  ),
-                  const SizedBox(width: 6),
-                  Text('自动连播: ${_autoPlayNext ? "开" : "关"}',
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: _autoPlayNext
-                              ? AppColors.pink
-                              : theme.colorScheme.secondary)),
-                ],
+            ),
+            child: Text(
+              res.sourceName,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: selected ? AppColors.pink : theme.colorScheme.onSurface,
               ),
             ),
           ),
-          const Spacer(),
-          GestureDetector(
-            onTap: () => setState(() => _descending = !_descending),
-            child: Row(
-              children: [
-                const Icon(LucideIcons.arrowUpDown,
-                    size: 14, color: AppColors.pink),
-                const SizedBox(width: 6),
-                Text(_descending ? '倒序' : '正序',
-                    style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.pink)),
-              ],
+          Positioned(
+            top: -6,
+            right: -4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: Colors.black87,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text('$n',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700)),
             ),
           ),
         ],
@@ -707,13 +813,22 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     );
   }
 
+  Widget _buildEpisodeHeader(ThemeData theme) {
+    if (_currentSource == null) return const SizedBox.shrink();
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(14, 16, 14, 0),
+      child: Text('选集',
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+    );
+  }
+
   Widget _buildEpisodeChips(ThemeData theme) {
     if (_currentSource == null) return const SizedBox.shrink();
     final group = _currentSource!.playGroups.first;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
       child: SizedBox(
-        height: 32,
+        height: 36,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: group.urls.length,
@@ -724,21 +839,17 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
             return GestureDetector(
               onTap: () => _handlePlayAction(index),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: active
-                      ? AppColors.pink
+                      ? AppColors.pinkLight
                       : theme.colorScheme.onSurface.withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: active
-                      ? [
-                          BoxShadow(
-                              color: AppColors.pink.withValues(alpha: 0.35),
-                              blurRadius: 10,
-                              offset: const Offset(0, 3)),
-                        ]
-                      : null,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: active ? AppColors.pink : Colors.transparent,
+                    width: 1.2,
+                  ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -749,11 +860,11 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
                             fontWeight:
                                 active ? FontWeight.w700 : FontWeight.w400,
                             color: active
-                                ? Colors.white
+                                ? AppColors.pink
                                 : theme.colorScheme.onSurface)),
                     if (active) ...[
                       const SizedBox(width: 4),
-                      const Icon(Icons.pause, size: 11, color: Colors.white),
+                      const Icon(Icons.pause, size: 11, color: AppColors.pink),
                     ],
                   ],
                 ),

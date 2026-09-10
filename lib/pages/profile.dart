@@ -72,12 +72,12 @@ class ProfilePage extends ConsumerWidget {
 
   Widget _buildUserHeader(BuildContext context, String siteName) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
       child: Row(
         children: [
           Container(
-            width: 58,
-            height: 58,
+            width: 68,
+            height: 68,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: const LinearGradient(
@@ -87,9 +87,9 @@ class ProfilePage extends ConsumerWidget {
               ),
               border: Border.all(color: const Color(0xFFFFE4EE), width: 2),
             ),
-            child: const Icon(Icons.pets, size: 28, color: Color(0xFF7A8AA8)),
+            child: const Icon(Icons.pets, size: 34, color: Color(0xFF7A8AA8)),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -98,18 +98,18 @@ class ProfilePage extends ConsumerWidget {
                   children: [
                     const Text('EchoTV',
                         style: TextStyle(
-                            fontSize: 17, fontWeight: FontWeight.w800)),
-                    const SizedBox(width: 5),
+                            fontSize: 19, fontWeight: FontWeight.w800)),
+                    const SizedBox(width: 6),
                     const Icon(Icons.workspace_premium_rounded,
-                        size: 16, color: AppColors.vipGold),
-                    const SizedBox(width: 5),
+                        size: 18, color: AppColors.vipGold),
+                    const SizedBox(width: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 1),
+                          horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
                             colors: [Color(0xFFFFB84D), Color(0xFFFF7A00)]),
-                        borderRadius: BorderRadius.circular(3),
+                        borderRadius: BorderRadius.circular(4),
                       ),
                       child: const Text('至尊SVIP',
                           style: TextStyle(
@@ -120,12 +120,12 @@ class ProfilePage extends ConsumerWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
                 Text('UID: $_uid · 视频源：$siteName',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 12.5,
                         color: Theme.of(context).colorScheme.secondary)),
               ],
             ),
@@ -133,12 +133,12 @@ class ProfilePage extends ConsumerWidget {
           IconButton(
             onPressed: () => _comingSoon(context, '音量设置'),
             icon: Icon(Icons.volume_up_outlined,
-                size: 20, color: Theme.of(context).colorScheme.secondary),
+                size: 22, color: Theme.of(context).colorScheme.secondary),
           ),
           IconButton(
             onPressed: () => context.push('/settings'),
             icon: Icon(Icons.settings_outlined,
-                size: 20, color: Theme.of(context).colorScheme.secondary),
+                size: 22, color: Theme.of(context).colorScheme.secondary),
           ),
         ],
       ),

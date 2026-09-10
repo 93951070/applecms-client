@@ -191,6 +191,7 @@ final _router = GoRouter(
         );
       },
     ),
+    // 仅 4 个主 Tab 使用底部导航
     ShellRoute(
       builder: (context, state, child) {
         return MainLayout(
@@ -227,49 +228,50 @@ final _router = GoRouter(
             const ProfilePage(),
           ),
         ),
-        GoRoute(
-          path: '/movies',
-          pageBuilder: (context, state) => _buildPageWithPlatformTransition(
-            state,
-            const ExplorePage(title: '电影', type: 'movie'),
-          ),
-        ),
-        GoRoute(
-          path: '/series',
-          pageBuilder: (context, state) => _buildPageWithPlatformTransition(
-            state,
-            const ExplorePage(title: '剧集', type: 'tv'),
-          ),
-        ),
-        GoRoute(
-          path: '/anime',
-          pageBuilder: (context, state) => _buildPageWithPlatformTransition(
-            state,
-            const ExplorePage(title: '动漫', type: 'anime'),
-          ),
-        ),
-        GoRoute(
-          path: '/variety',
-          pageBuilder: (context, state) => _buildPageWithPlatformTransition(
-            state,
-            const ExplorePage(title: '综艺', type: 'show'),
-          ),
-        ),
-        GoRoute(
-          path: '/search',
-          pageBuilder: (context, state) => _buildPageWithPlatformTransition(
-            state,
-            const SearchPage(),
-          ),
-        ),
-        GoRoute(
-          path: '/settings',
-          pageBuilder: (context, state) => _buildPageWithPlatformTransition(
-            state,
-            const SettingsPage(),
-          ),
-        ),
       ],
+    ),
+    // 子页面：全屏，不显示底部导航
+    GoRoute(
+      path: '/movies',
+      pageBuilder: (context, state) => _buildPageWithPlatformTransition(
+        state,
+        const ExplorePage(title: '电影', type: 'movie'),
+      ),
+    ),
+    GoRoute(
+      path: '/series',
+      pageBuilder: (context, state) => _buildPageWithPlatformTransition(
+        state,
+        const ExplorePage(title: '剧集', type: 'tv'),
+      ),
+    ),
+    GoRoute(
+      path: '/anime',
+      pageBuilder: (context, state) => _buildPageWithPlatformTransition(
+        state,
+        const ExplorePage(title: '动漫', type: 'anime'),
+      ),
+    ),
+    GoRoute(
+      path: '/variety',
+      pageBuilder: (context, state) => _buildPageWithPlatformTransition(
+        state,
+        const ExplorePage(title: '综艺', type: 'show'),
+      ),
+    ),
+    GoRoute(
+      path: '/search',
+      pageBuilder: (context, state) => _buildPageWithPlatformTransition(
+        state,
+        const SearchPage(),
+      ),
+    ),
+    GoRoute(
+      path: '/settings',
+      pageBuilder: (context, state) => _buildPageWithPlatformTransition(
+        state,
+        const SettingsPage(),
+      ),
     ),
   ],
 );
