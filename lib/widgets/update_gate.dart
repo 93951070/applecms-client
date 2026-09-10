@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../core/navigation.dart';
 import '../services/app_api_service.dart';
 import '../services/config_service.dart';
 
@@ -33,6 +34,8 @@ class _UpdateGateState extends ConsumerState<UpdateGate> {
       final pkg = await PackageInfo.fromPlatform();
       final info = await api.checkVersion(base, pkg.version);
       if (!mounted) return;
+      await _waitForNavigator();
+      if (!mounted) return;
       if (info.forceUpdate) {
         _showUpdateDialog(info, force: true);
       } else if (info.needUpdate) {
@@ -40,6 +43,14 @@ class _UpdateGateState extends ConsumerState<UpdateGate> {
       }
     } catch (_) {
       // 网关不可用时静默降级
+    }
+  }
+
+  /// 等待根 Navigator 挂载完成，避免 builder 上下文尚未就绪。
+  Future<void> _waitForNavigator() async {
+    for (var i = 0; i < 20; i++) {
+      if (rootNavigatorKey.currentContext != null) return;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
     }
   }
 
@@ -52,9 +63,11 @@ class _UpdateGateState extends ConsumerState<UpdateGate> {
   }
 
   void _showUpdateDialog(AppVersionInfo info, {required bool force}) {
+    final navContext = rootNavigatorKey.currentContext;
+    if (navContext == null) return;
     final hasUrl = (info.updateUrl ?? '').isNotEmpty;
     showDialog<void>(
-      context: context,
+      context: navContext,
       barrierDismissible: !force,
       builder: (ctx) => PopScope(
         canPop: !force,

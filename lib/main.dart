@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'core/theme.dart';
+import 'core/navigation.dart';
 import 'pages/home.dart';
 import 'pages/explore.dart';
 import 'pages/category_list.dart';
@@ -53,6 +54,7 @@ class _EchoTVAppState extends ConsumerState<EchoTVApp> {
     return MaterialApp.router(
       title: 'EchoTV',
       debugShowCheckedModeBanner: false,
+      navigatorKey: rootNavigatorKey,
       theme: ZenTheme.lightTheme(),
       darkTheme: ZenTheme.darkTheme(),
       themeMode: themeMode,
