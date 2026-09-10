@@ -30,11 +30,22 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            // 固定签名，保证应用内覆盖升级成功。可通过环境变量覆盖以便轮换。
+            storeFile = file(System.getenv("ANDROID_KEYSTORE_PATH") ?: "echotv-release.p12")
+            storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: "echotv2026"
+            keyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: "echotv"
+            keyPassword = System.getenv("ANDROID_KEY_PASSWORD") ?: "echotv2026"
+            storeType = "PKCS12"
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
