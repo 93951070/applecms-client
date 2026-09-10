@@ -27,9 +27,89 @@ class ZenScaffold extends StatelessWidget {
     return Scaffold(
       backgroundColor: backgroundColor ?? theme.scaffoldBackgroundColor,
       appBar: appBar,
-      body: body,
+      body: ZenAuroraBackground(child: body),
       bottomNavigationBar: bottomNavigationBar,
       extendBodyBehindAppBar: extendBodyBehindAppBar,
+    );
+  }
+}
+
+/// 极光背景：柔和渐变 + 粉/蓝/紫光斑，为玻璃容器提供折射底
+class ZenAuroraBackground extends StatelessWidget {
+  final Widget child;
+
+  const ZenAuroraBackground({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final baseTop = isDark ? const Color(0xFF140F13) : const Color(0xFFFDF7FA);
+    final baseBottom = isDark ? const Color(0xFF0B080A) : const Color(0xFFF3F5FA);
+    final blobAlpha = isDark ? 0.22 : 0.32;
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [baseTop, baseBottom],
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: -90,
+          left: -70,
+          child: _AuroraBlob(
+            color: AppColors.pink.withValues(alpha: blobAlpha),
+            size: 260,
+          ),
+        ),
+        Positioned(
+          top: 120,
+          right: -100,
+          child: _AuroraBlob(
+            color: AppColors.auroraBlue.withValues(alpha: blobAlpha * 0.8),
+            size: 280,
+          ),
+        ),
+        Positioned(
+          bottom: -80,
+          left: 30,
+          child: _AuroraBlob(
+            color: AppColors.auroraPurple.withValues(alpha: blobAlpha * 0.7),
+            size: 240,
+          ),
+        ),
+        Positioned.fill(child: child),
+      ],
+    );
+  }
+}
+
+class _AuroraBlob extends StatelessWidget {
+  final Color color;
+  final double size;
+
+  const _AuroraBlob({required this.color, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: ImageFiltered(
+        imageFilter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -120,7 +200,7 @@ class _ZenButtonState extends State<ZenButton> {
       if (_isHovered) bgColor = bgColor.withValues(alpha: bgColor.opacity + 0.05);
     } else {
       bgColor = widget.backgroundColor ?? theme.colorScheme.primary;
-      fgColor = widget.foregroundColor ?? (isDark ? Colors.black : Colors.white);
+      fgColor = widget.foregroundColor ?? Colors.white;
       if (_isHovered) bgColor = bgColor.withValues(alpha: 0.9);
     }
 
@@ -185,15 +265,26 @@ class ZenGlassContainer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final baseColor = backgroundColor ??
+        (isDark ? theme.colorScheme.surface : Colors.white);
+    // 浅色态用较高不透明度形成“磨砂白玻璃”，深色态保持原有低透明度
+    final effectiveOpacity =
+        isDark ? opacity : (opacity <= 0.15 ? 0.62 : opacity);
+    final borderColor = isDark
+        ? theme.dividerColor
+        : Colors.white.withValues(alpha: 0.65);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
         child: Container(
           decoration: BoxDecoration(
-            color: (backgroundColor ?? Theme.of(context).colorScheme.surface).withValues(alpha: opacity),
+            color: baseColor.withValues(alpha: effectiveOpacity),
             borderRadius: BorderRadius.circular(borderRadius),
-            border: Border.all(color: Theme.of(context).dividerColor),
+            border: Border.all(color: borderColor),
           ),
           child: child,
         ),

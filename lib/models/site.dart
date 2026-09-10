@@ -5,7 +5,6 @@ class SiteConfig {
   final String? detail;
   final String from;
   final bool disabled;
-  final String? subscriptionId;
 
   SiteConfig({
     required this.key,
@@ -14,7 +13,6 @@ class SiteConfig {
     this.detail,
     this.from = 'custom',
     this.disabled = false,
-    this.subscriptionId,
   });
 
   Map<String, dynamic> toJson() => {
@@ -24,7 +22,6 @@ class SiteConfig {
     'detail': detail,
     'from': from,
     'disabled': disabled,
-    'subscriptionId': subscriptionId,
   };
 
   factory SiteConfig.fromJson(Map<String, dynamic> json) {
@@ -35,7 +32,6 @@ class SiteConfig {
       detail: json['detail'],
       from: json['from'] ?? 'custom',
       disabled: json['disabled'] ?? false,
-      subscriptionId: json['subscriptionId'],
     );
   }
 }
@@ -81,20 +77,6 @@ class VideoDetail {
 
   @override
   int get hashCode => id.hashCode ^ source.hashCode;
-}
-
-// ... CustomCategory, PlayRecord, Favorite 保持不变 ...
-class CustomCategory {
-  final String? name;
-  final String type; 
-  final String query;
-  final String from;
-  final bool disabled;
-  final String? subscriptionId;
-
-  CustomCategory({this.name, required this.type, required this.query, this.from = 'custom', this.disabled = false, this.subscriptionId});
-  Map<String, dynamic> toJson() => {'name': name, 'type': type, 'query': query, 'from': from, 'disabled': disabled, 'subscriptionId': subscriptionId};
-  factory CustomCategory.fromJson(Map<String, dynamic> json) => CustomCategory(name: json['name'], type: json['type'] ?? 'movie', query: json['query'] ?? '', from: json['from'] ?? 'custom', disabled: json['disabled'] ?? false, subscriptionId: json['subscriptionId']);
 }
 
 class PlayRecord {

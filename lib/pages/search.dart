@@ -4,10 +4,10 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/cms_service.dart';
 import '../services/config_service.dart';
+import '../core/theme.dart';
 import '../models/site.dart';
 import '../models/movie.dart';
 import '../widgets/zen_ui.dart';
-import '../providers/settings_provider.dart';
 import 'video_detail.dart';
 
 class SearchPage extends ConsumerStatefulWidget {
@@ -22,7 +22,6 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   final FocusNode _focusNode = FocusNode();
   
   List<VideoDetail> _results = [];
-  Map<String, List<VideoDetail>> _aggregatedResults = {};
   List<String> _history = [];
   
   bool _isLoading = false;
@@ -38,7 +37,6 @@ class _SearchPageState extends ConsumerState<SearchPage> {
         setState(() {
           _isSearching = false;
           _results = [];
-          _aggregatedResults = {};
           _noSitesConfigured = false;
         });
       }
@@ -100,10 +98,9 @@ class _SearchPageState extends ConsumerState<SearchPage> {
 
     final cmsService = ref.read(cmsServiceProvider);
     final configService = ref.read(configServiceProvider);
-    final sites = await configService.getSites();
-    final activeSites = sites.where((s) => !s.disabled).toList();
+    final site = await configService.getPrimarySite();
 
-    if (activeSites.isEmpty) {
+    if (site.disabled) {
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -113,25 +110,14 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       return;
     }
 
-    await for (final allResults in cmsService.searchAllStream(activeSites, searchText)) {
-      if (!mounted) break;
-      final filteredResults = _filterAndSortResults(allResults, searchText);
-      
-      // 聚合逻辑：按标题、年份和类型（集数）分组
-      final aggregated = <String, List<VideoDetail>>{};
-      for (var result in filteredResults) {
-        final key = '${result.title.replaceAll(' ', '')}-${result.year ?? '未知'}-${result.playGroups.first.urls.length > 1 ? 'tv' : 'movie'}';
-        if (!aggregated.containsKey(key)) aggregated[key] = [];
-        aggregated[key]!.add(result);
-      }
+    final allResults = await cmsService.search(site, searchText);
+    if (!mounted) return;
 
-      setState(() {
-        _results = filteredResults;
-        _aggregatedResults = aggregated;
-        _isLoading = false;
-      });
-    }
-    if (mounted) setState(() => _isLoading = false);
+    final filteredResults = _filterAndSortResults(allResults, searchText);
+    setState(() {
+      _results = filteredResults;
+      _isLoading = false;
+    });
   }
 
   List<VideoDetail> _filterAndSortResults(List<VideoDetail> results, String query) {
@@ -154,9 +140,6 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     final screenWidth = MediaQuery.of(context).size.width;
     final isPC = screenWidth > 800;
     final horizontalPadding = isPC ? 48.0 : 24.0;
-    
-    // 监听设置状态
-    final isAggregate = ref.watch(aggregateSearchProvider);
 
     final availableWidth = screenWidth - (isPC ? 240 : 0) - (horizontalPadding * 2);
     final crossAxisCount = availableWidth > 800 ? 5 : (availableWidth > 600 ? 4 : (availableWidth > 400 ? 3 : 2));
@@ -174,44 +157,18 @@ class _SearchPageState extends ConsumerState<SearchPage> {
               child: _buildSearchBar(theme),
             ),
           ),
-          // 搜索状态栏：显示总数和聚合开关
+          // 搜索状态栏：显示总数
           if (_isSearching && _results.isNotEmpty)
             SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(horizontalPadding, 12, horizontalPadding, 8),
-                child: Row(
-                  children: [
-                    Text(
-                      '共找到 ${_results.length} 个资源',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: theme.colorScheme.secondary.withValues(alpha: 0.8),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const Spacer(),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          '聚合',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.secondary,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Transform.scale(
-                          scale: 0.8,
-                          child: ZenSwitch(
-                            value: isAggregate,
-                            onChanged: (val) => ref.read(aggregateSearchProvider.notifier).setEnabled(val),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                child: Text(
+                  '共找到 ${_results.length} 个资源',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.secondary.withValues(alpha: 0.8),
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
             ),
@@ -227,20 +184,15 @@ class _SearchPageState extends ConsumerState<SearchPage> {
             _buildSkeletonGrid(horizontalPadding, crossAxisCount)
           else if (_isSearching && _results.isEmpty && !_isLoading)
             _buildEmptyState(theme)
-          else ...[
-            if (isAggregate)
-              _buildAggregatedGrid(_aggregatedResults, horizontalPadding, crossAxisCount)
-            else
-              ..._buildGroupedSlivers(_results, horizontalPadding, crossAxisCount),
-          ],
+          else
+            _buildResultsGrid(_results, horizontalPadding, crossAxisCount),
           const SliverToBoxAdapter(child: SizedBox(height: 120)),
         ],
       ),
     );
   }
 
-  Widget _buildAggregatedGrid(Map<String, List<VideoDetail>> aggregated, double padding, int crossAxisCount) {
-    final entries = aggregated.values.toList();
+  Widget _buildResultsGrid(List<VideoDetail> results, double padding, int crossAxisCount) {
     return SliverPadding(
       padding: EdgeInsets.symmetric(horizontal: padding, vertical: 16),
       sliver: SliverGrid(
@@ -251,109 +203,39 @@ class _SearchPageState extends ConsumerState<SearchPage> {
           childAspectRatio: 0.53,
         ),
         delegate: SliverChildBuilderDelegate(
-          (context, index) {
-            final group = entries[index];
-            final representative = group.first;
-            return _buildMovieCard(representative, badge: '${group.length} 源');
-          },
-          childCount: entries.length,
+          (context, index) => _buildMovieCard(results[index]),
+          childCount: results.length,
         ),
       ),
     );
   }
 
-  List<Widget> _buildGroupedSlivers(List<VideoDetail> results, double padding, int crossAxisCount) {
-    final widgets = <Widget>[];
-    
-    // 按来源名称分组
-    final Map<String, List<VideoDetail>> groupedBySource = {};
-    for (var result in results) {
-      final sourceName = result.sourceName;
-      if (!groupedBySource.containsKey(sourceName)) {
-        groupedBySource[sourceName] = [];
-      }
-      groupedBySource[sourceName]!.add(result);
-    }
-
-    // 按来源名称排序
-    final sortedKeys = groupedBySource.keys.toList()..sort();
-    
-    for (var source in sortedKeys) {
-      final items = groupedBySource[source]!;
-      // 来源标题栏
-      widgets.add(
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(padding, 24, padding, 12),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).primaryColor.withValues(alpha: 0.1), 
-                    borderRadius: BorderRadius.circular(6)
-                  ),
-                  child: Text(
-                    source, 
-                    style: TextStyle(
-                      color: Theme.of(context).primaryColor, 
-                      fontSize: 12, 
-                      fontWeight: FontWeight.bold
-                    )
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '${items.length} 个结果', 
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.secondary, 
-                    fontSize: 11
-                  )
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-      
-      // 该来源下的资源网格
-      widgets.add(
-        SliverPadding(
-          padding: EdgeInsets.symmetric(horizontal: padding),
-          sliver: SliverGrid(
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: crossAxisCount,
-              mainAxisSpacing: 16,
-              crossAxisSpacing: 16,
-              childAspectRatio: 0.53,
-            ),
-            delegate: SliverChildBuilderDelegate(
-              (context, index) => _buildMovieCard(items[index]),
-              childCount: items.length,
-            ),
-          ),
-        ),
-      );
-    }
-    return widgets;
-  }
-
   Widget _buildSearchBar(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
     return Container(
       height: 48,
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.dividerColor),
+        color: (isDark ? theme.colorScheme.surface : Colors.white)
+            .withValues(alpha: isDark ? 0.6 : 0.72),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark
+              ? theme.dividerColor
+              : Colors.white.withValues(alpha: 0.7),
+        ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4)),
+          BoxShadow(
+            color: AppColors.pink.withValues(alpha: 0.10),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
         ],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           const SizedBox(width: 14),
-          Icon(LucideIcons.search, size: 18, color: theme.colorScheme.secondary.withValues(alpha: 0.7)),
+          Icon(LucideIcons.search, size: 18, color: AppColors.pink.withValues(alpha: 0.85)),
           const SizedBox(width: 10),
           Expanded(
             child: TextField(
@@ -422,8 +304,8 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: theme.colorScheme.onSurface.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(8),
+        color: AppColors.pink.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

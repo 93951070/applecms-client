@@ -1,42 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:go_router/go_router.dart';
 import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../services/update_service.dart';
 import '../providers/history_provider.dart';
 import '../models/movie.dart';
 import '../models/site.dart';
+import '../core/theme.dart';
 import '../widgets/zen_ui.dart';
+import '../widgets/appad_widgets.dart';
 import '../widgets/cover_image.dart';
 import 'video_detail.dart';
-import 'package:go_router/go_router.dart';
 
-final hotMoviesProvider = FutureProvider<List<DoubanSubject>>((ref) async {
+/// 按分类拉取 CMS 列表（1电影 / 2电视剧 / 3动漫 / 4综艺）
+final cmsCategoryProvider =
+    FutureProvider.family<List<VideoDetail>, int>((ref, typeId) async {
   final config = ref.read(configServiceProvider);
   final cms = ref.read(cmsServiceProvider);
-  final sites = await config.getSites();
-  final list = await cms.getCategoryList(sites, 1, page: 1, pageSize: 12);
-  return list.map(_toSubject).toList();
+  final site = await config.getPrimarySite();
+  if (site.disabled) return [];
+  return cms.getCategoryList(site, typeId, page: 1, pageSize: 18);
 });
 
-final hotTvShowsProvider = FutureProvider<List<DoubanSubject>>((ref) async {
-  final config = ref.read(configServiceProvider);
-  final cms = ref.read(cmsServiceProvider);
-  final sites = await config.getSites();
-  final list = await cms.getCategoryList(sites, 2, page: 1, pageSize: 12);
-  return list.map(_toSubject).toList();
-});
-
-final hotVarietyShowsProvider = FutureProvider<List<DoubanSubject>>((ref) async {
-  final config = ref.read(configServiceProvider);
-  final cms = ref.read(cmsServiceProvider);
-  final sites = await config.getSites();
-  final list = await cms.getCategoryList(sites, 4, page: 1, pageSize: 12);
-  return list.map(_toSubject).toList();
-});
-
-/// 将 CMS 的 VideoDetail 桥接为页面展示用的 DoubanSubject
+/// 将 CMS 的 VideoDetail 桥接为展示用的 DoubanSubject
 DoubanSubject _toSubject(VideoDetail d) {
   return DoubanSubject(
     id: d.id,
@@ -56,16 +43,16 @@ class HomePage extends ConsumerStatefulWidget {
 }
 
 class _HomePageState extends ConsumerState<HomePage> {
-  final Map<String, ScrollController> _scrollControllers = {};
-  final Map<String, bool> _showLeftArrow = {};
-  final Map<String, bool> _showRightArrow = {};
-  
+  static const _tabs = ['电影', '连续剧', '动漫', '综艺'];
+  static const _typeIds = [1, 2, 3, 4];
+
+  int _tab = 0;
+  int _heroPage = 0;
   static bool _hasCheckedUpdate = false;
 
   @override
   void initState() {
     super.initState();
-    // 启动时自动检查更新
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_hasCheckedUpdate) {
         _hasCheckedUpdate = true;
@@ -74,498 +61,353 @@ class _HomePageState extends ConsumerState<HomePage> {
     });
   }
 
-  @override
-  void dispose() {
-    for (var controller in _scrollControllers.values) {
-      controller.dispose();
-    }
-    super.dispose();
-  }
-
-  ScrollController _getScrollController(String key) {
-    if (!_scrollControllers.containsKey(key)) {
-      final controller = ScrollController();
-      controller.addListener(() {
-        setState(() {
-          _showLeftArrow[key] = controller.offset > 0;
-          _showRightArrow[key] = controller.offset < controller.position.maxScrollExtent - 10;
-        });
-      });
-      _scrollControllers[key] = controller;
-      _showLeftArrow[key] = false;
-      _showRightArrow[key] = true;
-    }
-    return _scrollControllers[key]!;
-  }
-
-  void _handleMovieTap(BuildContext context, DoubanSubject movie) {
+  void _openDetail(VideoDetail video) {
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (context) => VideoDetailPage(subject: movie),
+      builder: (context) => VideoDetailPage(subject: _toSubject(video)),
     ));
   }
 
-  Widget _buildSection(BuildContext context, String title, String route, String key, AsyncValue<List<DoubanSubject>> data) {
-    final scrollController = _getScrollController(key);
-    final showLeft = _showLeftArrow[key] ?? false;
-    final showRight = _showRightArrow[key] ?? true;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(title, style: Theme.of(context).textTheme.titleLarge),
-              GestureDetector(
-                onTap: () => context.go(route),
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: Row(
-                    children: [
-                      Text('查看更多', style: TextStyle(color: Theme.of(context).colorScheme.secondary, fontSize: 12)),
-                      Icon(Icons.chevron_right, size: 16, color: Theme.of(context).colorScheme.secondary),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        SizedBox(
-          height: 260, // 增加高度以适应 MovieCard 的内容（图片210px + 间距和文本约40px）
-          child: data.maybeWhen(
-            skipLoadingOnReload: true,
-            skipLoadingOnRefresh: true,
-            data: (movies) => Stack(
-              children: [
-                ListView.builder(
-                  controller: scrollController,
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  itemCount: movies.length,
-                  itemBuilder: (context, index) {
-                    return Container(
-                      width: 140,
-                      margin: EdgeInsets.only(right: index < movies.length - 1 ? 16 : 0),
-                      child: MovieCard(
-                        movie: movies[index],
-                        onTap: () => _handleMovieTap(context, movies[index]),
-                      ),
-                    );
-                  },
-                ),
-                if (showLeft)
-                  Positioned(
-                    left: 8,
-                    top: 0,
-                    bottom: 40,
-                    child: Center(
-                      child: GestureDetector(
-                        onTap: () {
-                          scrollController.animateTo(
-                            scrollController.offset - 400,
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.easeOut,
-                          );
-                        },
-                        child: MouseRegion(
-                          cursor: SystemMouseCursors.click,
-                          child: Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.5),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.chevron_left,
-                              color: Colors.white,
-                              size: 28,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                if (showRight)
-                  Positioned(
-                    right: 8,
-                    top: 0,
-                    bottom: 40,
-                    child: Center(
-                      child: GestureDetector(
-                        onTap: () {
-                          scrollController.animateTo(
-                            scrollController.offset + 400,
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.easeOut,
-                          );
-                        },
-                        child: MouseRegion(
-                          cursor: SystemMouseCursors.click,
-                          child: Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.5),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.chevron_right,
-                              color: Colors.white,
-                              size: 28,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            loading: () => ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              itemCount: 8,
-              itemBuilder: (context, index) {
-                return Container(
-                  width: 140,
-                  margin: EdgeInsets.only(right: index < 7 ? 16 : 0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      AspectRatio(
-                        aspectRatio: 2 / 3,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Container(
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[300],
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-            orElse: () => const SizedBox.shrink(),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildContinueWatching(BuildContext context, List<PlayRecord> history) {
-    if (history.isEmpty) return const SizedBox.shrink();
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('继续观看', style: Theme.of(context).textTheme.titleLarge),
-              GestureDetector(
-                onTap: () {
-                  showDialog(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      title: const Text('清空历史'),
-                      content: const Text('确定要清空所有观看记录吗？'),
-                      actions: [
-                        ZenButton(
-                          isSecondary: true,
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('取消'),
-                        ),
-                        ZenButton(
-                          backgroundColor: Colors.redAccent,
-                          onPressed: () {
-                            ref.read(historyProvider.notifier).clearHistory();
-                            Navigator.pop(context);
-                          },
-                          child: const Text('清空'),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: Text(
-                    '清空',
-                    style: TextStyle(
-                      color: theme.colorScheme.secondary.withValues(alpha: 0.6),
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        SizedBox(
-          height: 110, // 略微压缩高度，更精致
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            physics: const BouncingScrollPhysics(),
-            itemCount: history.length,
-            itemBuilder: (context, index) {
-              return _ContinueWatchingCard(record: history[index]);
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final hotMovies = ref.watch(hotMoviesProvider);
-    final hotTvShows = ref.watch(hotTvShowsProvider);
-    final hotVarietyShows = ref.watch(hotVarietyShowsProvider);
-    final playHistory = ref.watch(historyProvider);
-
-    final theme = Theme.of(context);
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isPC = screenWidth > 800;
+    final typeId = _typeIds[_tab];
+    final current = ref.watch(cmsCategoryProvider(typeId));
+    final anime = ref.watch(cmsCategoryProvider(3));
+    final history = ref.watch(historyProvider);
 
     return ZenScaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            backgroundColor: Colors.transparent,
-            floating: true,
-            toolbarHeight: isPC ? 20 : 56, // PC端大幅压缩标题栏高度
-            title: isPC ? null : Text(
-              'ECHOTV',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontSize: 14,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 1.2,
-              ),
-            ),
-            actions: [
-              if (!isPC) ...[
-                IconButton(
-                  onPressed: () => context.push('/search'),
-                  icon: const Icon(LucideIcons.search, size: 20),
-                ),
-                IconButton(
-                  onPressed: () => context.push('/settings'),
-                  icon: const Icon(LucideIcons.settings, size: 20),
-                ),
-                const SizedBox(width: 8),
-              ],
-            ],
-          ),
-
-          SliverToBoxAdapter(
-            child: Column(
-              children: [
-                if (!isPC) const SizedBox(height: 8) else const SizedBox(height: 24),
-                playHistory.maybeWhen(
-                  data: (history) => _buildContinueWatching(context, history),
-                  orElse: () => const SizedBox.shrink(),
-                ),
-                if (playHistory.value?.isNotEmpty ?? false) const SizedBox(height: 24),
-                _buildSection(context, '热门电影', '/movies', 'movies', hotMovies),
-                const SizedBox(height: 24),
-                _buildSection(context, '热门剧集', '/series', 'series', hotTvShows),
-                const SizedBox(height: 24),
-                _buildSection(context, '热门综艺', '/variety', 'variety', hotVarietyShows),
-                const SizedBox(height: 32), // 底部留白大幅减少
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ContinueWatchingCard extends ConsumerStatefulWidget {
-  final PlayRecord record;
-  const _ContinueWatchingCard({required this.record});
-
-  @override
-  ConsumerState<_ContinueWatchingCard> createState() => _ContinueWatchingCardState();
-}
-
-class _ContinueWatchingCardState extends ConsumerState<_ContinueWatchingCard> {
-  bool _isHovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final record = widget.record;
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final progress = record.totalTime > 0 ? record.playTime / record.totalTime : 0.0;
-
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      cursor: SystemMouseCursors.click,
-      child: Container(
-        width: 260,
-        margin: const EdgeInsets.only(right: 16),
-        child: Stack(
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            GestureDetector(
-              onTap: () {
-                final subject = DoubanSubject(
-                  id: record.doubanId ?? '',
-                  title: record.searchTitle,
-                  rate: '0.0',
-                  cover: record.cover,
-                  year: record.year,
-                );
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (context) => VideoDetailPage(subject: subject),
-                ));
-              },
-              child: ZenGlassContainer(
-                borderRadius: 18,
-                blur: 30,
-                child: Stack(
+            _buildTopBar(),
+            AppTabStrip(
+              tabs: _tabs,
+              current: _tab,
+              onChanged: (i) => setState(() {
+                _tab = i;
+                _heroPage = 0;
+              }),
+            ),
+            Expanded(
+              child: RefreshIndicator(
+                color: AppColors.pink,
+                onRefresh: () async {
+                  ref.invalidate(cmsCategoryProvider(typeId));
+                  ref.invalidate(cmsCategoryProvider(3));
+                },
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(
+                    parent: BouncingScrollPhysics(),
+                  ),
+                  padding: const EdgeInsets.only(bottom: 120),
                   children: [
-                    // 背景微弱氛围
-                    Positioned(
-                      right: -20,
-                      top: -20,
-                      bottom: -20,
-                      width: 140,
-                      child: Opacity(
-                        opacity: 0.1,
-                        child: CoverImage(
-                          imageUrl: record.cover,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
+                    history.maybeWhen(
+                      data: (list) => _buildContinue(list),
+                      orElse: () => const SizedBox.shrink(),
                     ),
-                    Row(
-                      children: [
-                        // 左侧封面
-                        SizedBox(
-                          width: 74,
-                          height: 110,
-                          child: CoverImage(
-                            imageUrl: record.cover,
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                        // 右侧信息
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.all(14.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  record.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '观看至第 ${record.index + 1} 集',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: theme.colorScheme.secondary.withValues(alpha: 0.8),
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                // 胶囊式进度条容器
-                                Container(
-                                  height: 4,
-                                  width: double.infinity,
-                                  decoration: BoxDecoration(
-                                    color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05),
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                  child: FractionallySizedBox(
-                                    alignment: Alignment.centerLeft,
-                                    widthFactor: progress.clamp(0.01, 1.0),
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: theme.colorScheme.primary,
-                                        borderRadius: BorderRadius.circular(2),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                                            blurRadius: 4,
-                                          )
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  '${(progress * 100).toInt()}% 已观看',
-                                  style: TextStyle(
-                                    fontSize: 9,
-                                    color: theme.colorScheme.primary.withValues(alpha: 0.7),
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
+                    current.maybeWhen(
+                      data: (list) => _buildHero(list),
+                      orElse: () => const SizedBox.shrink(),
+                    ),
+                    current.maybeWhen(
+                      data: (list) => _buildSection(
+                        title: '热门${_tabs[_tab]}',
+                        icon: Icons.local_fire_department,
+                        videos: list,
+                      ),
+                      orElse: () => _buildSectionSkeleton(),
+                    ),
+                    anime.maybeWhen(
+                      data: (list) => _buildSection(
+                        title: '次元世界',
+                        icon: Icons.auto_awesome,
+                        videos: list,
+                      ),
+                      orElse: () => const SizedBox.shrink(),
                     ),
                   ],
                 ),
               ),
             ),
-            // 删除按钮
-            if (_isHovered)
-              Positioned(
-                top: 4,
-                right: 4,
-                child: GestureDetector(
-                  onTap: () {
-                    ref.read(historyProvider.notifier).removeRecord(record.searchTitle);
-                  },
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.2),
-                        shape: BoxShape.circle,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () => context.go('/profile'),
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFFA8C0FF), Color(0xFFFF9AE0)],
+                ),
+              ),
+              child: const Icon(Icons.pets, size: 17, color: Colors.white),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: GestureDetector(
+              onTap: () => context.push('/search'),
+              child: Container(
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Row(
+                  children: [
+                    const SizedBox(width: 14),
+                    Icon(Icons.search,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.secondary),
+                    const SizedBox(width: 8),
+                    Text(
+                      '搜索影视资源',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(context).colorScheme.secondary,
                       ),
-                      child: const Icon(
-                        Icons.close,
-                        size: 14,
-                        color: Colors.white,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          GestureDetector(
+            onTap: () => context.push('/search'),
+            child: Icon(Icons.history,
+                size: 21,
+                color: Theme.of(context).colorScheme.onSurface),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContinue(List<PlayRecord> history) {
+    if (history.isEmpty) return const SizedBox.shrink();
+    final record = history.first;
+    return ContinueBar(
+      text: '继续观看：${record.title} 第 ${record.index + 1} 集',
+      onTap: () {
+        final subject = DoubanSubject(
+          id: record.doubanId ?? '',
+          title: record.searchTitle,
+          rate: '0.0',
+          cover: record.cover,
+          year: record.year,
+        );
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (context) => VideoDetailPage(subject: subject),
+        ));
+      },
+    );
+  }
+
+  Widget _buildHero(List<VideoDetail> list) {
+    if (list.isEmpty) return const SizedBox.shrink();
+    final items = list.take(5).toList();
+    final page = _heroPage.clamp(0, items.length - 1).toInt();
+    final item = items[page];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: GestureDetector(
+        onTap: () => _openDetail(item),
+        child: Container(
+          height: 180,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.15),
+                blurRadius: 20,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (item.poster.isNotEmpty)
+                  CoverImage(imageUrl: item.poster, aspectRatio: 1.9)
+                else
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+                      ),
+                    ),
+                  ),
+                const Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        stops: [0.35, 1.0],
+                        colors: [Colors.transparent, Color(0xCC000000)],
                       ),
                     ),
                   ),
                 ),
-              ),
-          ],
+                Positioned(
+                  left: 16,
+                  right: 16,
+                  bottom: 26,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                          shadows: [Shadow(blurRadius: 10, color: Colors.black54)],
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        [
+                          if (item.typeName != null) item.typeName!,
+                          if (item.year != null && item.year!.isNotEmpty)
+                            item.year!,
+                        ].join(' · '),
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.85),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  bottom: 10,
+                  left: 0,
+                  right: 0,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(items.length, (i) {
+                      final active = i == page;
+                      return GestureDetector(
+                        onTap: () => setState(() => _heroPage = i),
+                        child: Container(
+                          width: active ? 14 : 5,
+                          height: 5,
+                          margin: const EdgeInsets.symmetric(horizontal: 2.5),
+                          decoration: BoxDecoration(
+                            color: active ? Colors.white : Colors.white54,
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSection({
+    required String title,
+    required IconData icon,
+    required List<VideoDetail> videos,
+  }) {
+    if (videos.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionHead(
+          icon: Icon(icon, size: 18, color: AppColors.pink),
+          title: title,
+          moreText: '更多',
+          onMore: () => context.push('/search'),
+        ),
+        HScroll(
+          child: Row(
+            children: [
+              for (var i = 0; i < videos.length; i++) ...[
+                VideoCard(
+                  title: videos[i].title,
+                  imageUrl: videos[i].poster,
+                  year: videos[i].year,
+                  episode: videos[i].typeName,
+                  onTap: () => _openDetail(videos[i]),
+                ),
+                if (i != videos.length - 1) const SizedBox(width: 10),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSectionSkeleton() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 20),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Container(
+            width: 120,
+            height: 18,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        HScroll(
+          child: Row(
+            children: List.generate(
+              4,
+              (i) => Container(
+                width: 104,
+                height: 156,
+                margin: const EdgeInsets.only(right: 10),
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

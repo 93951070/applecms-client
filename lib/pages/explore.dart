@@ -117,8 +117,8 @@ class _ExplorePageState extends ConsumerState<ExplorePage> {
     }
     final config = ref.read(configServiceProvider);
     final cms = ref.read(cmsServiceProvider);
-    final sites = await config.getSites();
-    final list = await cms.getCategoryList(sites, typeId, page: page + 1, pageSize: 24);
+    final site = await config.getPrimarySite();
+    final list = await cms.getCategoryList(site, typeId, page: page + 1, pageSize: 24);
     return list.map(_toSubject).toList();
   }
 

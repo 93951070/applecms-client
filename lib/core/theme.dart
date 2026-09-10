@@ -2,31 +2,141 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+/// 融合设计规范：Appad 粉调 + Zen 玻璃
+class AppColors {
+  AppColors._();
+
+  /// 主色：粉色（Tab 高亮、按钮、继续观看条）
+  static const Color pink = Color(0xFFFF4D8D);
+  static const Color pinkDeep = Color(0xFFE83A75);
+  static const Color pinkLight = Color(0xFFFFE9F1);
+
+  /// 语义色
+  static const Color scoreGreen = Color(0xFF26C281);
+  static const Color yearRed = Color(0xFFFF4D4F);
+  static const Color vipGold = Color(0xFFFFB84D);
+  static const Color vipGoldDeep = Color(0xFFFF7A00);
+
+  /// 点缀蓝（极光背景）
+  static const Color auroraBlue = Color(0xFF6AA6FF);
+  static const Color auroraPurple = Color(0xFFB388FF);
+
+  // 浅色文字层级
+  static const Color lightText = Color(0xFF1A1A1A);
+  static const Color lightText2 = Color(0xFF8A8A8E);
+  static const Color lightText3 = Color(0xFFB8B8BC);
+
+  // 深色文字层级
+  static const Color darkText = Color(0xFFF5F5F7);
+  static const Color darkText2 = Color(0xFFAEAEB2);
+  static const Color darkText3 = Color(0xFF6E6E73);
+}
+
 class ZenTheme {
-  // --- 色彩系统 (iOS 17+ Style) ---
+  // --- 玻璃与背景参数 ---
+  static const double glassBlur = 20;
 
-  // Light Theme Colors
-  static const Color lightBackground = Color(0xFFF2F2F7); // 系统浅灰背景
-  static const Color lightSurface = Color(0xFFFFFFFF);    // 纯白容器
-  static const Color lightSurfaceElevated = Color(0xFFFFFFFF); 
-  static const Color lightTextPrimary = Color(0xFF000000);   // 纯黑文字
-  static const Color lightTextSecondary = Color(0xFF636366); // 深灰次要文字
-  static const Color lightTextTertiary = Color(0xFF8E8E93);  // 浅灰三级文字
-  static const Color lightAccent = Color(0xFF000000);        // 亮色主题下主色调使用黑色，体现 Zen 风格
+  static ThemeData lightTheme() {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      scaffoldBackgroundColor: const Color(0xFFF7F4F6),
+      primaryColor: AppColors.pink,
+      cardColor: Colors.white,
+      dividerColor: const Color(0x1A000000),
+      colorScheme: const ColorScheme.light(
+        primary: AppColors.pink,
+        onPrimary: Colors.white,
+        secondary: AppColors.lightText2,
+        surface: Colors.white,
+        onSurface: AppColors.lightText,
+        surfaceContainerHighest: Colors.white,
+        outline: Color(0xFFE5E5EA),
+      ),
+      textTheme: _buildTextTheme(AppColors.lightText, AppColors.lightText2),
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+        },
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: false,
+        iconTheme: IconThemeData(color: AppColors.lightText),
+        titleTextStyle: TextStyle(
+          color: AppColors.lightText,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return Colors.white;
+          return null;
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return AppColors.pink;
+          return null;
+        }),
+      ),
+    );
+  }
 
-  // Dark Theme Colors
-  static const Color darkBackground = Color(0xFF000000);     // 纯黑背景 (OLED Optimized)
-  static const Color darkSurface = Color(0xFF1C1C1E);        // 深灰容器
-  static const Color darkSurfaceElevated = Color(0xFF2C2C2E); 
-  static const Color darkTextPrimary = Color(0xFFFFFFFF);    // 纯白文字
-  static const Color darkTextSecondary = Color(0xFFAEAEB2);  // 浅灰次要文字
-  static const Color darkTextTertiary = Color(0xFF636366);   // 深灰三级文字
-  static const Color darkAccent = Color(0xFFFFFFFF);         // 暗色主题下主色调使用白色
-
-  static const Color accentBlue = Color(0xFF0A84FF);         // iOS 标准蓝色，用于链接或特定点缀
+  static ThemeData darkTheme() {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      scaffoldBackgroundColor: const Color(0xFF0E0A0D),
+      primaryColor: AppColors.pink,
+      cardColor: const Color(0xFF1C171B),
+      dividerColor: const Color(0x1AFFFFFF),
+      colorScheme: const ColorScheme.dark(
+        primary: AppColors.pink,
+        onPrimary: Colors.white,
+        secondary: AppColors.darkText2,
+        surface: Color(0xFF1C171B),
+        onSurface: AppColors.darkText,
+        surfaceContainerHighest: Color(0xFF2C262B),
+        outline: Color(0xFF38383A),
+      ),
+      textTheme: _buildTextTheme(AppColors.darkText, AppColors.darkText2),
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+        },
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: false,
+        iconTheme: IconThemeData(color: AppColors.darkText),
+        titleTextStyle: TextStyle(
+          color: AppColors.darkText,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return Colors.white;
+          return null;
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return AppColors.pink;
+          return null;
+        }),
+      ),
+    );
+  }
 
   // --- 字体设置 ---
-
   static TextTheme _buildTextTheme(Color primaryColor, Color secondaryColor) {
     final baseTheme = GoogleFonts.interTextTheme();
     return baseTheme.copyWith(
@@ -65,106 +175,6 @@ class ZenTheme {
         fontWeight: FontWeight.w600,
         letterSpacing: 0.5,
         fontSize: 12,
-      ),
-    );
-  }
-
-  static ThemeData lightTheme() {
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.light,
-      scaffoldBackgroundColor: lightBackground,
-      primaryColor: lightAccent,
-      cardColor: lightSurface,
-      dividerColor: lightTextTertiary.withValues(alpha: 0.1),
-      colorScheme: const ColorScheme.light(
-        primary: lightAccent,
-        onPrimary: Colors.white,
-        secondary: lightTextSecondary,
-        surface: lightSurface,
-        onSurface: lightTextPrimary,
-        surfaceContainerHighest: lightSurfaceElevated,
-        outline: Color(0xFFD1D1D6),
-      ),
-      textTheme: _buildTextTheme(lightTextPrimary, lightTextSecondary),
-      pageTransitionsTheme: const PageTransitionsTheme(
-        builders: {
-          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
-          TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
-        },
-      ),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        centerTitle: false,
-        iconTheme: IconThemeData(color: lightTextPrimary),
-        titleTextStyle: TextStyle(
-          color: lightTextPrimary,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      switchTheme: SwitchThemeData(
-        thumbColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) return Colors.white;
-          return null;
-        }),
-        trackColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) return lightAccent;
-          return null;
-        }),
-      ),
-    );
-  }
-
-  static ThemeData darkTheme() {
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.dark,
-      scaffoldBackgroundColor: darkBackground,
-      primaryColor: darkAccent,
-      cardColor: darkSurface,
-      dividerColor: darkTextTertiary.withValues(alpha: 0.1),
-      colorScheme: const ColorScheme.dark(
-        primary: darkAccent,
-        onPrimary: Colors.black,
-        secondary: darkTextSecondary,
-        surface: darkSurface,
-        onSurface: darkTextPrimary,
-        surfaceContainerHighest: darkSurfaceElevated,
-        outline: Color(0xFF38383A),
-      ),
-      textTheme: _buildTextTheme(darkTextPrimary, darkTextSecondary),
-      pageTransitionsTheme: const PageTransitionsTheme(
-        builders: {
-          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
-          TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
-        },
-      ),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        centerTitle: false,
-        iconTheme: IconThemeData(color: darkTextPrimary),
-        titleTextStyle: TextStyle(
-          color: darkTextPrimary,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      switchTheme: SwitchThemeData(
-        thumbColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) return Colors.white;
-          return null;
-        }),
-        trackColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) return accentBlue; // 深色模式下开启状态使用亮蓝色轨道，非常醒目
-          return null;
-        }),
       ),
     );
   }

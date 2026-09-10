@@ -33,61 +33,6 @@ class ThemeModel extends Notifier<ThemeMode> {
   }
 }
 
-final teenageModeProvider = NotifierProvider<TeenageModeModel, bool>(TeenageModeModel.new);
-
-class TeenageModeModel extends Notifier<bool> {
-  @override
-  bool build() {
-    _load();
-    return false;
-  }
-
-  Future<void> _load() async {
-    final configService = ref.read(configServiceProvider);
-    state = await configService.getTeenageMode();
-  }
-
-  Future<void> setEnabled(bool enabled) async {
-    state = enabled;
-    final configService = ref.read(configServiceProvider);
-    await configService.setTeenageMode(enabled);
-  }
-}
-
-final aggregateSearchProvider = NotifierProvider<AggregateSearchModel, bool>(AggregateSearchModel.new);
-
-class AggregateSearchModel extends Notifier<bool> {
-  @override
-  bool build() {
-    return true; // 默认开启聚合
-  }
-
-  void setEnabled(bool enabled) {
-    state = enabled;
-  }
-}
-
-final filteredKeywordsProvider = NotifierProvider<FilteredKeywordsModel, List<String>>(FilteredKeywordsModel.new);
-
-class FilteredKeywordsModel extends Notifier<List<String>> {
-  @override
-  List<String> build() {
-    _load();
-    return ConfigService.defaultKeywords;
-  }
-
-  Future<void> _load() async {
-    final configService = ref.read(configServiceProvider);
-    state = await configService.getFilteredKeywords();
-  }
-
-  Future<void> setKeywords(List<String> keywords) async {
-    state = keywords;
-    final configService = ref.read(configServiceProvider);
-    await configService.saveFilteredKeywords(keywords);
-  }
-}
-
 final playerVolumeProvider = NotifierProvider<PlayerVolumeModel, double>(PlayerVolumeModel.new);
 
 class PlayerVolumeModel extends Notifier<double> {

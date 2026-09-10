@@ -118,10 +118,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
     // 已彻底二开对接 CMS，不再通过豆瓣补全详情
 
-    final sites = await configService.getSites();
-    final activeSites = sites.where((s) => !s.disabled).toList();
+    final site = await configService.getPrimarySite();
 
-    if (activeSites.isEmpty) {
+    if (site.disabled) {
       if (mounted) {
         setState(() {
           _isSearching = false;
@@ -137,38 +136,37 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     });
 
     final Set<String> processedKeys = {};
-    
-    await for (final results in cmsService.searchAllStream(activeSites, widget.subject.title)) {
-      if (!mounted) break;
 
-      final List<VideoDetail> newlyFound = [];
-      
-      for (var res in results) {
-        final sTitle = res.title.replaceAll(' ', '').toLowerCase();
-        final tTitle = widget.subject.title.replaceAll(' ', '').toLowerCase();
-        if (sTitle.contains(tTitle) || tTitle.contains(sTitle)) {
-          final key = '${res.source}-${res.id}';
-          if (!processedKeys.contains(key)) {
-            processedKeys.add(key);
-            newlyFound.add(res);
-          }
+    final results = await cmsService.search(site, widget.subject.title);
+    if (!mounted) return;
+
+    final List<VideoDetail> newlyFound = [];
+
+    for (var res in results) {
+      final sTitle = res.title.replaceAll(' ', '').toLowerCase();
+      final tTitle = widget.subject.title.replaceAll(' ', '').toLowerCase();
+      if (sTitle.contains(tTitle) || tTitle.contains(sTitle)) {
+        final key = '${res.source}-${res.id}';
+        if (!processedKeys.contains(key)) {
+          processedKeys.add(key);
+          newlyFound.add(res);
         }
       }
+    }
 
-      if (mounted && newlyFound.isNotEmpty) {
-        setState(() {
-          _availableSources.addAll(newlyFound);
-          _noSitesConfigured = false;
-        });
+    if (mounted && newlyFound.isNotEmpty) {
+      setState(() {
+        _availableSources.addAll(newlyFound);
+        _noSitesConfigured = false;
+      });
 
-        if (!_hasTriggeredInitialInit) {
-          _hasTriggeredInitialInit = true;
-          _startDynamicInitialization();
-        }
+      if (!_hasTriggeredInitialInit) {
+        _hasTriggeredInitialInit = true;
+        _startDynamicInitialization();
+      }
 
-        if (!_isOptimizing) {
-          _optimizeBestSource(newlyFound);
-        }
+      if (!_isOptimizing) {
+        _optimizeBestSource(newlyFound);
       }
     }
 
@@ -306,9 +304,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     try {
       final cmsService = ref.read(cmsServiceProvider);
       final configService = ref.read(configServiceProvider);
-      final activeSites = await configService.getSites();
-      final site = activeSites.firstWhere((s) => s.key == partial.source);
-      
+      final site = await configService.getPrimarySite();
+
       final fullDetail = await cmsService.getDetail(site, partial.id);
       if (fullDetail != null && mounted && _currentSource?.id == partial.id) {
         setState(() {
@@ -787,7 +784,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
                             style: TextStyle(
                               fontSize: 12, 
                               fontWeight: FontWeight.bold, 
-                              color: isCurrent ? (theme.brightness == Brightness.dark ? Colors.black : Colors.white) : theme.colorScheme.onSurface
+                              color: isCurrent ? Colors.white : theme.colorScheme.onSurface
                             ),
                           ),
                         ),

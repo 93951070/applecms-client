@@ -1,19 +1,13 @@
-import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/config_service.dart';
-import '../services/subscription_service.dart';
 import '../services/update_service.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/edit_dialog.dart';
 import 'source_manage.dart';
-import 'category_manage.dart';
-import 'subscription_manage.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -23,36 +17,17 @@ class SettingsPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
-  String _doubanProxy = 'tencent-cmlius';
-  String _doubanImageProxy = 'cmliussss-cdn-tencent';
-  bool _isTeenageMode = false;
   String _version = 'v1.0.0';
 
   @override
   void initState() {
     super.initState();
-    _loadSettings();
     _loadVersion();
   }
 
   void _loadVersion() async {
     final info = await PackageInfo.fromPlatform();
     if (mounted) setState(() => _version = 'v${info.version}');
-  }
-
-  void _loadSettings() async {
-    final service = ref.read(configServiceProvider);
-    final doubanProxy = await service.getDoubanProxyType();
-    final doubanImageProxy = await service.getDoubanImageProxyType();
-    final teenageMode = await service.getTeenageMode();
-
-    if (mounted) {
-      setState(() {
-        _doubanProxy = doubanProxy;
-        _doubanImageProxy = doubanImageProxy;
-        _isTeenageMode = teenageMode;
-      });
-    }
   }
 
   void _pushPage(Widget page) {
@@ -73,7 +48,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         slivers: [
           const ZenSliverAppBar(
             title: '设置',
-            subtitle: '偏好设置与系统同步',
+            subtitle: '偏好设置',
           ),
 
           // 2. 设置主体内容
@@ -89,23 +64,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     value: _getThemeModeLabel(ref.watch(themeModelProvider)),
                     onTap: () => _showThemePicker(),
                   ),
-                  _buildSelectionItem(
-                    icon: LucideIcons.globe,
-                    title: '豆瓣 API 代理',
-                    value: _getProxyLabel(_doubanProxy),
-                    onTap: () => _showProxyPicker(),
-                  ),
-                  _buildSelectionItem(
-                    icon: LucideIcons.image,
-                    title: '豆瓣图片代理',
-                    value: _getImageProxyLabel(_doubanImageProxy),
-                    onTap: () => _showImageProxyPicker(),
-                  ),
-                  _buildNavigationItem(
-                    icon: LucideIcons.userCheck,
-                    title: '青少年模式',
-                    onTap: () => _pushPage(const TeenageModeSettingsPage()),
-                  ),
                   _buildNavigationItem(
                     icon: LucideIcons.shieldCheck,
                     title: '广告拦截',
@@ -119,34 +77,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   _buildNavigationItem(
                     icon: LucideIcons.database,
                     title: '视频源管理',
+                    showDivider: false,
                     onTap: () => _pushPage(const SourceManagePage()),
-                  ),
-                  _buildNavigationItem(
-                    icon: LucideIcons.layers,
-                    title: '分类映射管理',
-                    showDivider: false,
-                    onTap: () => _pushPage(const CategoryManagePage()),
-                  ),
-                ]),
-
-
-                _buildSectionTitle('配置同步'),
-                _buildSettingGroup([
-                  _buildNavigationItem(
-                    icon: LucideIcons.refreshCw,
-                    title: '订阅管理',
-                    onTap: () => _pushPage(const SubscriptionManagePage()),
-                  ),
-                  _buildActionItem(
-                    icon: LucideIcons.fileJson,
-                    title: '从 JSON 导入',
-                    onTap: _showJsonImport,
-                  ),
-                  _buildActionItem(
-                    icon: LucideIcons.share,
-                    title: '导出完整配置',
-                    showDivider: false,
-                    onTap: _exportConfig,
                   ),
                 ]),
 
@@ -332,19 +264,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }
   }
 
-  String _getProxyLabel(String val) {
-    if (val == 'tencent-cmlius') return '腾讯云镜像';
-    if (val == 'aliyun-cmlius') return '阿里云镜像';
-    return '直连';
-  }
-
-  String _getImageProxyLabel(String val) {
-    if (val == 'cmliussss-cdn-tencent') return '腾讯云 CDN';
-    if (val == 'cmliussss-cdn-ali') return '阿里云 CDN';
-    if (val == 'img3') return '豆瓣官方';
-    return '直连';
-  }
-
   void _showThemePicker() {
     _showSimplePicker('选择主题模式', {
       ThemeMode.system: '跟随系统',
@@ -353,89 +272,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }, ref.read(themeModelProvider), (mode) {
       ref.read(themeModelProvider.notifier).setThemeMode(mode as ThemeMode);
     });
-  }
-
-  void _showProxyPicker() {
-    _showSimplePicker('选择豆瓣 API 代理', {
-      'tencent-cmlius': '腾讯云镜像',
-      'aliyun-cmlius': '阿里云镜像',
-      'none': '直连',
-    }, _doubanProxy, (val) async {
-      await ref.read(configServiceProvider).setDoubanProxyType(val as String);
-      _loadSettings();
-    });
-  }
-
-  void _showImageProxyPicker() {
-    _showSimplePicker('选择图片代理', {
-      'cmliussss-cdn-tencent': '腾讯云 CDN',
-      'cmliussss-cdn-ali': '阿里云 CDN',
-      'img3': '豆瓣官方',
-      'direct': '直连',
-    }, _doubanImageProxy, (val) async {
-      await ref.read(configServiceProvider).setDoubanImageProxyType(val as String);
-      _loadSettings();
-    });
-  }
-
-  void _showKeywordsEditor() {
-    final keywords = ref.read(filteredKeywordsProvider);
-    final controller = TextEditingController(text: keywords.join(', '));
-
-    showDialog(
-      context: context,
-      builder: (context) => EditDialog(
-        title: const Text('过滤关键字管理', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: controller,
-              maxLines: 5,
-              decoration: InputDecoration(
-                hintText: '输入关键字，用逗号分隔...',
-                filled: true,
-                fillColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.05),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '提示：关键字之间使用中文或英文逗号分隔。开启青少年模式后，包含这些词的资源将被过滤。',
-              style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.secondary),
-            ),
-          ],
-        ),
-        actions: [
-          ZenButton(
-            isSecondary: true,
-            onPressed: () {
-              ref.read(filteredKeywordsProvider.notifier).setKeywords(ConfigService.defaultKeywords);
-              Navigator.pop(context);
-            },
-            child: const Text('恢复默认'),
-          ),
-          ZenButton(
-            isSecondary: true,
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          ZenButton(
-            onPressed: () {
-              final newKeywords = controller.text
-                  .split(RegExp(r'[,，]'))
-                  .map((e) => e.trim())
-                  .where((e) => e.isNotEmpty)
-                  .toList();
-              ref.read(filteredKeywordsProvider.notifier).setKeywords(newKeywords);
-              Navigator.pop(context);
-            },
-            child: const Text('保存'),
-          ),
-        ],
-      ),
-    );
   }
 
   void _showAdBlockMenu() {
@@ -701,55 +537,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   // --- 逻辑操作 (保持原有) ---
 
-  void _showJsonImport() {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => EditDialog(
-        title: const Text('导入 JSON 配置', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: TextField(
-          controller: controller,
-          maxLines: 8,
-          style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-          decoration: InputDecoration(
-            hintText: '粘贴符合格式的 JSON...',
-            filled: true,
-            fillColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.05),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-          ),
-        ),
-        actions: [
-          ZenButton(
-            isSecondary: true,
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          ZenButton(
-            onPressed: () async {
-              try {
-                final json = jsonDecode(controller.text);
-                await SubscriptionService(ref.read(configServiceProvider)).importFromJson(json);
-                _loadSettings();
-                if (mounted) Navigator.pop(context);
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('解析失败: $e'), backgroundColor: Colors.redAccent, behavior: SnackBarBehavior.floating));
-              }
-            },
-            child: const Text('导入'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _exportConfig() async {
-    final config = await ref.read(configServiceProvider).exportAll();
-    await Clipboard.setData(ClipboardData(text: config));
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('配置已复制到剪贴板'), behavior: SnackBarBehavior.floating));
-    }
-  }
-
   void _showDisclaimer() {
     showDialog(
       context: context,
@@ -805,240 +592,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               exit(0); // 清除后退出，确保下次启动重新加载
             },
             child: const Text('确认清除并退出'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class TeenageModeSettingsPage extends ConsumerWidget {
-  const TeenageModeSettingsPage({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isPC = screenWidth > 800;
-    final horizontalPadding = isPC ? 48.0 : 24.0;
-    final theme = Theme.of(context);
-    final isTeenageMode = ref.watch(teenageModeProvider);
-
-    return ZenScaffold(
-      body: CustomScrollView(
-        slivers: [
-          const ZenSliverAppBar(
-            title: '青少年模式',
-            subtitle: '为未成年人提供健康的观影环境',
-          ),
-          SliverPadding(
-            padding: EdgeInsets.fromLTRB(horizontalPadding, 16, horizontalPadding, 32),
-            sliver: SliverList(
-              delegate: SliverChildListDelegate([
-                _buildSettingGroup(context, [
-                  _buildSwitchItem(
-                    context,
-                    icon: LucideIcons.userCheck,
-                    title: '开启青少年模式',
-                    value: isTeenageMode,
-                    onChanged: (val) => ref.read(teenageModeProvider.notifier).setEnabled(val),
-                  ),
-                  _buildNavigationItem(
-                    context,
-                    icon: LucideIcons.filter,
-                    title: '内容过滤关键字',
-                    showDivider: false,
-                    onTap: () => _showKeywordsEditor(context, ref),
-                  ),
-                ]),
-                const SizedBox(height: 24),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '模式说明：',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.onSurface,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '1. 开启后，系统将根据设置的关键字自动过滤搜索结果和分类列表。\n'
-                        '2. 建议家长根据实际情况调整过滤关键字。\n'
-                        '3. 本功能通过本地算法实现，无法保证 100% 过滤，请配合监护使用。',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: theme.colorScheme.secondary.withValues(alpha: 0.6),
-                          height: 1.6,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ]),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSettingGroup(BuildContext context, List<Widget> children) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(children: children),
-    );
-  }
-
-  Widget _buildNavigationItem(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required VoidCallback onTap,
-    bool showDivider = true,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        splashColor: Colors.transparent,
-        highlightColor: Colors.transparent,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              child: Row(
-                children: [
-                  Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7)),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-                    ),
-                  ),
-                  Icon(LucideIcons.chevronRight, size: 16, color: Theme.of(context).colorScheme.secondary.withValues(alpha: 0.5)),
-                ],
-              ),
-            ),
-            if (showDivider)
-              Divider(
-                height: 1,
-                indent: 52,
-                endIndent: 0,
-                color: Theme.of(context).dividerColor,
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSwitchItem(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required bool value,
-    required Function(bool) onChanged,
-    bool showDivider = true,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(
-              children: [
-                Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7)),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-                  ),
-                ),
-                ZenSwitch(
-                  value: value,
-                  onChanged: onChanged,
-                ),
-              ],
-            ),
-          ),
-          if (showDivider)
-            Divider(
-              height: 1,
-              indent: 52,
-              endIndent: 0,
-              color: Theme.of(context).dividerColor,
-            ),
-        ],
-      ),
-    );
-  }
-
-  void _showKeywordsEditor(BuildContext context, WidgetRef ref) {
-    final keywords = ref.read(filteredKeywordsProvider);
-    final controller = TextEditingController(text: keywords.join(', '));
-
-    showDialog(
-      context: context,
-      builder: (context) => EditDialog(
-        title: const Text('过滤关键字管理', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: controller,
-              maxLines: 5,
-              decoration: InputDecoration(
-                hintText: '输入关键字，用逗号分隔...',
-                filled: true,
-                fillColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.05),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '提示：关键字之间使用中文或英文逗号分隔。开启青少年模式后，包含这些词的资源将被过滤。',
-              style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.secondary),
-            ),
-          ],
-        ),
-        actions: [
-          ZenButton(
-            isSecondary: true,
-            onPressed: () {
-              ref.read(filteredKeywordsProvider.notifier).setKeywords(ConfigService.defaultKeywords);
-              Navigator.pop(context);
-            },
-            child: const Text('恢复默认'),
-          ),
-          ZenButton(
-            isSecondary: true,
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          ZenButton(
-            onPressed: () {
-              final newKeywords = controller.text
-                  .split(RegExp(r'[,，]'))
-                  .map((e) => e.trim())
-                  .where((e) => e.isNotEmpty)
-                  .toList();
-              ref.read(filteredKeywordsProvider.notifier).setKeywords(newKeywords);
-              Navigator.pop(context);
-            },
-            child: const Text('保存'),
           ),
         ],
       ),

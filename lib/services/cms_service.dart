@@ -1,9 +1,7 @@
-import 'dart:async';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/site.dart';
-import '../providers/settings_provider.dart';
 
 final cmsServiceProvider = Provider((ref) => CmsService(ref));
 
@@ -69,23 +67,12 @@ class CmsService {
       }
 
       final List<VideoDetail> results = [];
-      final isTeenageMode = _ref.read(teenageModeProvider);
-      final filteredKeywords = _ref.read(filteredKeywordsProvider);
 
       for (var item in list) {
         try {
           final detail = _parseVideoItem(item, site);
           if (detail.playGroups.isNotEmpty) {
-            bool shouldFilter = false;
-            if (isTeenageMode) {
-              final content = '${detail.title}${detail.typeName ?? ''}${detail.sourceName}'.toLowerCase();
-              if (filteredKeywords.any((kw) => content.contains(kw.toLowerCase()))) {
-                shouldFilter = true;
-              }
-            }
-            if (!shouldFilter) {
-              results.add(detail);
-            }
+            results.add(detail);
           }
         } catch (e) {
           // Skip invalid items
@@ -126,48 +113,9 @@ class CmsService {
     }
   }
 
-  Future<List<VideoDetail>> searchAll(List<SiteConfig> sites, String query) async {
-    final activeSites = sites.where((s) => !s.disabled).toList();
-    if (activeSites.isEmpty) {
-      return [];
-    }
-
-    // 真正的全并发搜索所有站点
-    final results = await Future.wait(
-      activeSites.map((site) async {
-        try {
-          final siteResults = await search(site, query);
-          return siteResults;
-        } catch (e) {
-          return <VideoDetail>[];
-        }
-      })
-    );
-
-    // 过滤掉没有任何集数的无效资源
-    final allResults = results.expand((x) => x).where((res) => res.playGroups.isNotEmpty).toList();
-
-    return allResults;
-  }
-
-  /// 按分类拉取列表（顶级分类自动聚合子分类），并发搜索所有启用站点
-  Future<List<VideoDetail>> getCategoryList(List<SiteConfig> sites, int typeId, {int page = 1, int pageSize = 20}) async {
-    final activeSites = sites.where((s) => !s.disabled).toList();
-    if (activeSites.isEmpty) {
-      return [];
-    }
-
-    final results = await Future.wait(
-      activeSites.map((site) async {
-        try {
-          return await _fetchCategoryBySite(site, typeId, page: page, pageSize: pageSize);
-        } catch (e) {
-          return <VideoDetail>[];
-        }
-      })
-    );
-
-    return results.expand((x) => x).where((res) => res.playGroups.isNotEmpty).toList();
+  /// 按分类拉取列表（顶级分类自动聚合子分类）
+  Future<List<VideoDetail>> getCategoryList(SiteConfig site, int typeId, {int page = 1, int pageSize = 20}) async {
+    return _fetchCategoryBySite(site, typeId, page: page, pageSize: pageSize);
   }
 
   Future<List<VideoDetail>> _fetchCategoryBySite(SiteConfig site, int typeId, {int page = 1, int pageSize = 20}) async {
@@ -225,45 +173,6 @@ class CmsService {
     } catch (e) {
       return [];
     }
-  }
-
-  /// 流式搜索：并发搜索所有站点，每个站点有结果就立即返回
-  /// 返回的 Stream 会持续发送累积的结果列表
-  Stream<List<VideoDetail>> searchAllStream(List<SiteConfig> sites, String query) async* {
-    final activeSites = sites.where((s) => !s.disabled).toList();
-    if (activeSites.isEmpty) {
-      yield [];
-      return;
-    }
-
-    final allResults = <VideoDetail>[];
-    final controller = StreamController<List<VideoDetail>>();
-    int completedCount = 0;
-
-    // 并发搜索所有站点
-    for (var site in activeSites) {
-      search(site, query).then((siteResults) {
-        if (siteResults.isNotEmpty) {
-          // 过滤掉没有任何集数的无效资源
-          final validResults = siteResults.where((res) => res.playGroups.isNotEmpty).toList();
-          if (validResults.isNotEmpty) {
-            allResults.addAll(validResults);
-            controller.add(List.from(allResults));
-          }
-        }
-        completedCount++;
-        if (completedCount == activeSites.length) {
-          controller.close();
-        }
-      }).catchError((_) {
-        completedCount++;
-        if (completedCount == activeSites.length) {
-          controller.close();
-        }
-      });
-    }
-
-    yield* controller.stream;
   }
 
   Future<VideoDetail?> getDetail(SiteConfig site, String id) async {

@@ -9,10 +9,12 @@ import 'pages/explore.dart';
 import 'pages/play.dart';
 import 'pages/settings.dart';
 import 'pages/search.dart';
+import 'pages/rank.dart';
+import 'pages/profile.dart';
+import 'pages/watch.dart';
 import 'providers/settings_provider.dart';
 import 'services/ad_block_service.dart';
 import 'services/config_service.dart';
-import 'services/subscription_service.dart';
 import 'widgets/main_layout.dart';
 import 'widgets/edit_dialog.dart';
 import 'widgets/zen_ui.dart';
@@ -84,9 +86,6 @@ class _TermsGateState extends ConsumerState<TermsGate> {
         _hasAgreed = agreed;
         _isChecking = false;
       });
-      if (agreed) {
-        ref.read(subscriptionServiceProvider).checkAndRefreshAutoUpdateSubscriptions();
-      }
     }
   }
 
@@ -94,7 +93,6 @@ class _TermsGateState extends ConsumerState<TermsGate> {
     await ref.read(configServiceProvider).setHasAgreedTerms(true);
     if (mounted) {
       setState(() => _hasAgreed = true);
-      ref.read(subscriptionServiceProvider).checkAndRefreshAutoUpdateSubscriptions();
     }
   }
 
@@ -206,6 +204,27 @@ final _router = GoRouter(
           pageBuilder: (context, state) => _buildPageWithPlatformTransition(
             state,
             const HomePage(),
+          ),
+        ),
+        GoRoute(
+          path: '/rank',
+          pageBuilder: (context, state) => _buildPageWithPlatformTransition(
+            state,
+            const RankPage(),
+          ),
+        ),
+        GoRoute(
+          path: '/watch',
+          pageBuilder: (context, state) => _buildPageWithPlatformTransition(
+            state,
+            const WatchPage(),
+          ),
+        ),
+        GoRoute(
+          path: '/profile',
+          pageBuilder: (context, state) => _buildPageWithPlatformTransition(
+            state,
+            const ProfilePage(),
           ),
         ),
         GoRoute(
