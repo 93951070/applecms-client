@@ -54,7 +54,6 @@ class _EchoTVAppState extends ConsumerState<EchoTVApp> {
     return MaterialApp.router(
       title: 'EchoTV',
       debugShowCheckedModeBanner: false,
-      navigatorKey: rootNavigatorKey,
       theme: ZenTheme.lightTheme(),
       darkTheme: ZenTheme.darkTheme(),
       themeMode: themeMode,
@@ -182,6 +181,7 @@ class _TermsGateState extends ConsumerState<TermsGate> {
 }
 
 final _router = GoRouter(
+  navigatorKey: rootNavigatorKey,
   initialLocation: '/',
   routes: [
     GoRoute(
