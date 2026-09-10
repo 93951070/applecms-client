@@ -7,8 +7,6 @@ import '../models/site.dart';
 import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../providers/history_provider.dart';
-import '../services/video_quality_service.dart';
-import '../services/source_optimizer_service.dart';
 import '../core/theme.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/zen_ui.dart';
@@ -33,41 +31,27 @@ class VideoDetailPage extends ConsumerStatefulWidget {
   ConsumerState<VideoDetailPage> createState() => _VideoDetailPageState();
 }
 
-enum LoadingStage { searching, preferring, fetching, ready }
-
 class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsBindingObserver {
   late HistoryNotifier _historyNotifier;
 
   bool _descExpanded = false;
   int _contentTab = 0;
   bool _favorited = false;
-  
-  DoubanSubject? _fullSubject;
-  bool _isDetailLoading = false;
+
   String _doubanId = '';
-  
-  // 核心数据
-  final List<VideoDetail> _availableSources = [];
-  VideoDetail? _currentSource;
+
+  // 核心数据：单站点按 id 直取一条详情即可，无需多源聚合
+  VideoDetail? _video;
   int _currentEpisodeIndex = 0;
   double? _initialResumePosition;
   bool _autoPlayNext = true;
   SkipConfig _skipConfig = SkipConfig();
 
   // 状态跟踪
-  LoadingStage _loadingStage = LoadingStage.searching;
   String _loadingMessage = '';
   bool _isSearching = true;
-  final bool _isPlaying = false;
-  bool _noSitesConfigured = false;
-  bool _isOptimizing = false;
-  bool _hasTriggeredInitialInit = false;
   bool _descending = false;
 
-  final Map<String, double> _scoreMap = {};
-  final Map<String, VideoQualityInfo> _qualityInfoMap = {};
-  final Set<String> _testedSources = {};
-  
   final GlobalKey<EchoVideoPlayerState> _playerKey = GlobalKey<EchoVideoPlayerState>();
 
   @override
@@ -85,21 +69,23 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   }
 
   void _checkHistoryAndLoadData() async {
-    // 1. 尝试从历史记录中恢复状态
+    // 1. 尝试从历史记录中恢复状态（优先按 vod_id 匹配，其次按标题）
     final history = ref.read(historyProvider).value ?? [];
     final record = history.firstWhere(
-      (r) => r.searchTitle == widget.subject.title,
+      (r) =>
+          (widget.subject.id.isNotEmpty && r.doubanId == widget.subject.id) ||
+          r.searchTitle == widget.subject.title,
       orElse: () => PlayRecord(
-        title: '', 
-        sourceName: '', 
-        cover: '', 
-        year: '', 
-        index: 0, 
-        totalEpisodes: 0, 
-        playTime: 0, 
-        totalTime: 0, 
-        saveTime: 0, 
-        searchTitle: ''
+        title: '',
+        sourceName: '',
+        cover: '',
+        year: '',
+        index: 0,
+        totalEpisodes: 0,
+        playTime: 0,
+        totalTime: 0,
+        saveTime: 0,
+        searchTitle: '',
       ),
     );
 
@@ -108,9 +94,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       setState(() {
         _currentEpisodeIndex = record.index;
         _initialResumePosition = record.playTime.toDouble();
-        if (_doubanId.isEmpty && record.doubanId != null && record.doubanId!.isNotEmpty) {
-          _doubanId = record.doubanId!;
-        }
       });
     }
 
@@ -118,191 +101,93 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     _loadData();
   }
 
-  void _loadData() async {
+  Future<void> _loadData() async {
     final cmsService = ref.read(cmsServiceProvider);
     final configService = ref.read(configServiceProvider);
 
     setState(() {
-      _loadingStage = LoadingStage.searching;
-      _loadingMessage = '🔍 正在搜索播放源...';
+      _loadingMessage = '正在加载播放源...';
     });
 
-    // 已彻底二开对接 CMS，不再通过豆瓣补全详情
-
     final site = await configService.getPrimarySite();
+    if (!mounted) return;
 
     if (site.disabled) {
-      if (mounted) {
-        setState(() {
-          _isSearching = false;
-          _noSitesConfigured = true;
-          _loadingMessage = '❌ 未配置有效视频源';
-        });
-      }
+      setState(() {
+        _isSearching = false;
+        _loadingMessage = '未配置有效视频源';
+      });
+      return;
+    }
+
+    // 1) 优先按 id 直取详情（对接收 CMS 时唯一可靠的方式）
+    VideoDetail? detail;
+    final id = widget.subject.id.trim();
+    if (id.isNotEmpty) {
+      detail = await cmsService.getDetail(site, id);
+      if (!mounted) return;
+    }
+
+    // 2) 无 id 或直取失败时，按标题搜索兜底
+    if (detail == null) {
+      final results = await cmsService.search(site, widget.subject.title);
+      if (!mounted) return;
+      detail = _pickBestMatch(results);
+    }
+
+    if (detail == null || detail.playGroups.isEmpty) {
+      setState(() {
+        _isSearching = false;
+        _loadingMessage = '暂无可播放资源';
+      });
       return;
     }
 
     setState(() {
-      _noSitesConfigured = false;
+      _video = detail;
+      _doubanId = detail.id;
+      _loadingMessage = '正在准备播放...';
+      _isSearching = false;
     });
 
-    final Set<String> processedKeys = {};
-
-    final results = await cmsService.search(site, widget.subject.title);
-    if (!mounted) return;
-
-    final List<VideoDetail> newlyFound = [];
-
-    for (var res in results) {
-      final sTitle = res.title.replaceAll(' ', '').toLowerCase();
-      final tTitle = widget.subject.title.replaceAll(' ', '').toLowerCase();
-      if (sTitle.contains(tTitle) || tTitle.contains(sTitle)) {
-        final key = '${res.source}-${res.id}';
-        if (!processedKeys.contains(key)) {
-          processedKeys.add(key);
-          newlyFound.add(res);
-        }
-      }
-    }
-
-    if (mounted && newlyFound.isNotEmpty) {
-      setState(() {
-        _availableSources.addAll(newlyFound);
-        _noSitesConfigured = false;
-      });
-
-      if (!_hasTriggeredInitialInit) {
-        _hasTriggeredInitialInit = true;
-        _startDynamicInitialization();
-      }
-
-      if (!_isOptimizing) {
-        _optimizeBestSource(newlyFound);
-      }
-    }
-
-    if (mounted) setState(() => _isSearching = false);
+    _loadSkipConfig();
+    _handlePlayAction(_currentEpisodeIndex, resumePosition: _initialResumePosition);
   }
 
-  /// 动态轮询初始化：等待最佳时机启动播放器
-  Future<void> _startDynamicInitialization() async {
-    int tick = 0;
-    const int maxTicks = 20; // 约 4 秒
-
-    while (tick < maxTicks) {
-      if (!mounted || _isPlaying) return;
-
-      final bool hasHighQualitySource = _scoreMap.values.any((score) => score >= 90);
-      final bool hasEnoughSamples = _testedSources.length >= 3 || _testedSources.length == _availableSources.length;
-      final bool isSearchDone = !_isSearching;
-
-      if (hasHighQualitySource || (isSearchDone && hasEnoughSamples) || tick >= 15) {
-        break;
-      }
-
-      await Future.delayed(const Duration(milliseconds: 200));
-      tick++;
-    }
-
-    if (mounted && _availableSources.isNotEmpty && !_isPlaying) {
-      setState(() {
-        _loadingStage = LoadingStage.preferring;
-        _loadingMessage = '⚡ 正在优选最佳线路...';
-      });
-
-      final optimizer = ref.read(sourceOptimizerServiceProvider);
-      final result = await optimizer.selectBestSource(_availableSources, cachedQualityInfo: _qualityInfoMap);
-      
-      if (mounted) {
-        VideoDetail best = result.bestSource;
-        setState(() {
-          _currentSource = best;
-          _qualityInfoMap.addAll(result.qualityInfoMap);
-          _scoreMap.addAll(result.scoreMap);
-          _loadingStage = LoadingStage.fetching;
-          _loadingMessage = '🎬 正在准备播放...';
-        });
-
-        // 异步抓取更完整的详情（如完整播放列表），不阻塞 UI 但确保播放前数据最新
-        await _fetchFullDetail(best);
-        
-        _loadSkipConfig();
-        _handlePlayAction(_currentEpisodeIndex, resumePosition: _initialResumePosition);
+  /// 搜索兜底时挑选最匹配的一条
+  VideoDetail? _pickBestMatch(List<VideoDetail> results) {
+    final target = widget.subject.title.replaceAll(' ', '').toLowerCase();
+    VideoDetail? loose;
+    for (final r in results) {
+      if (r.playGroups.isEmpty) continue;
+      final name = r.title.replaceAll(' ', '').toLowerCase();
+      if (name == target) return r;
+      if (loose == null && (name.contains(target) || target.contains(name))) {
+        loose = r;
       }
     }
-  }
-
-  Future<void> _optimizeBestSource(List<VideoDetail> sources) async {
-    if (sources.isEmpty || _isOptimizing) return;
-    setState(() => _isOptimizing = true);
-    
-    final qualityService = ref.read(videoQualityServiceProvider);
-    final List<VideoDetail> queue = List.from(sources);
-    int currentIndex = 0;
-    const int maxConcurrent = 3;
-
-    Future<void> worker() async {
-      while (currentIndex < queue.length) {
-        final source = queue[currentIndex++];
-        final key = '${source.source}-${source.id}';
-        if (_qualityInfoMap.containsKey(key) && !_qualityInfoMap[key]!.hasError) continue;
-        
-        try {
-          final url = source.playGroups.first.urls.length > 1 ? source.playGroups.first.urls[1] : source.playGroups.first.urls[0];
-          final quality = await qualityService.detectQuality(url);
-                      if (mounted) {
-                        setState(() {
-                          _qualityInfoMap[key] = quality;
-                          _testedSources.add(key);
-                        });
-                        // 移除 _applyIncrementalOptimization()，不再自动纠偏
-                      }        } catch (e) {}
-      }
+    if (loose != null) return loose;
+    for (final r in results) {
+      if (r.playGroups.isNotEmpty) return r;
     }
-
-    await Future.wait(List.generate(queue.length < maxConcurrent ? queue.length : maxConcurrent, (_) => worker()));
-    if (mounted) setState(() => _isOptimizing = false);
-  }
-
-  void _applyIncrementalOptimization() async {
-    // 仅更新测速数据，不再自动更新 _currentSource
-    if (!mounted) return;
-    final optimizer = ref.read(sourceOptimizerServiceProvider);
-    final result = await optimizer.selectBestSource(_availableSources, cachedQualityInfo: _qualityInfoMap);
-    
-    if (mounted) {
-      setState(() {
-        _qualityInfoMap.addAll(result.qualityInfoMap);
-        _scoreMap.addAll(result.scoreMap);
-      });
-    }
+    return null;
   }
 
   void _handlePlayAction(int index, {double? resumePosition}) {
-    if (_currentSource == null) return;
+    final video = _video;
+    if (video == null) return;
+    final total = video.playGroups.first.urls.length;
+    final safeIndex = total <= 0 ? 0 : index.clamp(0, total - 1);
     setState(() {
-      // 如果外部传入了 resumePosition 则使用，否则尝试沿用之前的（用于自动恢复）
       _initialResumePosition = resumePosition ?? _initialResumePosition;
-      _currentEpisodeIndex = index;
+      _currentEpisodeIndex = safeIndex;
     });
   }
 
-  Future<void> _switchSource(VideoDetail newSource) async {
-    setState(() {
-      _currentSource = newSource;
-    });
-    
-    // 异步尝试获取更完整的详情（如播放列表），不阻塞主线程切换
-    _fetchFullDetail(newSource);
-
-    _loadSkipConfig();
-    final targetIndex = _currentEpisodeIndex >= newSource.playGroups.first.urls.length ? 0 : _currentEpisodeIndex;
-    _handlePlayAction(targetIndex);
-  }
-
-  void _loadSkipConfig() async {
-    if (_currentSource == null) return;
-    final key = '${_currentSource!.source}-${_currentSource!.id}';
+  Future<void> _loadSkipConfig() async {
+    final video = _video;
+    if (video == null) return;
+    final key = '${video.source}-${video.id}';
     final config = await ref.read(configServiceProvider).getSkipConfigs();
     if (mounted && config.containsKey(key)) {
       setState(() {
@@ -311,34 +196,18 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     }
   }
 
-  Future<void> _fetchFullDetail(VideoDetail partial) async {
-    try {
-      final cmsService = ref.read(cmsServiceProvider);
-      final configService = ref.read(configServiceProvider);
-      final site = await configService.getPrimarySite();
-
-      final fullDetail = await cmsService.getDetail(site, partial.id);
-      if (fullDetail != null && mounted && _currentSource?.id == partial.id) {
-        setState(() {
-          _currentSource = fullDetail;
-          // 同步更新缓存列表
-          final idx = _availableSources.indexWhere((s) => s.id == partial.id && s.source == partial.source);
-          if (idx != -1) _availableSources[idx] = fullDetail;
-        });
-      }
-    } catch (_) {}
-  }
-
   void _playNextEpisode() {
-    if (_currentSource == null) return;
+    final video = _video;
+    if (video == null) return;
     final nextIndex = _currentEpisodeIndex + 1;
-    if (nextIndex < _currentSource!.playGroups.first.urls.length) {
+    if (nextIndex < video.playGroups.first.urls.length) {
       _handlePlayAction(nextIndex);
     }
   }
 
   Future<void> _savePlayRecord(Duration position, Duration duration, {bool isFinal = false}) async {
-    if (_currentSource == null || !mounted) return;
+    final video = _video;
+    if (video == null || !mounted) return;
     
     // 只有在进度有实际变化（大于0）或者为了保存最后进度时才记录
     if (position.inSeconds == 0 && duration.inSeconds == 0) return;
@@ -348,11 +217,11 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
     final record = PlayRecord(
       title: widget.subject.title,
-      sourceName: _currentSource!.sourceName,
+      sourceName: video.sourceName,
       cover: widget.subject.cover,
       year: widget.subject.year ?? '',
       index: _currentEpisodeIndex,
-      totalEpisodes: _currentSource!.playGroups.first.urls.length,
+      totalEpisodes: video.playGroups.first.urls.length,
       playTime: position.inSeconds,
       totalTime: duration.inSeconds > 0 ? duration.inSeconds : (_initialResumePosition?.toInt() ?? 0),
       saveTime: DateTime.now().millisecondsSinceEpoch,
@@ -433,7 +302,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   }
 
   Widget _buildPlayerContent() {
-    if (_currentSource == null) {
+    final video = _video;
+    if (video == null) {
       return Stack(
         fit: StackFit.expand,
         children: [
@@ -466,7 +336,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       );
     }
 
-    final group = _currentSource!.playGroups.first;
+    final group = video.playGroups.first;
     return EchoVideoPlayer(
       key: _playerKey,
       url: group.urls[_currentEpisodeIndex],
@@ -475,7 +345,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       initialPosition: _initialResumePosition,
       skipConfig: _skipConfig,
       onSkipConfigChange: (newConfig) async {
-        final key = '${_currentSource!.source}-${_currentSource!.id}';
+        final key = '${video.source}-${video.id}';
         await ref.read(configServiceProvider).saveSkipConfig(key, newConfig);
         setState(() => _skipConfig = newConfig);
       },
@@ -589,8 +459,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         _buildActionRow(theme),
         Divider(
             height: 26, indent: 14, endIndent: 14, color: theme.dividerColor),
-        _buildSourceRow(theme),
-        _buildSourceChain(theme),
         _buildEpisodeHeader(theme),
         _buildEpisodeChips(theme),
         const SizedBox(height: 6),
@@ -678,9 +546,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   }
 
   Widget _buildDescRow(ThemeData theme) {
-    final desc = _fullSubject?.description ??
-        widget.subject.description ??
-        _currentSource?.desc;
+    final desc = widget.subject.description ?? _video?.desc;
     final text =
         (desc != null && desc.trim().isNotEmpty) ? desc.trim() : '暂无简介';
     return GestureDetector(
@@ -719,112 +585,29 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     );
   }
 
-  Widget _buildSourceRow(ThemeData theme) {
-    final n = _currentSource?.playGroups.first.urls.length ?? 0;
-    final info = _currentSource == null
-        ? (_isSearching ? '正在搜索…' : '暂无资源')
-        : '共 $n 集';
+  Widget _buildEpisodeHeader(ThemeData theme) {
+    final video = _video;
+    if (video == null) return const SizedBox.shrink();
+    final n = video.playGroups.first.urls.length;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      padding: const EdgeInsets.fromLTRB(14, 16, 14, 0),
       child: Row(
         children: [
-          const Text('来源',
+          const Text('选集',
               style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
           const Spacer(),
-          Text(info,
+          Text('共 $n 集',
               style:
                   TextStyle(fontSize: 12, color: theme.colorScheme.secondary)),
-          Icon(Icons.chevron_right,
-              size: 16, color: theme.colorScheme.secondary),
         ],
       ),
-    );
-  }
-
-  Widget _buildSourceChain(ThemeData theme) {
-    if (_availableSources.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        child: Text(_isSearching ? '正在全网搜索源站…' : '暂无可用源站',
-            style: TextStyle(fontSize: 12, color: theme.colorScheme.secondary)),
-      );
-    }
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      child: Row(
-        children: [
-          for (var i = 0; i < _availableSources.length; i++) ...[
-            _buildSourceSegment(theme, _availableSources[i]),
-            if (i != _availableSources.length - 1) const SizedBox(width: 10),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSourceSegment(ThemeData theme, VideoDetail res) {
-    final selected = res == _currentSource;
-    final n = res.playGroups.first.urls.length;
-    return GestureDetector(
-      onTap: () => _switchSource(res),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
-            decoration: BoxDecoration(
-              color: selected
-                  ? AppColors.pinkLight
-                  : theme.colorScheme.onSurface.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: selected ? AppColors.pink : Colors.transparent,
-                width: 1.2,
-              ),
-            ),
-            child: Text(
-              res.sourceName,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                color: selected ? AppColors.pink : theme.colorScheme.onSurface,
-              ),
-            ),
-          ),
-          Positioned(
-            top: -6,
-            right: -4,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-              decoration: BoxDecoration(
-                color: Colors.black87,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text('$n',
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEpisodeHeader(ThemeData theme) {
-    if (_currentSource == null) return const SizedBox.shrink();
-    return const Padding(
-      padding: EdgeInsets.fromLTRB(14, 16, 14, 0),
-      child: Text('选集',
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
     );
   }
 
   Widget _buildEpisodeChips(ThemeData theme) {
-    if (_currentSource == null) return const SizedBox.shrink();
-    final group = _currentSource!.playGroups.first;
+    final video = _video;
+    if (video == null) return const SizedBox.shrink();
+    final group = video.playGroups.first;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
       child: SizedBox(
