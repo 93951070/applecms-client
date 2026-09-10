@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/movie.dart';
+import '../models/comment.dart';
 import '../models/site.dart';
 import '../services/app_api_service.dart';
 import '../services/cms_service.dart';
@@ -58,6 +59,16 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   bool _resolvingPlay = false;
   String? _accessMessage;
   String? _errorMessage;
+
+  // 评论与弹幕
+  final TextEditingController _commentController = TextEditingController();
+  final List<VideoComment> _comments = [];
+  int _commentTotal = 0;
+  int _commentPage = 1;
+  bool _commentsLoading = false;
+  bool _commentsLoaded = false;
+  List<DanmakuItem> _danmaku = const [];
+  String _danmakuEpisodeKey = '';
 
   final GlobalKey<EchoVideoPlayerState> _playerKey = GlobalKey<EchoVideoPlayerState>();
 
@@ -159,6 +170,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     });
 
     _loadSkipConfig();
+    _loadComments();
     _handlePlayAction(_currentEpisodeIndex, resumePosition: _initialResumePosition);
   }
 
@@ -190,6 +202,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       _errorMessage = null;
     });
     _resolveCurrentEpisode();
+    _loadDanmaku();
   }
 
   /// 通过 App 网关做会员校验并解析直连地址。
@@ -309,6 +322,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   @override
   void dispose() {
+    _commentController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -437,6 +451,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       onProgress: (pos, dur, {isFinal = false}) =>
           _savePlayRecord(pos, dur, isFinal: isFinal),
       onEnded: _autoPlayNext ? _playNextEpisode : null,
+      danmaku: _danmaku,
     );
   }
 
@@ -536,7 +551,12 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     final active = _contentTab == index;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => setState(() => _contentTab = index),
+      onTap: () => setState(() {
+        _contentTab = index;
+        if (index == 1 && !_commentsLoaded && !_commentsLoading) {
+          _loadComments();
+        }
+      }),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -564,7 +584,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   Widget _buildDanmakuButton() {
     return GestureDetector(
-      onTap: () => _comingSoon('弹幕'),
+      onTap: _promptSendDanmaku,
       child: Container(
         padding: const EdgeInsets.fromLTRB(12, 5, 5, 5),
         decoration: BoxDecoration(
@@ -624,19 +644,292 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   }
 
   Widget _buildCommentTab(ThemeData theme) {
-    return ListView(
-      padding: const EdgeInsets.only(top: 120),
+    return Column(
       children: [
-        Icon(Icons.forum_outlined,
-            size: 46, color: theme.colorScheme.secondary),
-        const SizedBox(height: 12),
-        Center(
-          child: Text('暂无评论，快来抢沙发',
-              style:
-                  TextStyle(fontSize: 13, color: theme.colorScheme.secondary)),
-        ),
+        Expanded(child: _buildCommentList(theme)),
+        _buildCommentInput(theme),
       ],
     );
+  }
+
+  Widget _buildCommentList(ThemeData theme) {
+    if (_commentsLoading && _comments.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_comments.isEmpty) {
+      return ListView(
+        padding: const EdgeInsets.only(top: 120),
+        children: [
+          Icon(Icons.forum_outlined,
+              size: 46, color: theme.colorScheme.secondary),
+          const SizedBox(height: 12),
+          Center(
+            child: Text('暂无评论，快来抢沙发',
+                style: TextStyle(
+                    fontSize: 13, color: theme.colorScheme.secondary)),
+          ),
+        ],
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: () => _loadComments(),
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemCount: _comments.length + 1,
+        itemBuilder: (context, index) {
+          if (index == _comments.length) {
+            if (_comments.length >= _commentTotal) {
+              return const SizedBox(height: 16);
+            }
+            return TextButton(
+              onPressed: _commentsLoading ? null : _loadMoreComments,
+              child: const Text('加载更多'),
+            );
+          }
+          return _buildCommentItem(theme, _comments[index]);
+        },
+      ),
+    );
+  }
+
+  Widget _buildCommentItem(ThemeData theme, VideoComment comment) {
+    final name = comment.userName.isEmpty ? '用户' : comment.userName;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: AppColors.pinkLight,
+            backgroundImage: (comment.userPortrait != null &&
+                    comment.userPortrait!.isNotEmpty)
+                ? NetworkImage(comment.userPortrait!)
+                : null,
+            child: (comment.userPortrait == null ||
+                    comment.userPortrait!.isEmpty)
+                ? Text(name.characters.first,
+                    style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.pink,
+                        fontWeight: FontWeight.w700))
+                : null,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name,
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.secondary)),
+                const SizedBox(height: 3),
+                Text(comment.content,
+                    style: const TextStyle(fontSize: 14, height: 1.35)),
+                if (comment.likeCount > 0) ...[
+                  const SizedBox(height: 3),
+                  Text('${comment.likeCount} 赞',
+                      style: TextStyle(
+                          fontSize: 11, color: theme.colorScheme.secondary)),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCommentInput(ThemeData theme) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 4, 6, 4),
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: theme.dividerColor)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _commentController,
+                minLines: 1,
+                maxLines: 3,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => _submitComment(),
+                decoration: const InputDecoration(
+                  hintText: '说点什么...',
+                  isDense: true,
+                  border: InputBorder.none,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: _commentsLoading ? null : _submitComment,
+              child: const Text('发送'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _loadComments() async {
+    final video = _video;
+    if (video == null || _commentsLoading) return;
+    setState(() => _commentsLoading = true);
+    try {
+      final result = await ref
+          .read(cmsServiceProvider)
+          .getComments(video.id, page: 1, limit: 20);
+      if (!mounted) return;
+      setState(() {
+        _comments
+          ..clear()
+          ..addAll(result.items);
+        _commentTotal = result.total;
+        _commentPage = 1;
+        _commentsLoaded = true;
+        _commentsLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _commentsLoaded = true;
+        _commentsLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadMoreComments() async {
+    final video = _video;
+    if (video == null || _commentsLoading) return;
+    if (_comments.length >= _commentTotal) return;
+    setState(() => _commentsLoading = true);
+    try {
+      final next = _commentPage + 1;
+      final result = await ref
+          .read(cmsServiceProvider)
+          .getComments(video.id, page: next, limit: 20);
+      if (!mounted) return;
+      setState(() {
+        _comments.addAll(result.items);
+        _commentPage = next;
+        _commentsLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _commentsLoading = false);
+    }
+  }
+
+  Future<void> _submitComment() async {
+    final video = _video;
+    final text = _commentController.text.trim();
+    if (video == null || text.isEmpty) return;
+    final token = await ref.read(configServiceProvider).getAuthToken();
+    if (token == null || token.isEmpty) {
+      if (mounted) context.push('/login');
+      return;
+    }
+    try {
+      final created =
+          await ref.read(cmsServiceProvider).postComment(video.id, text);
+      if (!mounted) return;
+      if (created != null) {
+        setState(() {
+          _comments.insert(0, created);
+          _commentTotal += 1;
+          _commentController.clear();
+        });
+        FocusScope.of(context).unfocus();
+      }
+    } on AppApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('评论发送失败')));
+    }
+  }
+
+  Future<void> _loadDanmaku({bool force = false}) async {
+    final video = _video;
+    if (video == null) return;
+    final key = '${video.id}-$_currentEpisodeIndex';
+    if (!force && key == _danmakuEpisodeKey) return;
+    _danmakuEpisodeKey = key;
+    try {
+      final items = await ref
+          .read(cmsServiceProvider)
+          .getDanmaku(video.id, episode: _currentEpisodeIndex);
+      if (!mounted) return;
+      setState(() => _danmaku = items);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _danmaku = const []);
+    }
+  }
+
+  Future<void> _promptSendDanmaku() async {
+    final video = _video;
+    if (video == null) return;
+    final token = await ref.read(configServiceProvider).getAuthToken();
+    if (token == null || token.isEmpty) {
+      if (mounted) context.push('/login');
+      return;
+    }
+    final controller = TextEditingController();
+    final text = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('发弹幕'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 50,
+          decoration: const InputDecoration(hintText: '说点什么...'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+              child: const Text('发送')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (text == null || text.isEmpty) return;
+
+    final position = _playerKey.currentState?.currentPosition ?? Duration.zero;
+    try {
+      final ok = await ref.read(cmsServiceProvider).postDanmaku(
+            video.id,
+            episode: _currentEpisodeIndex,
+            timeMs: position.inMilliseconds,
+            content: text,
+          );
+      if (!mounted) return;
+      if (ok) {
+        setState(() {
+          _danmaku = [..._danmaku, DanmakuItem(
+            timeMs: position.inMilliseconds,
+            content: text,
+          )]..sort((a, b) => a.timeMs.compareTo(b.timeMs));
+        });
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ok ? '弹幕已发送' : '弹幕发送失败')));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('弹幕发送失败')));
+    }
   }
 
   Widget _buildTitleRow(ThemeData theme) {

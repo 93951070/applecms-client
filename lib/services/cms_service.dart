@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/comment.dart';
 import '../models/site.dart';
 import 'app_api_service.dart';
 import 'config_service.dart';
@@ -202,4 +203,96 @@ class CmsService {
     if (value is num) return value.toInt();
     return int.tryParse(value?.toString() ?? '') ?? 0;
   }
+
+  /// 评论列表（分页）。
+  Future<CommentPage> getComments(
+    String vodId, {
+    int page = 1,
+    int limit = 20,
+  }) async {
+    final data = await _api.fetchComments(
+      await _base(),
+      vodId,
+      page: page,
+      limit: limit,
+    );
+    final items = <VideoComment>[];
+    final raw = data['items'];
+    if (raw is List) {
+      for (final e in raw) {
+        if (e is Map) {
+          items.add(VideoComment.fromJson(Map<String, dynamic>.from(e)));
+        }
+      }
+    }
+    return CommentPage(
+      total: _asInt(data['total']),
+      page: _asInt(data['page']),
+      items: items,
+    );
+  }
+
+  /// 发表评论，返回是否成功（失败时抛出 [AppApiException]）。
+  Future<VideoComment?> postComment(String vodId, String content) async {
+    final token = await _ref.read(configServiceProvider).getAuthToken();
+    final data = await _api.postComment(
+      await _base(),
+      vodId,
+      content,
+      token: token,
+    );
+    if (data['success'] != true) return null;
+    return VideoComment(
+      id: (data['comment_id'] ?? '').toString(),
+      userName: '我',
+      content: content.trim(),
+      createdAt: _asInt(data['created_at']),
+    );
+  }
+
+  /// 拉取某一集弹幕。
+  Future<List<DanmakuItem>> getDanmaku(String vodId, {int episode = 0}) async {
+    final items = await _api.fetchDanmaku(
+      await _base(),
+      vodId,
+      episode: episode,
+    );
+    return items.map(DanmakuItem.fromJson).toList();
+  }
+
+  /// 发送弹幕，返回是否成功。
+  Future<bool> postDanmaku(
+    String vodId, {
+    required int episode,
+    required int timeMs,
+    required String content,
+    String color = '#FFFFFF',
+    int mode = 0,
+  }) async {
+    final token = await _ref.read(configServiceProvider).getAuthToken();
+    final data = await _api.postDanmaku(
+      await _base(),
+      vodId,
+      episode: episode,
+      timeMs: timeMs,
+      content: content,
+      color: color,
+      mode: mode,
+      token: token,
+    );
+    return data['success'] == true;
+  }
+}
+
+/// 评论分页结果。
+class CommentPage {
+  final int total;
+  final int page;
+  final List<VideoComment> items;
+
+  const CommentPage({
+    this.total = 0,
+    this.page = 1,
+    this.items = const [],
+  });
 }

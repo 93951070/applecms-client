@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import '../models/comment.dart';
 import '../models/site.dart';
 import '../services/ad_block_service.dart';
 import '../providers/settings_provider.dart';
@@ -21,6 +22,7 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
   final bool hasNextEpisode;
   final Function(Duration position, Duration duration, {bool isFinal})? onProgress;
   final VoidCallback? onEnded;
+  final List<DanmakuItem> danmaku;
 
   const EchoVideoPlayer({
     super.key,
@@ -35,19 +37,28 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
     this.hasNextEpisode = false,
     this.onProgress,
     this.onEnded,
+    this.danmaku = const [],
   });
 
   @override
   ConsumerState<EchoVideoPlayer> createState() => EchoVideoPlayerState();
 }
 
-class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
+class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBindingObserver, AutomaticKeepAliveClientMixin, SingleTickerProviderStateMixin {
   VideoPlayerController? _videoController;
   ChewieController? _chewieController;
   bool _isInitializing = false;
   bool _isDisposed = false;
   Timer? _bufferingTimer;
   String? _errorMessage;
+
+  // 弹幕叠加层
+  late final AnimationController _danmakuTicker;
+  final Set<int> _spawnedDanmaku = {};
+  final List<_ActiveDanmaku> _activeDanmaku = [];
+  static const int _danmakuLifetimeMs = 7000;
+
+  Duration get currentPosition => _videoController?.value.position ?? Duration.zero;
 
   @override
   bool get wantKeepAlive => true;
@@ -57,6 +68,9 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WakelockPlus.enable();
+    _danmakuTicker =
+        AnimationController(vsync: this, duration: const Duration(seconds: 1))
+          ..repeat();
     _initializePlayer();
   }
 
@@ -65,6 +79,10 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
     super.didUpdateWidget(oldWidget);
     if (oldWidget.url != widget.url) {
       _initializePlayer();
+    }
+    if (oldWidget.danmaku != widget.danmaku) {
+      _spawnedDanmaku.clear();
+      _activeDanmaku.clear();
     }
   }
 
@@ -187,10 +205,37 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
     }
   }
 
+  void _updateDanmaku(Duration position) {
+    if (widget.danmaku.isEmpty || !mounted) return;
+    final nowMs = position.inMilliseconds;
+    var changed = false;
+    for (var i = 0; i < widget.danmaku.length; i++) {
+      if (_spawnedDanmaku.contains(i)) continue;
+      final item = widget.danmaku[i];
+      if (item.timeMs > nowMs) continue;
+      _spawnedDanmaku.add(i);
+      if (nowMs - item.timeMs <= 1500) {
+        _activeDanmaku.add(_ActiveDanmaku(item));
+        changed = true;
+      }
+    }
+    if (_activeDanmaku.isNotEmpty) {
+      final before = _activeDanmaku.length;
+      _activeDanmaku.removeWhere(
+          (a) => DateTime.now().difference(a.started).inMilliseconds > _danmakuLifetimeMs);
+      changed = changed || _activeDanmaku.length != before;
+    }
+    if (changed) setState(() {});
+  }
+
   void _videoListener() {
     if (_videoController == null || _isDisposed) return;
     
     final value = _videoController!.value;
+
+    if (value.isInitialized) {
+      _updateDanmaku(value.position);
+    }
     
     // 监听缓冲状态（通用逻辑）
     if (value.isInitialized && value.isBuffering && !_isInitializing) {
@@ -273,6 +318,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
     _videoController?.removeListener(_videoListener);
     _videoController?.dispose();
     _chewieController?.dispose();
+    _danmakuTicker.dispose();
     WakelockPlus.disable();
     super.dispose();
   }
@@ -322,6 +368,70 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
       );
     }
 
-    return Chewie(controller: _chewieController!);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Chewie(controller: _chewieController!),
+        _buildDanmakuOverlay(),
+      ],
+    );
   }
+
+  Widget _buildDanmakuOverlay() {
+    if (_activeDanmaku.isEmpty) return const SizedBox.shrink();
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _danmakuTicker,
+        builder: (context, _) {
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth;
+              final now = DateTime.now();
+              return Stack(
+                children: List.generate(_activeDanmaku.length, (i) {
+                  final active = _activeDanmaku[i];
+                  final elapsed = now
+                      .difference(active.started)
+                      .inMilliseconds
+                      .clamp(0, _danmakuLifetimeMs);
+                  final progress = elapsed / _danmakuLifetimeMs;
+                  final left = width - progress * (width + 240);
+                  final top = 12.0 + (i % 6) * 26.0;
+                  return Positioned(
+                    left: left,
+                    top: top,
+                    child: Text(
+                      active.item.content,
+                      style: TextStyle(
+                        color: _parseDanmakuColor(active.item.color),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        shadows: const [
+                          Shadow(color: Colors.black54, blurRadius: 2),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Color _parseDanmakuColor(String hex) {
+    final value = hex.replaceFirst('#', '');
+    final parsed = int.tryParse(value, radix: 16);
+    if (parsed == null || value.length != 6) return Colors.white;
+    return Color(0xFF000000 | parsed);
+  }
+}
+
+class _ActiveDanmaku {
+  final DanmakuItem item;
+  final DateTime started;
+
+  _ActiveDanmaku(this.item) : started = DateTime.now();
 }

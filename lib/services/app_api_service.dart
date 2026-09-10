@@ -169,6 +169,86 @@ class AppApiService {
     return const [];
   }
 
+  /// 评论列表（分页）。返回 `{total, page, limit, items}`。
+  Future<Map<String, dynamic>> fetchComments(
+    String base,
+    String vodId, {
+    int page = 1,
+    int limit = 20,
+  }) async {
+    final data = await _request(
+      base,
+      method: 'GET',
+      path: '$_apiPrefix/videos/$vodId/comments',
+      query: _encodeQuery({'page': '$page', 'limit': '$limit'}),
+    );
+    return data;
+  }
+
+  /// 发表评论，需登录令牌。
+  Future<Map<String, dynamic>> postComment(
+    String base,
+    String vodId,
+    String content, {
+    String? token,
+  }) async {
+    return _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/videos/$vodId/comments',
+      jsonBody: {'content': content},
+      token: token,
+    );
+  }
+
+  /// 拉取某一集的弹幕列表。
+  Future<List<Map<String, dynamic>>> fetchDanmaku(
+    String base,
+    String vodId, {
+    int episode = 0,
+  }) async {
+    final data = await _request(
+      base,
+      method: 'GET',
+      path: '$_apiPrefix/videos/$vodId/danmaku',
+      query: _encodeQuery({'episode': '$episode'}),
+    );
+    final items = data['items'];
+    if (items is List) {
+      return items
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    }
+    return const [];
+  }
+
+  /// 发送弹幕，需登录令牌。
+  Future<Map<String, dynamic>> postDanmaku(
+    String base,
+    String vodId, {
+    required int episode,
+    required int timeMs,
+    required String content,
+    String color = '#FFFFFF',
+    int mode = 0,
+    String? token,
+  }) async {
+    return _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/videos/$vodId/danmaku',
+      jsonBody: {
+        'episode': episode,
+        'time_ms': timeMs,
+        'content': content,
+        'color': color,
+        'mode': mode,
+      },
+      token: token,
+    );
+  }
+
   /// 会员校验并解析直连地址。`token` 为账号令牌（未登录可不传）。
   Future<AppPlayResult> play(
     String base, {
