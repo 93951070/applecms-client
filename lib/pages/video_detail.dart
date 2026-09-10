@@ -10,6 +10,7 @@ import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../providers/history_provider.dart';
 import '../providers/favorites_provider.dart';
+import '../services/download_service.dart';
 import '../core/theme.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/zen_ui.dart';
@@ -1150,7 +1151,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               () => _toggleFavorite(favorited)),
           const SizedBox(width: 20),
           _buildActionIcon(Icons.download_rounded, const Color(0xFFFF9F43),
-              () => _comingSoon('缓存下载')),
+              _cacheCurrentEpisode),
           const SizedBox(width: 20),
           _buildActionIcon(Icons.share_rounded, const Color(0xFF3B82F6),
               () => _comingSoon('分享')),
@@ -1160,6 +1161,27 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         ],
       ),
     );
+  }
+
+  Future<void> _cacheCurrentEpisode() async {
+    final resolved = _resolvedUrl;
+    if (resolved == null || resolved.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请等待视频加载完成')));
+      return;
+    }
+    final video = _video;
+    final title = (video != null && video.playGroups.isNotEmpty)
+        ? '${widget.subject.title} - ${video.playGroups.first.titles[_currentEpisodeIndex]}'
+        : widget.subject.title;
+    final error = await ref.read(downloadsProvider.notifier).start(
+          title: title,
+          cover: widget.subject.cover,
+          url: resolved,
+        );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(error ?? '已加入离线缓存')));
   }
 
   Future<void> _toggleFavorite(bool favorited) async {

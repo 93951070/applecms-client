@@ -290,6 +290,18 @@ class CmsService {
     );
   }
 
+  /// 提交意见反馈，登录可选。
+  Future<bool> postFeedback(String content, {String contact = ''}) async {
+    final token = await _ref.read(configServiceProvider).getAuthToken();
+    final data = await _api.postFeedback(
+      await _base(),
+      content: content,
+      contact: contact,
+      token: token,
+    );
+    return data['success'] == true;
+  }
+
   /// 系统消息列表。
   Future<MessagePage> getMessages({int page = 1, int limit = 20}) async {
     final token = await _ref.read(configServiceProvider).getAuthToken();

@@ -14,6 +14,8 @@ import '../widgets/cover_image.dart';
 import 'video_detail.dart';
 import 'messages_page.dart';
 import 'favorites_page.dart';
+import 'feedback_page.dart';
+import 'downloads_page.dart';
 
 final profileSiteProvider = FutureProvider<SiteConfig>((ref) async {
   return ref.read(configServiceProvider).getPrimarySite();
@@ -595,6 +597,17 @@ class ProfilePage extends ConsumerWidget {
         Navigator.of(context, rootNavigator: true).push(
           MaterialPageRoute(builder: (_) => const FavoritesPage()),
         );
+        break;
+      case '意见反馈':
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute(builder: (_) => const FeedbackPage()),
+        );
+        break;
+      case '离线缓存':
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute(builder: (_) => const DownloadsPage()),
+        );
+        break;
       default:
         _comingSoon(context, label);
     }

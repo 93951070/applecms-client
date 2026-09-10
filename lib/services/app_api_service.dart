@@ -257,6 +257,22 @@ class AppApiService {
     );
   }
 
+  /// 提交意见反馈，登录可选。
+  Future<Map<String, dynamic>> postFeedback(
+    String base, {
+    required String content,
+    String contact = '',
+    String? token,
+  }) async {
+    return _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/feedback',
+      jsonBody: {'content': content, 'contact': contact},
+      token: token,
+    );
+  }
+
   /// 系统消息列表（分页），需登录令牌。
   Future<Map<String, dynamic>> fetchMessages(
     String base, {
