@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/theme.dart';
 import '../models/movie.dart';
+import '../models/site.dart';
 import '../services/cms_service.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';

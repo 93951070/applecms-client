@@ -8,6 +8,7 @@ import '../services/config_service.dart';
 import '../services/update_service.dart';
 import '../providers/history_provider.dart';
 import '../models/movie.dart';
+import '../models/site.dart';
 import '../core/theme.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
