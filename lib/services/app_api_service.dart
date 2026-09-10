@@ -107,13 +107,21 @@ class AppApiService {
 
   // ==================== 公开接口 ====================
 
-  /// 版本检查。`currentVersion` 形如 `1.0.6`。
-  Future<AppVersionInfo> checkVersion(String base, String currentVersion) async {
+  /// 版本检查。`currentVersion` 形如 `1.0.6`，`platform` 为 `ios`/`android`。
+  Future<AppVersionInfo> checkVersion(
+    String base,
+    String currentVersion, {
+    String platform = '',
+  }) async {
+    final buf = StringBuffer('version=${Uri.encodeQueryComponent(currentVersion)}');
+    if (platform.isNotEmpty) {
+      buf.write('&platform=${Uri.encodeQueryComponent(platform)}');
+    }
     final data = await _request(
       base,
       method: 'GET',
       path: '$_apiPrefix/version',
-      query: 'version=${Uri.encodeQueryComponent(currentVersion)}',
+      query: buf.toString(),
     );
     return AppVersionInfo(
       forceUpdate: data['force_update'] == true,

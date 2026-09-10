@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../services/cms_service.dart';
 import '../services/config_service.dart';
-import '../services/update_service.dart';
 import '../providers/history_provider.dart';
 import '../models/movie.dart';
 import '../models/site.dart';
@@ -58,8 +57,6 @@ class HomePage extends ConsumerStatefulWidget {
 }
 
 class _HomePageState extends ConsumerState<HomePage> {
-  static bool _hasCheckedUpdate = false;
-
   int _mainIndex = 0;
   int _heroPage = 0;
 
@@ -71,12 +68,6 @@ class _HomePageState extends ConsumerState<HomePage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_hasCheckedUpdate) {
-        _hasCheckedUpdate = true;
-        UpdateService.checkUpdate(context);
-      }
-    });
   }
 
   @override
