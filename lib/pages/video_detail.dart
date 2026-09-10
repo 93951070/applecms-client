@@ -904,7 +904,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
                   imageUrl: list[i].poster,
                   year: list[i].year,
                   episode: list[i].typeName,
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  onTap: () => Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
                     builder: (context) => VideoDetailPage(
                       subject: DoubanSubject(
                         id: list[i].id,

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'core/theme.dart';
 import 'pages/home.dart';
 import 'pages/explore.dart';
+import 'pages/category_list.dart';
 import 'pages/play.dart';
 import 'pages/settings.dart';
 import 'pages/search.dart';
@@ -265,6 +266,20 @@ final _router = GoRouter(
         state,
         const SearchPage(),
       ),
+    ),
+    GoRoute(
+      path: '/category',
+      pageBuilder: (context, state) {
+        final params = state.uri.queryParameters;
+        final id = int.tryParse(params['id'] ?? '') ?? 0;
+        return _buildPageWithPlatformTransition(
+          state,
+          CategoryListPage(
+            typeId: id,
+            title: params['title'] ?? '分类',
+          ),
+        );
+      },
     ),
     GoRoute(
       path: '/settings',

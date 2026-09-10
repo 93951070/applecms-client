@@ -351,7 +351,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     return MovieCard(
       movie: subject, 
       badge: badge,
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => VideoDetailPage(subject: subject)))
+      onTap: () => Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(builder: (context) => VideoDetailPage(subject: subject)))
     );
   }
 

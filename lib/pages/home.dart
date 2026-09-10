@@ -61,7 +61,6 @@ class _HomePageState extends ConsumerState<HomePage> {
   static bool _hasCheckedUpdate = false;
 
   int _mainIndex = 0;
-  int _subIndex = 0;
   int _heroPage = 0;
 
   bool _continueVisible = false;
@@ -87,7 +86,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   void _openDetail(VideoDetail video) {
-    Navigator.of(context).push(MaterialPageRoute(
+    Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
       builder: (context) => VideoDetailPage(subject: _toSubject(video)),
     ));
   }
@@ -121,23 +120,10 @@ class _HomePageState extends ConsumerState<HomePage> {
     final recommend = mainIndex == 0;
     final group = recommend ? null : groups[mainIndex - 1];
 
-    final subs = group?.subCategories ?? const <CmsCategory>[];
-    final subIndex = _subIndex > subs.length ? 0 : _subIndex;
-    final selectedSub =
-        (subs.isNotEmpty && subIndex > 0) ? subs[subIndex - 1] : null;
-
-    final typeId = recommend
-        ? groups.first.category.typeId
-        : (selectedSub?.typeId ?? group!.category.typeId);
-
     final mainTabs = <String>[
       '推荐',
       ...groups.map((g) => g.category.typeName),
     ];
-    final subTabs = <String>['全部', ...subs.map((s) => s.typeName)];
-
-    final current = ref.watch(cmsCategoryProvider(typeId));
-    final anime = ref.watch(cmsCategoryProvider(3));
 
     return ZenScaffold(
       body: SafeArea(
@@ -153,29 +139,19 @@ class _HomePageState extends ConsumerState<HomePage> {
                   current: mainIndex,
                   onChanged: (i) => setState(() {
                     _mainIndex = i;
-                    _subIndex = 0;
                     _heroPage = 0;
                   }),
                 ),
-                if (!recommend && subs.isNotEmpty)
-                  AppTabStrip(
-                    tabs: subTabs,
-                    current: subIndex,
-                    compact: true,
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                    onChanged: (i) => setState(() => _subIndex = i),
-                  ),
                 Expanded(
                   child: RefreshIndicator(
                     color: AppColors.pink,
                     onRefresh: () async {
                       ref.invalidate(categoryTreeProvider);
-                      ref.invalidate(cmsCategoryProvider(typeId));
-                      if (recommend) ref.invalidate(cmsCategoryProvider(3));
+                      ref.invalidate(cmsCategoryProvider);
                     },
                     child: recommend
-                        ? _buildRecommend(current, anime)
-                        : _buildCategoryGrid(current),
+                        ? _buildRecommend(groups)
+                        : _buildCategorySections(group!),
                   ),
                 ),
               ],
@@ -192,6 +168,12 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
     );
   }
+
+  /// 跳转到某分类的列表页（二级页，不显示底部导航）
+  void _pushCategory(int typeId, String title) {
+    context.push('/category?id=$typeId&title=${Uri.encodeComponent(title)}');
+  }
+
 
   Widget _buildTopBar() {
     return Padding(
@@ -269,7 +251,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           cover: record.cover,
           year: record.year,
         );
-        Navigator.of(context).push(MaterialPageRoute(
+        Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
           builder: (context) => VideoDetailPage(subject: subject),
         ));
       },
@@ -285,37 +267,79 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   // ==================== 推荐页 ====================
 
-  Widget _buildRecommend(
-    AsyncValue<List<VideoDetail>> current,
-    AsyncValue<List<VideoDetail>> anime,
-  ) {
-    return ListView(
+  /// 推荐：精品推荐 + 各主分类推荐栏目
+  Widget _buildRecommend(List<CmsCategoryGroup> groups) {
+    final first = groups.isNotEmpty ? groups.first : null;
+    final extra = first == null ? 0 : 2;
+    return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(
         parent: BouncingScrollPhysics(),
       ),
       padding: const EdgeInsets.only(bottom: 24),
-      children: [
-        current.maybeWhen(
+      itemCount: extra + groups.length,
+      itemBuilder: (context, i) {
+        if (first != null) {
+          if (i == 0) return _heroSection(first.category.typeId);
+          if (i == 1) return _categorySection('精品推荐', first.category.typeId);
+          final g = groups[i - 2];
+          return _categorySection(
+              '${g.category.typeName}推荐', g.category.typeId);
+        }
+        final g = groups[i];
+        return _categorySection('${g.category.typeName}推荐', g.category.typeId);
+      },
+    );
+  }
+
+  Widget _heroSection(int typeId) {
+    return Consumer(
+      builder: (context, ref, _) {
+        final async = ref.watch(cmsCategoryProvider(typeId));
+        return async.maybeWhen(
           data: (list) => _buildHero(list),
           orElse: () => const SizedBox.shrink(),
-        ),
-        current.maybeWhen(
+        );
+      },
+    );
+  }
+
+  /// 分类页：按子分类自动加载栏目（子分类即栏目，而不是筛选）
+  Widget _buildCategorySections(CmsCategoryGroup group) {
+    final subs = group.subCategories;
+    if (subs.isEmpty) {
+      return Consumer(
+        builder: (context, ref, _) {
+          final async = ref.watch(cmsCategoryProvider(group.category.typeId));
+          return _buildCategoryGrid(async);
+        },
+      );
+    }
+    return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(
+        parent: BouncingScrollPhysics(),
+      ),
+      padding: const EdgeInsets.only(bottom: 24),
+      itemCount: subs.length,
+      itemBuilder: (context, i) =>
+          _categorySection(subs[i].typeName, subs[i].typeId),
+    );
+  }
+
+  /// 单个分类栏目：标题 + 横向内容 + 「更多」跳转对应分类
+  Widget _categorySection(String title, int typeId) {
+    return Consumer(
+      builder: (context, ref, _) {
+        final async = ref.watch(cmsCategoryProvider(typeId));
+        return async.maybeWhen(
           data: (list) => _buildSection(
-            title: '精品推荐',
+            title: title,
             icon: Icons.local_fire_department,
             videos: list,
+            onMore: () => _pushCategory(typeId, title),
           ),
           orElse: () => _buildSectionSkeleton(),
-        ),
-        anime.maybeWhen(
-          data: (list) => _buildSection(
-            title: '次元世界',
-            icon: Icons.auto_awesome,
-            videos: list,
-          ),
-          orElse: () => const SizedBox.shrink(),
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -438,6 +462,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     required String title,
     required IconData icon,
     required List<VideoDetail> videos,
+    required VoidCallback onMore,
   }) {
     if (videos.isEmpty) return const SizedBox.shrink();
     return Column(
@@ -447,7 +472,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           icon: Icon(icon, size: 18, color: AppColors.pink),
           title: title,
           moreText: '更多',
-          onMore: () => context.push('/search'),
+          onMore: onMore,
         ),
         HScroll(
           child: Row(

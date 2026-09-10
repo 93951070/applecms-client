@@ -270,7 +270,7 @@ class ProfilePage extends ConsumerWidget {
                 cover: record.cover,
                 year: record.year,
               );
-              Navigator.of(context).push(MaterialPageRoute(
+              Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
                 builder: (context) => VideoDetailPage(subject: subject),
               ));
             },

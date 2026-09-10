@@ -19,10 +19,9 @@ class RankPage extends ConsumerStatefulWidget {
 
 class _RankPageState extends ConsumerState<RankPage> {
   int _tab = 0;
-  int _sub = 0;
 
   void _openDetail(VideoDetail video) {
-    Navigator.of(context).push(MaterialPageRoute(
+    Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
       builder: (context) => VideoDetailPage(
         subject: DoubanSubject(
           id: video.id,
@@ -45,14 +44,9 @@ class _RankPageState extends ConsumerState<RankPage> {
 
     final mainIndex = _tab > groups.length - 1 ? 0 : _tab;
     final group = groups[mainIndex];
-    final subs = group.subCategories;
-    final subIndex = _sub > subs.length ? 0 : _sub;
-    final selectedSub =
-        (subs.isNotEmpty && subIndex > 0) ? subs[subIndex - 1] : null;
-    final typeId = selectedSub?.typeId ?? group.category.typeId;
+    final typeId = group.category.typeId;
 
     final tabs = groups.map((g) => g.category.typeName).toList();
-    final subTabs = <String>['全部', ...subs.map((s) => s.typeName)];
 
     final asyncList = ref.watch(cmsCategoryProvider(typeId));
 
@@ -78,17 +72,8 @@ class _RankPageState extends ConsumerState<RankPage> {
               current: mainIndex,
               onChanged: (i) => setState(() {
                 _tab = i;
-                _sub = 0;
               }),
             ),
-            if (subs.isNotEmpty)
-              AppTabStrip(
-                tabs: subTabs,
-                current: subIndex,
-                compact: true,
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                onChanged: (i) => setState(() => _sub = i),
-              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
               child: Text(

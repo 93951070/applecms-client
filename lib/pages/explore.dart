@@ -135,7 +135,7 @@ class _ExplorePageState extends ConsumerState<ExplorePage> {
   }
 
   void _handleMovieTap(BuildContext context, DoubanSubject movie) {
-    Navigator.of(context).push(MaterialPageRoute(
+    Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
       builder: (context) => VideoDetailPage(subject: movie),
     ));
   }
