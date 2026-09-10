@@ -8,7 +8,6 @@ import '../services/config_service.dart';
 import '../services/update_service.dart';
 import '../providers/history_provider.dart';
 import '../models/movie.dart';
-import '../models/site.dart';
 import '../core/theme.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
@@ -24,6 +23,19 @@ final cmsCategoryProvider =
   if (site.disabled) return [];
   return cms.getCategoryList(site, typeId, page: 1, pageSize: 18);
 });
+
+/// 站点真实分类树（主分类 + 子分类）
+final categoryTreeProvider =
+    FutureProvider<List<CmsCategoryGroup>>((ref) async {
+  final config = ref.read(configServiceProvider);
+  final cms = ref.read(cmsServiceProvider);
+  final site = await config.getPrimarySite();
+  if (site.disabled) return [];
+  return cms.getCategoryTree(site);
+});
+
+/// 无法取得分类树时的兜底分类（与后端默认数据一致）
+const _fallbackGroups = defaultCategoryGroups;
 
 /// 将 CMS 的 VideoDetail 桥接为展示用的 DoubanSubject
 DoubanSubject _toSubject(VideoDetail d) {
@@ -45,10 +57,10 @@ class HomePage extends ConsumerStatefulWidget {
 }
 
 class _HomePageState extends ConsumerState<HomePage> {
-  static const _tabs = ['推荐', '电影', '连续剧', '动漫', '综艺'];
   static bool _hasCheckedUpdate = false;
 
-  int _tab = 0;
+  int _mainIndex = 0;
+  int _subIndex = 0;
   int _heroPage = 0;
 
   bool _continueVisible = false;
@@ -99,8 +111,30 @@ class _HomePageState extends ConsumerState<HomePage> {
     final historyList = history.value ?? const <PlayRecord>[];
     _maybeScheduleContinue(historyList);
 
-    final recommend = _tab == 0;
-    final typeId = recommend ? 1 : _tab;
+    final treeAsync = ref.watch(categoryTreeProvider);
+    final groups = (treeAsync.value ?? const <CmsCategoryGroup>[]).isNotEmpty
+        ? treeAsync.value!
+        : _fallbackGroups;
+
+    final mainIndex = _mainIndex > groups.length ? 0 : _mainIndex;
+    final recommend = mainIndex == 0;
+    final group = recommend ? null : groups[mainIndex - 1];
+
+    final subs = group?.subCategories ?? const <CmsCategory>[];
+    final subIndex = _subIndex > subs.length ? 0 : _subIndex;
+    final selectedSub =
+        (subs.isNotEmpty && subIndex > 0) ? subs[subIndex - 1] : null;
+
+    final typeId = recommend
+        ? groups.first.category.typeId
+        : (selectedSub?.typeId ?? group!.category.typeId);
+
+    final mainTabs = <String>[
+      '推荐',
+      ...groups.map((g) => g.category.typeName),
+    ];
+    final subTabs = <String>['全部', ...subs.map((s) => s.typeName)];
+
     final current = ref.watch(cmsCategoryProvider(typeId));
     final anime = ref.watch(cmsCategoryProvider(3));
 
@@ -114,17 +148,27 @@ class _HomePageState extends ConsumerState<HomePage> {
               children: [
                 _buildTopBar(),
                 AppTabStrip(
-                  tabs: _tabs,
-                  current: _tab,
+                  tabs: mainTabs,
+                  current: mainIndex,
                   onChanged: (i) => setState(() {
-                    _tab = i;
+                    _mainIndex = i;
+                    _subIndex = 0;
                     _heroPage = 0;
                   }),
                 ),
+                if (!recommend && subs.isNotEmpty)
+                  AppTabStrip(
+                    tabs: subTabs,
+                    current: subIndex,
+                    compact: true,
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                    onChanged: (i) => setState(() => _subIndex = i),
+                  ),
                 Expanded(
                   child: RefreshIndicator(
                     color: AppColors.pink,
                     onRefresh: () async {
+                      ref.invalidate(categoryTreeProvider);
                       ref.invalidate(cmsCategoryProvider(typeId));
                       if (recommend) ref.invalidate(cmsCategoryProvider(3));
                     },

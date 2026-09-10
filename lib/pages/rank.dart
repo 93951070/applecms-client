@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/theme.dart';
 import '../models/movie.dart';
-import '../models/site.dart';
+import '../services/cms_service.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
 import 'home.dart';
@@ -17,10 +17,8 @@ class RankPage extends ConsumerStatefulWidget {
 }
 
 class _RankPageState extends ConsumerState<RankPage> {
-  static const _tabs = ['电影', '连续剧', '动漫', '综艺'];
-  static const _typeIds = [1, 2, 3, 4];
-
   int _tab = 0;
+  int _sub = 0;
 
   void _openDetail(VideoDetail video) {
     Navigator.of(context).push(MaterialPageRoute(
@@ -39,7 +37,22 @@ class _RankPageState extends ConsumerState<RankPage> {
 
   @override
   Widget build(BuildContext context) {
-    final typeId = _typeIds[_tab];
+    final treeAsync = ref.watch(categoryTreeProvider);
+    final groups = (treeAsync.value ?? const <CmsCategoryGroup>[]).isNotEmpty
+        ? treeAsync.value!
+        : defaultCategoryGroups;
+
+    final mainIndex = _tab > groups.length - 1 ? 0 : _tab;
+    final group = groups[mainIndex];
+    final subs = group.subCategories;
+    final subIndex = _sub > subs.length ? 0 : _sub;
+    final selectedSub =
+        (subs.isNotEmpty && subIndex > 0) ? subs[subIndex - 1] : null;
+    final typeId = selectedSub?.typeId ?? group.category.typeId;
+
+    final tabs = groups.map((g) => g.category.typeName).toList();
+    final subTabs = <String>['全部', ...subs.map((s) => s.typeName)];
+
     final asyncList = ref.watch(cmsCategoryProvider(typeId));
 
     return ZenScaffold(
@@ -60,10 +73,21 @@ class _RankPageState extends ConsumerState<RankPage> {
               ),
             ),
             AppTabStrip(
-              tabs: _tabs,
-              current: _tab,
-              onChanged: (i) => setState(() => _tab = i),
+              tabs: tabs,
+              current: mainIndex,
+              onChanged: (i) => setState(() {
+                _tab = i;
+                _sub = 0;
+              }),
             ),
+            if (subs.isNotEmpty)
+              AppTabStrip(
+                tabs: subTabs,
+                current: subIndex,
+                compact: true,
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                onChanged: (i) => setState(() => _sub = i),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
               child: Text(

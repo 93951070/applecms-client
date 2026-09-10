@@ -5,6 +5,38 @@ import '../models/site.dart';
 
 final cmsServiceProvider = Provider((ref) => CmsService(ref));
 
+/// CMS 分类节点（type_id / type_name / type_pid）
+class CmsCategory {
+  final int typeId;
+  final String typeName;
+  final int typePid;
+
+  const CmsCategory({
+    required this.typeId,
+    required this.typeName,
+    this.typePid = 0,
+  });
+}
+
+/// 主分类及其子分类
+class CmsCategoryGroup {
+  final CmsCategory category;
+  final List<CmsCategory> subCategories;
+
+  const CmsCategoryGroup({
+    required this.category,
+    this.subCategories = const [],
+  });
+}
+
+/// 无法取得站点分类树时的兜底分类（与后端默认数据一致）
+const defaultCategoryGroups = <CmsCategoryGroup>[
+  CmsCategoryGroup(category: CmsCategory(typeId: 1, typeName: '电影')),
+  CmsCategoryGroup(category: CmsCategory(typeId: 2, typeName: '连续剧')),
+  CmsCategoryGroup(category: CmsCategory(typeId: 3, typeName: '动漫')),
+  CmsCategoryGroup(category: CmsCategory(typeId: 4, typeName: '综艺')),
+];
+
 class CmsService {
   final Ref _ref;
   final Dio _dio = Dio(BaseOptions(
@@ -173,6 +205,110 @@ class CmsService {
     } catch (e) {
       return [];
     }
+  }
+
+  /// 获取站点分类树（主分类 + 子分类）。
+  /// 优先读取本站 `/api/categories/hierarchy`，失败时回退标准 AppleCMS `ac=list` 的 `class` 字段。
+  Future<List<CmsCategoryGroup>> getCategoryTree(SiteConfig site) async {
+    final groups = await _fetchHierarchy(site);
+    if (groups.isNotEmpty) return groups;
+    return _fetchAppleCmsClasses(site);
+  }
+
+  Future<List<CmsCategoryGroup>> _fetchHierarchy(SiteConfig site) async {
+    try {
+      final uri = Uri.tryParse(site.api);
+      if (uri == null || uri.scheme.isEmpty || uri.authority.isEmpty) return [];
+      final url = '${uri.scheme}://${uri.authority}/api/categories/hierarchy';
+      final response = await _dio.get(url);
+      final data = _asMap(response.data);
+      if (data == null) return [];
+      final hierarchy = data['hierarchy'];
+      if (hierarchy is! List) return [];
+
+      final groups = <CmsCategoryGroup>[];
+      for (final entry in hierarchy) {
+        if (entry is! Map) continue;
+        final rawCategory = entry['category'];
+        if (rawCategory is! Map) continue;
+        final category =
+            _categoryFromJson(Map<String, dynamic>.from(rawCategory));
+        final subs = <CmsCategory>[];
+        final rawSubs = entry['sub_categories'];
+        if (rawSubs is List) {
+          for (final s in rawSubs) {
+            if (s is Map) {
+              subs.add(_categoryFromJson(Map<String, dynamic>.from(s)));
+            }
+          }
+        }
+        groups.add(CmsCategoryGroup(category: category, subCategories: subs));
+      }
+      groups.sort((a, b) => a.category.typeId.compareTo(b.category.typeId));
+      return groups;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<List<CmsCategoryGroup>> _fetchAppleCmsClasses(SiteConfig site) async {
+    try {
+      final url = '${site.api}?ac=list';
+      final response = await _dio.get(url);
+      final data = _asMap(response.data);
+      if (data == null) return [];
+      final rawClass = data['class'];
+      if (rawClass is! List) return [];
+
+      final mains = <CmsCategory>[];
+      final subsByPid = <int, List<CmsCategory>>{};
+      for (final item in rawClass) {
+        if (item is! Map) continue;
+        final category = _categoryFromJson(Map<String, dynamic>.from(item));
+        if (category.typePid == 0) {
+          mains.add(category);
+        } else {
+          subsByPid.putIfAbsent(category.typePid, () => []).add(category);
+        }
+      }
+      mains.sort((a, b) => a.typeId.compareTo(b.typeId));
+      return mains
+          .map((m) => CmsCategoryGroup(
+                category: m,
+                subCategories: subsByPid[m.typeId] ?? const [],
+              ))
+          .toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  CmsCategory _categoryFromJson(Map<String, dynamic> json) {
+    return CmsCategory(
+      typeId: _asInt(json['type_id']),
+      typeName: (json['type_name'] ?? '').toString().trim(),
+      typePid: _asInt(json['type_pid']),
+    );
+  }
+
+  static Map<String, dynamic>? _asMap(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    if (raw is String) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  static int _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
   Future<VideoDetail?> getDetail(SiteConfig site, String id) async {

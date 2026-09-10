@@ -93,50 +93,58 @@ class AppTabStrip extends StatelessWidget {
     required this.current,
     required this.onChanged,
     this.padding = const EdgeInsets.fromLTRB(16, 12, 16, 0),
+    this.compact = false,
   });
 
   final List<String> tabs;
   final int current;
   final ValueChanged<int> onChanged;
   final EdgeInsetsGeometry padding;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final fontSize = compact ? 13.0 : 15.0;
+    final gap = compact ? 16.0 : 20.0;
     return Padding(
       padding: padding,
-      child: Row(
-        children: List.generate(tabs.length, (i) {
-          final active = i == current;
-          return GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => onChanged(i),
-            child: Padding(
-              padding: const EdgeInsets.only(right: 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    tabs[i],
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: active ? _text1(context) : _text2(context),
-                      fontWeight: active ? FontWeight.w700 : FontWeight.w400,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        child: Row(
+          children: List.generate(tabs.length, (i) {
+            final active = i == current;
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => onChanged(i),
+              child: Padding(
+                padding: EdgeInsets.only(right: gap),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      tabs[i],
+                      style: TextStyle(
+                        fontSize: fontSize,
+                        color: active ? _text1(context) : _text2(context),
+                        fontWeight: active ? FontWeight.w700 : FontWeight.w400,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    width: 22,
-                    height: 3,
-                    decoration: BoxDecoration(
-                      color: active ? AppColors.pink : Colors.transparent,
-                      borderRadius: BorderRadius.circular(2),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: 22,
+                      height: 3,
+                      decoration: BoxDecoration(
+                        color: active ? AppColors.pink : Colors.transparent,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          );
-        }),
+            );
+          }),
+        ),
       ),
     );
   }
