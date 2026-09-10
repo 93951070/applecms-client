@@ -143,9 +143,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       return;
     }
 
+    final fullDetail = detail;
     setState(() {
-      _video = detail;
-      _doubanId = detail.id;
+      _video = fullDetail;
+      _doubanId = fullDetail.id;
       _loadingMessage = '正在准备播放...';
       _isSearching = false;
     });
