@@ -19,6 +19,7 @@ import 'services/ad_block_service.dart';
 import 'services/config_service.dart';
 import 'widgets/main_layout.dart';
 import 'widgets/edit_dialog.dart';
+import 'widgets/update_gate.dart';
 import 'widgets/zen_ui.dart';
 
 void main() async {
@@ -56,7 +57,7 @@ class _EchoTVAppState extends ConsumerState<EchoTVApp> {
       themeMode: themeMode,
       routerConfig: _router,
       builder: (context, child) {
-        return TermsGate(child: child!);
+        return UpdateGate(child: TermsGate(child: child!));
       },
     );
   }

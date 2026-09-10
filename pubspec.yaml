@@ -50,6 +50,7 @@ dependencies:
   package_info_plus: ^9.0.0
   wakelock_plus: ^1.4.0
   bs58: ^1.0.1
+  cryptography: ^2.7.0
 
 dev_dependencies:
   flutter_test:
