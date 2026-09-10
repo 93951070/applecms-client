@@ -64,6 +64,13 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
 
   Duration get currentPosition => _videoController?.value.position ?? Duration.zero;
 
+  /// 暂停播放。用于离开当前页面时停止后台继续出声。
+  void pausePlayback() {
+    _videoController?.pause();
+    _bufferingTimer?.cancel();
+    _bufferingTimer = null;
+  }
+
   @override
   bool get wantKeepAlive => true;
 

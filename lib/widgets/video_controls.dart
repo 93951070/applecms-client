@@ -61,7 +61,11 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
   String _dragHintType = ''; // 'volume', 'brightness', 'seek'
 
   late SkipConfig _localSkipConfig;
-  
+
+  // 固定复用同一个 FocusNode。此前每次 build 都新建并 requestFocus，
+  // 导致控制层在视频播放期间不断抢焦点，输入框刚唤起键盘就被顶掉。
+  final FocusNode _keyboardFocus = FocusNode(debugLabel: 'zen-video-controls');
+
   ChewieController? _chewieController;
   VideoPlayerController? _videoPlayerController;
 
@@ -71,6 +75,10 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
     _localSkipConfig = widget.skipConfig;
     _lastVolume = widget.initialVolume;
     _initBrightness();
+    // 仅初始化后请求一次焦点用于桌面端快捷键，之后不再抢占。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _keyboardFocus.requestFocus();
+    });
   }
 
   void _initBrightness() {
@@ -105,6 +113,7 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
     _videoPlayerController?.removeListener(_updateState);
     _hideTimer?.cancel();
     _hintTimer?.cancel();
+    _keyboardFocus.dispose();
     super.dispose();
   }
 
@@ -212,7 +221,7 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
     }
 
     return KeyboardListener(
-      focusNode: FocusNode()..requestFocus(),
+      focusNode: _keyboardFocus,
       onKeyEvent: _handleKeyEvent,
       child: MouseRegion(
         onHover: (_) => _cancelAndRestartTimer(),

@@ -12,6 +12,7 @@ import '../providers/history_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../services/download_service.dart';
 import '../core/theme.dart';
+import '../core/navigation.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
@@ -35,7 +36,7 @@ class VideoDetailPage extends ConsumerStatefulWidget {
   ConsumerState<VideoDetailPage> createState() => _VideoDetailPageState();
 }
 
-class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsBindingObserver {
+class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsBindingObserver, RouteAware {
   late HistoryNotifier _historyNotifier;
 
   bool _descExpanded = false;
@@ -90,6 +91,18 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   void didChangeDependencies() {
     super.didChangeDependencies();
     _historyNotifier = ref.read(historyProvider.notifier);
+    final route = ModalRoute.of<void>(context);
+    if (route != null) {
+      routeObserver.subscribe(this, route);
+    }
+  }
+
+  // 跳转到其它视频/页面时，暂停当前播放，避免旧视频在后台继续出声。
+  @override
+  void didPushNext() {
+    _playerKey.currentState?.pausePlayback();
+    _commentFocus.unfocus();
+    _danmakuFocus.unfocus();
   }
 
   void _checkHistoryAndLoadData() async {
@@ -377,6 +390,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   @override
   void dispose() {
+    routeObserver.unsubscribe(this);
     _commentController.dispose();
     _commentFocus.dispose();
     _danmakuController.dispose();

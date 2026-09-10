@@ -182,6 +182,7 @@ class _TermsGateState extends ConsumerState<TermsGate> {
 
 final _router = GoRouter(
   navigatorKey: rootNavigatorKey,
+  observers: [routeObserver],
   initialLocation: '/',
   routes: [
     GoRoute(
