@@ -22,7 +22,6 @@ class MainLayout extends StatelessWidget {
           {'path': '/series', 'label': '剧集', 'icon': LucideIcons.clapperboard},
           {'path': '/anime', 'label': '动漫', 'icon': LucideIcons.ghost},
           {'path': '/variety', 'label': '综艺', 'icon': LucideIcons.sparkles},
-          {'path': '/live', 'label': '直播', 'icon': LucideIcons.tv},
         ];
 
         final pcNavItems = [
@@ -32,7 +31,6 @@ class MainLayout extends StatelessWidget {
           {'path': '/series', 'label': '剧集', 'icon': LucideIcons.clapperboard},
           {'path': '/anime', 'label': '动漫', 'icon': LucideIcons.ghost},
           {'path': '/variety', 'label': '综艺', 'icon': LucideIcons.sparkles},
-          {'path': '/live', 'label': '直播', 'icon': LucideIcons.tv},
         ];
 
         return Scaffold(

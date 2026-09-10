@@ -158,16 +158,13 @@ class _SubscriptionManagePageState extends ConsumerState<SubscriptionManagePage>
   void _showSubscriptionContent(Subscription sub) async {
     final configService = ref.read(configServiceProvider);
     final allSites = await configService.getSitesAll();
-    final allLives = await configService.getLiveSourcesAll();
     final allCats = await configService.getCategoriesAll();
 
     final subSites = allSites.where((s) => s.subscriptionId == sub.id).toList();
-    final subLives = allLives.where((l) => l.subscriptionId == sub.id).toList();
     final subCats = allCats.where((c) => c.subscriptionId == sub.id).toList();
 
     final Map<String, dynamic> contentMap = {
       'api_site': {for (var s in subSites) s.key: s.toJson()},
-      'lives': {for (var l in subLives) l.key: l.toJson()},
       'custom_category': subCats.map((c) => c.toJson()).toList(),
     };
 
@@ -193,8 +190,6 @@ class _SubscriptionManagePageState extends ConsumerState<SubscriptionManagePage>
               child: Row(
                 children: [
                   _buildStatItem('视频源', subSites.length),
-                  const SizedBox(width: 24),
-                  _buildStatItem('直播源', subLives.length),
                   const SizedBox(width: 24),
                   _buildStatItem('分类映射', subCats.length),
                 ],

@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:bs58/bs58.dart';
 import 'dart:convert';
 import '../models/site.dart';
-import '../models/live.dart';
 import '../models/subscription.dart';
 import 'config_service.dart';
 
@@ -110,27 +109,7 @@ class SubscriptionService {
       await _configService.saveSites(uniqueSites);
     }
 
-    // 2. 处理直播源
-    if (json['lives'] != null) {
-      final Map<String, dynamic> livesMap = json['lives'];
-      final List<LiveSource> newLives = [];
-      livesMap.forEach((key, val) {
-        newLives.add(LiveSource(
-          key: key,
-          name: val['name'] ?? key,
-          url: val['url'] ?? '',
-          from: subscriptionId != null ? 'subscription' : 'custom',
-          subscriptionId: subscriptionId,
-        ));
-      });
-      final currentLives = await _configService.getLiveSourcesAll();
-      final mergedLives = [...currentLives, ...newLives];
-      // 以 URL 为唯一标识去重
-      final uniqueLives = { for (var l in mergedLives) l.url : l }.values.toList();
-      await _configService.saveLiveSources(uniqueLives);
-    }
-
-    // 3. 处理分类映射
+    // 2. 处理分类映射
     if (json['custom_category'] != null) {
       final List<dynamic> catsList = json['custom_category'];
       final List<CustomCategory> newCats = catsList.map((c) => CustomCategory.fromJson(c as Map<String, dynamic>).copyWith(

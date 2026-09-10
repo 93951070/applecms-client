@@ -3,14 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/site.dart';
-import '../models/live.dart';
 import '../models/subscription.dart';
 
 final configServiceProvider = Provider((ref) => ConfigService());
 
 class ConfigService {
   static const String keySites = 'cms_sites';
-  static const String keyLiveSources = 'live_sources';
   static const String keyCategories = 'custom_categories';
   static const String keySubscriptions = 'subscriptions';
   static const String keyThemeMode = 'theme_mode';
@@ -145,28 +143,6 @@ class ConfigService {
     await prefs.setStringList(keySites, data);
   }
 
-  Future<List<LiveSource>> getLiveSources() async {
-    final prefs = await SharedPreferences.getInstance();
-    final data = prefs.getStringList(keyLiveSources);
-    if (data == null) return [];
-    final sources = data.map((s) => LiveSource.fromJson(jsonDecode(s))).toList();
-    final enabledSubIds = await getEnabledSubscriptionIds();
-    return sources.where((s) => s.subscriptionId == null || enabledSubIds.contains(s.subscriptionId)).toList();
-  }
-
-  Future<List<LiveSource>> getLiveSourcesAll() async {
-    final prefs = await SharedPreferences.getInstance();
-    final data = prefs.getStringList(keyLiveSources);
-    if (data == null) return [];
-    return data.map((s) => LiveSource.fromJson(jsonDecode(s))).toList();
-  }
-
-  Future<void> saveLiveSources(List<LiveSource> sources) async {
-    final prefs = await SharedPreferences.getInstance();
-    final data = sources.map((s) => jsonEncode(s.toJson())).toList();
-    await prefs.setStringList(keyLiveSources, data);
-  }
-
   Future<List<CustomCategory>> getCategories() async {
     final prefs = await SharedPreferences.getInstance();
     final data = prefs.getStringList(keyCategories);
@@ -194,11 +170,6 @@ class ConfigService {
     final sites = await getSitesAll();
     sites.removeWhere((s) => s.subscriptionId == subscriptionId);
     await saveSites(sites);
-
-    // Remove live sources
-    final lives = await getLiveSourcesAll();
-    lives.removeWhere((l) => l.subscriptionId == subscriptionId);
-    await saveLiveSources(lives);
 
     // Remove categories
     final cats = await getCategoriesAll();
@@ -388,7 +359,6 @@ class ConfigService {
       'site_name': await getSiteName(),
       'announcement': await getAnnouncement(),
       'api_site': { for (var s in await getSites()) s.key : s.toJson() },
-      'lives': { for (var l in await getLiveSources()) l.key : l.toJson() },
       'custom_category': (await getCategories()).map((c) => c.toJson()).toList(),
     };
     return const JsonEncoder.withIndent('  ').convert(config);

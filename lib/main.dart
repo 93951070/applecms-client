@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import 'core/theme.dart';
 import 'pages/home.dart';
 import 'pages/explore.dart';
-import 'pages/live.dart';
 import 'pages/play.dart';
 import 'pages/settings.dart';
 import 'pages/search.dart';
@@ -235,13 +234,6 @@ final _router = GoRouter(
           pageBuilder: (context, state) => _buildPageWithPlatformTransition(
             state,
             const ExplorePage(title: '综艺', type: 'show'),
-          ),
-        ),
-        GoRoute(
-          path: '/live',
-          pageBuilder: (context, state) => _buildPageWithPlatformTransition(
-            state,
-            const LivePage(),
           ),
         ),
         GoRoute(

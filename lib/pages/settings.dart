@@ -13,7 +13,6 @@ import '../widgets/zen_ui.dart';
 import '../widgets/edit_dialog.dart';
 import 'source_manage.dart';
 import 'category_manage.dart';
-import 'live_manage.dart';
 import 'subscription_manage.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
@@ -125,13 +124,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   _buildNavigationItem(
                     icon: LucideIcons.layers,
                     title: '分类映射管理',
-                    onTap: () => _pushPage(const CategoryManagePage()),
-                  ),
-                  _buildNavigationItem(
-                    icon: LucideIcons.tv,
-                    title: '直播源管理',
                     showDivider: false,
-                    onTap: () => _pushPage(const LiveManagePage()),
+                    onTap: () => _pushPage(const CategoryManagePage()),
                   ),
                 ]),
 
@@ -797,7 +791,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       context: context,
       builder: (context) => EditDialog(
         title: const Text('确认清除数据？'),
-        content: const Text('此操作将抹除所有站点配置、直播订阅、历史记录及偏好设置。应用将恢复到初始状态并需要重新同意用户协议。'),
+        content: const Text('此操作将抹除所有站点配置、历史记录及偏好设置。应用将恢复到初始状态并需要重新同意用户协议。'),
         actions: [
           ZenButton(
             isSecondary: true,
