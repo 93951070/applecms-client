@@ -12,6 +12,7 @@ import 'pages/settings.dart';
 import 'pages/search.dart';
 import 'pages/rank.dart';
 import 'pages/profile.dart';
+import 'pages/login_page.dart';
 import 'pages/watch.dart';
 import 'providers/settings_provider.dart';
 import 'services/ad_block_service.dart';
@@ -286,6 +287,13 @@ final _router = GoRouter(
       pageBuilder: (context, state) => _buildPageWithPlatformTransition(
         state,
         const SettingsPage(),
+      ),
+    ),
+    GoRoute(
+      path: '/login',
+      pageBuilder: (context, state) => _buildPageWithPlatformTransition(
+        state,
+        const LoginPage(),
       ),
     ),
   ],

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../core/theme.dart';
 import '../models/site.dart';
 import '../models/movie.dart';
+import '../providers/auth_provider.dart';
 import '../providers/history_provider.dart';
 import '../services/config_service.dart';
 import '../widgets/zen_ui.dart';
@@ -16,12 +18,9 @@ final profileSiteProvider = FutureProvider<SiteConfig>((ref) async {
 });
 
 /// 我的：用户信息头 + VIP 横幅 + 观看历史 + 快捷入口 + 更多应用
-/// 布局对齐上传 Appad UI；VIP/收藏/缓存/卡密等无后端数据项以本地占位呈现
+/// 会员信息对接网站 /api/auth/*、/api/user/* 接口
 class ProfilePage extends ConsumerWidget {
   const ProfilePage({super.key});
-
-  static const _uid = '888888';
-  static const _vipExpire = '2100-01-01';
 
   static const _quick = [
     (Icons.star_rounded, Color(0xFFFF4D4F), Color(0xFFFFEEF0), '我的收藏'),
@@ -45,8 +44,8 @@ class ProfilePage extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.only(bottom: 24),
           children: [
-            _buildUserHeader(context, siteName),
-            _buildVipBanner(context),
+            _buildUserHeader(context, ref, siteName),
+            _buildVipBanner(context, ref),
             SectionHead(
               icon: const Icon(Icons.history_rounded,
                   size: 18, color: AppColors.pink),
@@ -61,7 +60,8 @@ class ProfilePage extends ConsumerWidget {
                   size: 18, color: AppColors.pink),
               title: '更多应用',
             ),
-            _buildAppCells(context),
+            _buildAppCells(context, ref),
+            _buildAccountSection(context, ref),
           ],
         ),
       ),
@@ -70,75 +70,117 @@ class ProfilePage extends ConsumerWidget {
 
   // ==================== 用户信息头 ====================
 
-  Widget _buildUserHeader(BuildContext context, String siteName) {
+  Widget _buildUserHeader(
+      BuildContext context, WidgetRef ref, String siteName) {
+    final theme = Theme.of(context);
+    final auth = ref.watch(authProvider);
+    final user = auth.user;
+    final loggedIn = auth.isLoggedIn;
+    final name = loggedIn ? (user?.displayName ?? '用户') : '点击登录';
+    final uid = user != null && user.id.isNotEmpty
+        ? user.id
+        : (user?.userName ?? '未登录');
+    final portrait = user?.portrait ?? '';
+    final isVip = loggedIn && (user?.isVip ?? false);
+
+    void onTapHeader() {
+      if (!loggedIn) context.push('/login');
+    }
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
       child: Row(
         children: [
-          Container(
-            width: 68,
-            height: 68,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFFC9D6FF), Color(0xFFFFD9F2)],
+          GestureDetector(
+            onTap: onTapHeader,
+            child: Container(
+              width: 68,
+              height: 68,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFFC9D6FF), Color(0xFFFFD9F2)],
+                ),
+                border: Border.all(color: const Color(0xFFFFE4EE), width: 2),
+                image: portrait.isNotEmpty
+                    ? DecorationImage(
+                        image: NetworkImage(portrait), fit: BoxFit.cover)
+                    : null,
               ),
-              border: Border.all(color: const Color(0xFFFFE4EE), width: 2),
+              child: portrait.isEmpty
+                  ? const Icon(Icons.pets, size: 34, color: Color(0xFF7A8AA8))
+                  : null,
             ),
-            child: const Icon(Icons.pets, size: 34, color: Color(0xFF7A8AA8)),
           ),
           const SizedBox(width: 14),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Text('EchoTV',
-                        style: TextStyle(
-                            fontSize: 19, fontWeight: FontWeight.w800)),
-                    const SizedBox(width: 6),
-                    const Icon(Icons.workspace_premium_rounded,
-                        size: 18, color: AppColors.vipGold),
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                            colors: [Color(0xFFFFB84D), Color(0xFFFF7A00)]),
-                        borderRadius: BorderRadius.circular(4),
+            child: GestureDetector(
+              onTap: onTapHeader,
+              behavior: HitTestBehavior.opaque,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontSize: 19, fontWeight: FontWeight.w800)),
                       ),
-                      child: const Text('至尊SVIP',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.5)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text('UID: $_uid · 视频源：$siteName',
+                      if (loggedIn) ...[
+                        const SizedBox(width: 6),
+                        Icon(
+                          isVip
+                              ? Icons.workspace_premium_rounded
+                              : Icons.person_rounded,
+                          size: 18,
+                          color: isVip
+                              ? AppColors.vipGold
+                              : theme.colorScheme.secondary,
+                        ),
+                        if (isVip) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                  colors: [Color(0xFFFFB84D), Color(0xFFFF7A00)]),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(user?.vipLabel ?? 'VIP',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.5)),
+                          ),
+                        ],
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    loggedIn
+                        ? 'UID: $uid · 视频源：$siteName'
+                        : '登录后同步会员权益 · 视频源：$siteName',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                        fontSize: 12.5,
-                        color: Theme.of(context).colorScheme.secondary)),
-              ],
+                        fontSize: 12.5, color: theme.colorScheme.secondary),
+                  ),
+                ],
+              ),
             ),
-          ),
-          IconButton(
-            onPressed: () => _comingSoon(context, '音量设置'),
-            icon: Icon(Icons.volume_up_outlined,
-                size: 22, color: Theme.of(context).colorScheme.secondary),
           ),
           IconButton(
             onPressed: () => context.push('/settings'),
             icon: Icon(Icons.settings_outlined,
-                size: 22, color: Theme.of(context).colorScheme.secondary),
+                size: 22, color: theme.colorScheme.secondary),
           ),
         ],
       ),
@@ -147,7 +189,26 @@ class ProfilePage extends ConsumerWidget {
 
   // ==================== VIP 横幅 ====================
 
-  Widget _buildVipBanner(BuildContext context) {
+  Widget _buildVipBanner(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authProvider);
+    final user = auth.user;
+    final loggedIn = auth.isLoggedIn;
+    final isVip = loggedIn && (user?.isVip ?? false);
+
+    final String title;
+    final String subtitle;
+    if (!loggedIn) {
+      title = '开通会员';
+      subtitle = '登录后可兑换卡密、同步会员权益';
+    } else if (isVip) {
+      title = user?.vipLabel ?? 'VIP会员';
+      subtitle =
+          '到期时间 ${_formatDate(user?.vipEndTime)} · 积分 ${user?.points ?? 0}';
+    } else {
+      title = '尚未开通会员';
+      subtitle = '积分 ${user?.points ?? 0} · 兑换卡密即可开通';
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14),
       child: Container(
@@ -184,13 +245,13 @@ class ProfilePage extends ConsumerWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Row(
+                Row(
                   children: [
-                    Icon(Icons.workspace_premium_rounded,
+                    const Icon(Icons.workspace_premium_rounded,
                         size: 20, color: AppColors.vipGold),
-                    SizedBox(width: 8),
-                    Text('至尊SVIP',
-                        style: TextStyle(
+                    const SizedBox(width: 8),
+                    Text(title,
+                        style: const TextStyle(
                             color: Colors.white,
                             fontSize: 16,
                             fontWeight: FontWeight.w800,
@@ -198,14 +259,17 @@ class ProfilePage extends ConsumerWidget {
                   ],
                 ),
                 const SizedBox(height: 10),
-                const Text('到期时间 $_vipExpire',
-                    style: TextStyle(color: Color(0xFFB9B9C2), fontSize: 11)),
+                Text(subtitle,
+                    style: const TextStyle(
+                        color: Color(0xFFB9B9C2), fontSize: 11)),
                 const SizedBox(height: 10),
                 GestureDetector(
-                  onTap: () => _comingSoon(context, '赞助开通'),
+                  onTap: () => loggedIn
+                      ? _sponsor(context, ref)
+                      : context.push('/login'),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 18, vertical: 7),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
                           colors: [Color(0xFFFF7EB0), AppColors.pink]),
@@ -218,8 +282,8 @@ class ProfilePage extends ConsumerWidget {
                         ),
                       ],
                     ),
-                    child: const Text('立即赞助',
-                        style: TextStyle(
+                    child: Text(isVip ? '续费会员' : '立即赞助',
+                        style: const TextStyle(
                             color: Colors.white,
                             fontSize: 12,
                             fontWeight: FontWeight.w700)),
@@ -229,6 +293,131 @@ class ProfilePage extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  String _formatDate(DateTime? date) {
+    if (date == null) return '未知';
+    final y = date.year.toString().padLeft(4, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
+  Future<void> _sponsor(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final url = await ref.read(authProvider.notifier).buyCardUrl();
+    if (url == null || url.isEmpty) {
+      messenger.showSnackBar(const SnackBar(content: Text('暂未配置购买链接')));
+      return;
+    }
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok) await launchUrl(uri, mode: LaunchMode.platformDefault);
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(content: Text('无法打开购买链接')));
+    }
+  }
+
+  Future<void> _openOfficialSite(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final base = await ref.read(configServiceProvider).getApiBaseUrl();
+    final uri = Uri.tryParse(base);
+    if (uri == null) return;
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok) await launchUrl(uri, mode: LaunchMode.platformDefault);
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(content: Text('无法打开网站')));
+    }
+  }
+
+  Future<void> _redeemCard(BuildContext context, WidgetRef ref) async {
+    if (!ref.read(authProvider).isLoggedIn) {
+      context.push('/login');
+      return;
+    }
+    final controller = TextEditingController();
+    final code = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('卡密兑换'),
+        content: TextField(
+          controller: controller,
+          maxLength: 10,
+          autofocus: true,
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(hintText: '请输入 10 位卡密'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('兑换', style: TextStyle(color: AppColors.pink)),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (code == null || code.isEmpty) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final result = await ref.read(authProvider.notifier).redeemCard(code);
+    messenger.showSnackBar(SnackBar(
+      content: Text(result.message),
+      backgroundColor: result.success ? null : AppColors.yearRed,
+    ));
+  }
+
+  Widget _buildAccountSection(BuildContext context, WidgetRef ref) {
+    final loggedIn = ref.watch(authProvider).isLoggedIn;
+    if (!loggedIn) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+        child: ZenButton(
+          height: 46,
+          backgroundColor: AppColors.pink,
+          onPressed: () => context.push('/login'),
+          child: const Text('登录 / 注册',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+      child: ZenButton(
+        height: 46,
+        isSecondary: true,
+        onPressed: () => _confirmLogout(context, ref),
+        child: Text('退出登录',
+            style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.onSurface)),
+      ),
+    );
+  }
+
+  void _confirmLogout(BuildContext context, WidgetRef ref) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('退出登录'),
+        content: const Text('确定要退出当前账号吗？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              ref.read(authProvider.notifier).logout();
+            },
+            child: const Text('退出', style: TextStyle(color: AppColors.pink)),
+          ),
+        ],
       ),
     );
   }
@@ -358,7 +547,7 @@ class ProfilePage extends ConsumerWidget {
 
   // ==================== 更多应用 ====================
 
-  Widget _buildAppCells(BuildContext context) {
+  Widget _buildAppCells(BuildContext context, WidgetRef ref) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 6, 14, 20),
       child: Row(
@@ -369,7 +558,7 @@ class ProfilePage extends ConsumerWidget {
               iconColor: const Color(0xFF8B5CF6),
               bgColor: const Color(0xFFF3ECFF),
               label: '卡密兑换',
-              onTap: () => _comingSoon(context, '卡密兑换'),
+              onTap: () => _redeemCard(context, ref),
             ),
           ),
           const SizedBox(width: 12),
@@ -379,7 +568,7 @@ class ProfilePage extends ConsumerWidget {
               iconColor: const Color(0xFF3B82F6),
               bgColor: const Color(0xFFE8F5FF),
               label: '官方网站',
-              onTap: () => _comingSoon(context, '官方网站'),
+              onTap: () => _openOfficialSite(context, ref),
             ),
           ),
         ],

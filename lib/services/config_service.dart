@@ -11,6 +11,13 @@ class ConfigService {
   static const String keyThemeMode = 'theme_mode';
   static const String keySiteName = 'site_name';
 
+  static const String keyApiBaseUrl = 'api_base_url';
+  static const String keyAuthToken = 'auth_token';
+
+  /// 网站（会员/登录）API 基址，默认指向当前部署；可在设置中覆盖
+  static const String defaultApiBaseUrl =
+      'https://8080-a34d19d64ca9f72c.monkeycode-ai.online';
+
   static const String keyAnnouncement = 'announcement';
   static const String keyFavorites = 'favorites';
   static const String keyHistory = 'play_history';
@@ -207,5 +214,34 @@ class ConfigService {
   Future<void> setPlayerVolume(double volume) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(keyPlayerVolume, volume);
+  }
+
+  /// 网站会员 API 基址（去掉结尾斜杠）
+  Future<String> getApiBaseUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = (prefs.getString(keyApiBaseUrl) ?? defaultApiBaseUrl).trim();
+    if (raw.isEmpty) return defaultApiBaseUrl;
+    return raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
+  }
+
+  Future<void> setApiBaseUrl(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(keyApiBaseUrl, url.trim());
+  }
+
+  Future<String?> getAuthToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString(keyAuthToken);
+    if (token == null || token.isEmpty) return null;
+    return token;
+  }
+
+  Future<void> setAuthToken(String? token) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (token == null || token.isEmpty) {
+      await prefs.remove(keyAuthToken);
+    } else {
+      await prefs.setString(keyAuthToken, token);
+    }
   }
 }

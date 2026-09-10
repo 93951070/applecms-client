@@ -20,16 +20,23 @@ class SettingsPage extends ConsumerStatefulWidget {
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
   String _version = 'v1.0.0';
+  String _apiBase = ConfigService.defaultApiBaseUrl;
 
   @override
   void initState() {
     super.initState();
     _loadVersion();
+    _loadApiBase();
   }
 
   void _loadVersion() async {
     final info = await PackageInfo.fromPlatform();
     if (mounted) setState(() => _version = 'v${info.version}');
+  }
+
+  void _loadApiBase() async {
+    final base = await ref.read(configServiceProvider).getApiBaseUrl();
+    if (mounted) setState(() => _apiBase = base);
   }
 
   void _pushPage(Widget page) {
@@ -79,8 +86,36 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   _buildNavigationItem(
                     icon: LucideIcons.database,
                     title: '视频源管理',
-                    showDivider: false,
                     onTap: () => _pushPage(const SourceManagePage()),
+                  ),
+                  _buildNavigationItem(
+                    icon: LucideIcons.link,
+                    title: '会员接口地址',
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 150),
+                          child: Text(
+                            _apiBase,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                color: Theme.of(context).colorScheme.secondary,
+                                fontSize: 13),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(LucideIcons.chevronRight,
+                            size: 14,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .secondary
+                                .withValues(alpha: 0.5)),
+                      ],
+                    ),
+                    showDivider: false,
+                    onTap: _showApiBaseEditor,
                   ),
                 ]),
 
@@ -569,6 +604,71 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             isSecondary: true,
             onPressed: () => Navigator.pop(context),
             child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showApiBaseEditor() {
+    final controller = TextEditingController(text: _apiBase);
+    showDialog(
+      context: context,
+      builder: (ctx) => EditDialog(
+        title: const Text('会员接口地址',
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: controller,
+              keyboardType: TextInputType.url,
+              autocorrect: false,
+              decoration: InputDecoration(
+                hintText: 'https://example.com',
+                filled: true,
+                fillColor: Theme.of(ctx)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.05),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '用于登录、会员信息与卡密兑换接口（/api/auth/*、/api/user/*）。',
+              style: TextStyle(
+                  fontSize: 12, color: Theme.of(ctx).colorScheme.secondary),
+            ),
+          ],
+        ),
+        actions: [
+          ZenButton(
+            isSecondary: true,
+            onPressed: () => controller.text = ConfigService.defaultApiBaseUrl,
+            child: const Text('恢复默认'),
+          ),
+          ZenButton(
+            isSecondary: true,
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          ZenButton(
+            onPressed: () async {
+              final value = controller.text.trim();
+              await ref
+                  .read(configServiceProvider)
+                  .setApiBaseUrl(value.isEmpty
+                      ? ConfigService.defaultApiBaseUrl
+                      : value);
+              final base = await ref.read(configServiceProvider).getApiBaseUrl();
+              if (mounted) setState(() => _apiBase = base);
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('保存'),
           ),
         ],
       ),
