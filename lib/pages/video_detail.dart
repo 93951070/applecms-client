@@ -57,6 +57,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   String? _resolvedUrl;
   bool _resolvingPlay = false;
   String? _accessMessage;
+  String? _errorMessage;
 
   final GlobalKey<EchoVideoPlayerState> _playerKey = GlobalKey<EchoVideoPlayerState>();
 
@@ -166,7 +167,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     final target = widget.subject.title.replaceAll(' ', '').toLowerCase();
     VideoDetail? loose;
     for (final r in results) {
-      if (r.playGroups.isEmpty) continue;
       final name = r.title.replaceAll(' ', '').toLowerCase();
       if (name == target) return r;
       if (loose == null && (name.contains(target) || target.contains(name))) {
@@ -174,15 +174,12 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       }
     }
     if (loose != null) return loose;
-    for (final r in results) {
-      if (r.playGroups.isNotEmpty) return r;
-    }
-    return null;
+    return results.isEmpty ? null : results.first;
   }
 
   void _handlePlayAction(int index, {double? resumePosition}) {
     final video = _video;
-    if (video == null) return;
+    if (video == null || video.playGroups.isEmpty) return;
     final total = video.playGroups.first.urls.length;
     final safeIndex = total <= 0 ? 0 : index.clamp(0, total - 1);
     setState(() {
@@ -190,12 +187,15 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       _currentEpisodeIndex = safeIndex;
       _resolvedUrl = null;
       _accessMessage = null;
+      _errorMessage = null;
     });
     _resolveCurrentEpisode();
   }
 
   /// 通过 App 网关做会员校验并解析直连地址。
-  /// 失败时降级为客户端原始地址，会员不足时展示提示。
+  ///
+  /// 直连地址只由服务端按次下发；网关不可用或校验不通过时不会回退到
+  /// 客户端侧地址，避免绕过会员校验。
   Future<void> _resolveCurrentEpisode() async {
     final video = _video;
     if (video == null || video.playGroups.isEmpty) return;
@@ -205,38 +205,28 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     setState(() {
       _resolvingPlay = true;
       _accessMessage = null;
+      _errorMessage = null;
     });
 
     final config = ref.read(configServiceProvider);
     final api = ref.read(appApiServiceProvider);
     final base = await config.getApiBaseUrl();
     final token = await config.getAuthToken();
+    final playSource = video.playGroups.indexOf(group);
 
     try {
-      // 服务端线路顺序可能与客户端排序不同，按 source_name 匹配 play_source 索引
-      var playSource = 0;
-      try {
-        final detail = await api.videoDetail(base, video.id);
-        final sources = detail['play_sources'];
-        if (sources is List) {
-          final idx = sources.indexWhere(
-              (s) => s is Map && s['source_name'] == group.name);
-          if (idx >= 0) playSource = idx;
-        }
-      } catch (_) {
-        // 忽略详情失败，回退到 0 号线
-      }
-
       final result = await api.play(
         base,
         videoId: video.id,
-        playSource: playSource,
+        playSource: playSource < 0 ? 0 : playSource,
         playIndex: _currentEpisodeIndex,
         token: token,
       );
       if (!mounted) return;
 
-      if (result.success && result.hasAccess && result.playUrl != null) {
+      if (result.hasAccess &&
+          result.playUrl != null &&
+          result.playUrl!.isNotEmpty) {
         setState(() {
           _resolvedUrl = result.playUrl;
           _resolvingPlay = false;
@@ -248,17 +238,17 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           _resolvingPlay = false;
         });
       } else {
-        // 解析失败：降级为原始地址，仍允许尝试播放
         setState(() {
-          _resolvedUrl = group.urls[_currentEpisodeIndex];
+          _errorMessage =
+              result.message.isEmpty ? '解析失败，请重试' : result.message;
           _resolvingPlay = false;
         });
       }
     } catch (e) {
       if (!mounted) return;
-      debugPrint('App 网关取流失败，降级为原始地址: $e');
+      debugPrint('App 网关取流失败: $e');
       setState(() {
-        _resolvedUrl = group.urls[_currentEpisodeIndex];
+        _errorMessage = '取流失败，请检查网络后重试';
         _resolvingPlay = false;
       });
     }
@@ -421,14 +411,18 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     if (_accessMessage != null) {
       return _buildAccessDenied();
     }
-    if (_resolvedUrl == null && _resolvingPlay) {
-      return const Center(
-          child: CircularProgressIndicator(color: Colors.white));
+    if (_errorMessage != null) {
+      return _buildPlayError();
+    }
+
+    final resolved = _resolvedUrl;
+    if (resolved == null) {
+      return const Center(child: CircularProgressIndicator(color: Colors.white));
     }
 
     return EchoVideoPlayer(
       key: _playerKey,
-      url: _resolvedUrl ?? group.urls[_currentEpisodeIndex],
+      url: resolved,
       title: '${widget.subject.title} - ${group.titles[_currentEpisodeIndex]}',
       referer: '',
       initialPosition: _initialResumePosition,
@@ -489,7 +483,37 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     );
   }
 
+  Widget _buildPlayError() {
+    return Container(
+      color: Colors.black,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(LucideIcons.circleAlert, color: Colors.white70, size: 32),
+          const SizedBox(height: 10),
+          Text(
+            _errorMessage ?? '取流失败，请重试',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 13,
+                fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 14),
+          TextButton(
+            onPressed: () => _handlePlayAction(_currentEpisodeIndex),
+            child: const Text('重试',
+                style: TextStyle(color: Colors.white54)),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ==================== 信息区 ====================
+
 
   // ==================== 视频 / 评论 Tab ====================
 

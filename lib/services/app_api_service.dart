@@ -155,6 +155,20 @@ class AppApiService {
     return _request(base, method: 'GET', path: '$_apiPrefix/videos/$vodId');
   }
 
+  /// 分类树（主分类 + 子分类）。
+  Future<List<Map<String, dynamic>>> categories(String base) async {
+    final data =
+        await _request(base, method: 'GET', path: '$_apiPrefix/categories');
+    final hierarchy = data['hierarchy'];
+    if (hierarchy is List) {
+      return hierarchy
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    }
+    return const [];
+  }
+
   /// 会员校验并解析直连地址。`token` 为账号令牌（未登录可不传）。
   Future<AppPlayResult> play(
     String base, {
