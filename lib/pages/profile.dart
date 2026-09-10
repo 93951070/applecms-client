@@ -13,6 +13,7 @@ import '../widgets/appad_widgets.dart';
 import '../widgets/cover_image.dart';
 import 'video_detail.dart';
 import 'messages_page.dart';
+import 'favorites_page.dart';
 
 final profileSiteProvider = FutureProvider<SiteConfig>((ref) async {
   return ref.read(configServiceProvider).getPrimarySite();
@@ -55,7 +56,7 @@ class ProfilePage extends ConsumerWidget {
               onMore: () => _showHistoryActions(context, ref),
             ),
             _buildHistory(context, ref, historyAsync),
-            _buildQuickEntries(context),
+            _buildQuickEntries(context, ref),
             SectionHead(
               icon: const Icon(Icons.widgets_outlined,
                   size: 18, color: AppColors.pink),
@@ -568,7 +569,7 @@ class ProfilePage extends ConsumerWidget {
 
   // ==================== 快捷入口四宫格 ====================
 
-  Widget _buildQuickEntries(BuildContext context) {
+  Widget _buildQuickEntries(BuildContext context, WidgetRef ref) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
       child: Row(
@@ -580,12 +581,23 @@ class ProfilePage extends ConsumerWidget {
                 iconColor: iconColor,
                 bgColor: bgColor,
                 label: label,
-                onTap: () => _comingSoon(context, label),
+                onTap: () => _onQuickTap(context, label),
               ),
             ),
         ],
       ),
     );
+  }
+
+  void _onQuickTap(BuildContext context, String label) {
+    switch (label) {
+      case '我的收藏':
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute(builder: (_) => const FavoritesPage()),
+        );
+      default:
+        _comingSoon(context, label);
+    }
   }
 
   // ==================== 更多应用 ====================

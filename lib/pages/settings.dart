@@ -5,10 +5,10 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/config_service.dart';
-import '../services/update_service.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/edit_dialog.dart';
+import '../widgets/update_gate.dart';
 import 'source_manage.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
@@ -143,7 +143,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       ],
                     ),
                     showDivider: false,
-                    onTap: () => UpdateService.checkUpdate(context, showNoUpdate: true),
+                    onTap: () => checkAppUpdate(context, ref, showNoUpdate: true),
                   ),
                 ]),
 

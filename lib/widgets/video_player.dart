@@ -53,6 +53,8 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   bool _isDisposed = false;
   Timer? _bufferingTimer;
   String? _errorMessage;
+  bool _wasPlayingBeforePause = false;
+  Duration? _resumeOverride;
 
   // 弹幕叠加层
   late final AnimationController _danmakuTicker;
@@ -149,13 +151,18 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
       await controller.initialize();
       if (_isDisposed) return;
 
-      // 如果有初始进度，计算跳转位置
+      // 计算跳转位置：优先使用回前台恢复时的覆盖进度
       Duration? startAt;
-      if (widget.initialPosition != null && widget.initialPosition! > 0) {
-        final seconds = widget.initialPosition!.toInt();
+      final resume = _resumeOverride ??
+          ((widget.initialPosition != null && widget.initialPosition! > 0)
+              ? Duration(seconds: widget.initialPosition!.toInt())
+              : null);
+      _resumeOverride = null;
+      if (resume != null && resume > Duration.zero) {
+        final seconds = resume.inSeconds;
         // 只有当进度小于总时长（或者总时长还未获取到）时才跳转
         if (controller.value.duration == Duration.zero || seconds < controller.value.duration.inSeconds) {
-          startAt = Duration(seconds: seconds);
+          startAt = resume;
           debugPrint('🎬 播放器准备跳转至: ${seconds}s');
         }
       }
@@ -332,7 +339,37 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
+      _wasPlayingBeforePause = _videoController?.value.isPlaying ?? false;
+      // 后台时取消缓冲误报计时，避免回前台立刻弹错误
+      _bufferingTimer?.cancel();
+      _bufferingTimer = null;
       _videoController?.pause();
+      return;
+    }
+    if (state != AppLifecycleState.resumed || _isDisposed) return;
+
+    final controller = _videoController;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    final shouldResume = _wasPlayingBeforePause;
+    _wasPlayingBeforePause = false;
+
+    // 后台期间本地代理/网络连接会被系统挂起，回前台时旧连接已失效，
+    // 直接播放会一直缓冲，需要按当前位置重建播放器。
+    if (controller.value.isBuffering) {
+      final pos = controller.value.position;
+      if (pos > Duration.zero) _resumeOverride = pos;
+      _errorMessage = null;
+      _initializePlayer();
+      return;
+    }
+
+    if (_errorMessage != null) {
+      _errorMessage = null;
+      setState(() {});
+    }
+    if (shouldResume && !controller.value.isPlaying) {
+      controller.play();
     }
   }
 

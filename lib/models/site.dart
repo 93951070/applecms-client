@@ -121,6 +121,7 @@ class SkipConfig {
 }
 
 class Favorite {
+  final String subjectId;
   final String title;
   final String sourceName;
   final String cover;
@@ -129,7 +130,7 @@ class Favorite {
   final int saveTime;
   final String searchTitle;
   final String origin;
-  Favorite({required this.title, required this.sourceName, required this.cover, required this.year, required this.totalEpisodes, required this.saveTime, required this.searchTitle, this.origin = 'vod'});
-  Map<String, dynamic> toJson() => {'title': title, 'source_name': sourceName, 'cover': cover, 'year': year, 'total_episodes': totalEpisodes, 'save_time': saveTime, 'search_title': searchTitle, 'origin': origin};
-  factory Favorite.fromJson(Map<String, dynamic> json) => Favorite(title: json['title'] ?? '', sourceName: json['source_name'] ?? '', cover: json['cover'] ?? '', year: json['year'] ?? '', totalEpisodes: json['total_episodes'] ?? 0, saveTime: json['save_time'] ?? 0, searchTitle: json['search_title'] ?? '', origin: json['origin'] ?? 'vod');
+  Favorite({this.subjectId = '', required this.title, required this.sourceName, required this.cover, required this.year, required this.totalEpisodes, required this.saveTime, required this.searchTitle, this.origin = 'vod'});
+  Map<String, dynamic> toJson() => {'subject_id': subjectId, 'title': title, 'source_name': sourceName, 'cover': cover, 'year': year, 'total_episodes': totalEpisodes, 'save_time': saveTime, 'search_title': searchTitle, 'origin': origin};
+  factory Favorite.fromJson(Map<String, dynamic> json) => Favorite(subjectId: json['subject_id'] ?? '', title: json['title'] ?? '', sourceName: json['source_name'] ?? '', cover: json['cover'] ?? '', year: json['year'] ?? '', totalEpisodes: json['total_episodes'] ?? 0, saveTime: json['save_time'] ?? 0, searchTitle: json['search_title'] ?? '', origin: json['origin'] ?? 'vod');
 }

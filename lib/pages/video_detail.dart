@@ -9,6 +9,7 @@ import '../services/app_api_service.dart';
 import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../providers/history_provider.dart';
+import '../providers/favorites_provider.dart';
 import '../core/theme.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/zen_ui.dart';
@@ -38,7 +39,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   bool _descExpanded = false;
   int _contentTab = 0;
-  bool _favorited = false;
 
   String _doubanId = '';
 
@@ -62,6 +62,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   // 评论与弹幕
   final TextEditingController _commentController = TextEditingController();
+  final FocusNode _commentFocus = FocusNode();
+  final TextEditingController _danmakuController = TextEditingController();
+  final FocusNode _danmakuFocus = FocusNode();
+  bool _danmakuInputActive = false;
   final List<VideoComment> _comments = [];
   int _commentTotal = 0;
   int _commentPage = 1;
@@ -324,6 +328,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   @override
   void dispose() {
     _commentController.dispose();
+    _commentFocus.dispose();
+    _danmakuController.dispose();
+    _danmakuFocus.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -381,7 +388,128 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               ),
             ),
           ),
+          if (_video != null)
+            Positioned(
+              left: 10,
+              right: 10,
+              bottom: 8,
+              child: _buildDanmakuInputOverlay(),
+            ),
         ],
+      ),
+    );
+  }
+
+  /// 播放器上方的弹幕输入条（B 站风格，非弹窗），点击后在原位唤起输入法。
+  Widget _buildDanmakuInputOverlay() {
+    if (_danmakuInputActive) {
+      return Row(
+        children: [
+          Expanded(
+            child: Container(
+              height: 36,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: TextField(
+                controller: _danmakuController,
+                focusNode: _danmakuFocus,
+                maxLength: 50,
+                maxLines: 1,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => _submitDanmaku(),
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+                decoration: const InputDecoration(
+                  hintText: '发个弹幕吧...',
+                  hintStyle: TextStyle(color: Colors.white70, fontSize: 13),
+                  counterText: '',
+                  isDense: true,
+                  border: InputBorder.none,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          _danmakuBarButton('发送', _submitDanmaku),
+          const SizedBox(width: 6),
+          _danmakuBarButton('关闭', () {
+            _danmakuFocus.unfocus();
+            setState(() => _danmakuInputActive = false);
+          }),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        Expanded(
+          child: GestureDetector(
+            onTap: _openDanmakuInput,
+            child: Container(
+              height: 34,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(17),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.edit_rounded, size: 15, color: Colors.white70),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '发个弹幕吧...',
+                      style: TextStyle(color: Colors.white70, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: () => setState(() => _danmakuEnabled = !_danmakuEnabled),
+          child: Container(
+            height: 34,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(17),
+            ),
+            child: Text(
+              _danmakuEnabled ? '弹幕开' : '弹幕关',
+              style: TextStyle(
+                color: _danmakuEnabled ? AppColors.pinkLight : Colors.white60,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _danmakuBarButton(String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 34,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: AppColors.pink,
+          borderRadius: BorderRadius.circular(17),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+              color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+        ),
       ),
     );
   }
@@ -621,7 +749,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   Widget _buildDanmakuButton() {
     return GestureDetector(
-      onTap: _promptSendDanmaku,
+      onTap: _openDanmakuInput,
       child: Container(
         padding: const EdgeInsets.fromLTRB(12, 5, 5, 5),
         decoration: BoxDecoration(
@@ -790,16 +918,20 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         child: Row(
           children: [
             Expanded(
-              child: TextField(
-                controller: _commentController,
-                minLines: 1,
-                maxLines: 3,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _submitComment(),
-                decoration: const InputDecoration(
-                  hintText: '说点什么...',
-                  isDense: true,
-                  border: InputBorder.none,
+              child: GestureDetector(
+                onTap: () => _commentFocus.requestFocus(),
+                child: TextField(
+                  controller: _commentController,
+                  focusNode: _commentFocus,
+                  minLines: 1,
+                  maxLines: 3,
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: (_) => _submitComment(),
+                  decoration: const InputDecoration(
+                    hintText: '说点什么...',
+                    isDense: true,
+                    border: InputBorder.none,
+                  ),
                 ),
               ),
             ),
@@ -918,36 +1050,26 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     }
   }
 
-  Future<void> _promptSendDanmaku() async {
+  /// 在播放器上方就地唤起弹幕输入框（非弹窗）。
+  Future<void> _openDanmakuInput() async {
     final video = _video;
     if (video == null) return;
     final token = await ref.read(configServiceProvider).getAuthToken();
+    if (!mounted) return;
     if (token == null || token.isEmpty) {
-      if (mounted) context.push('/login');
+      context.push('/login');
       return;
     }
-    final controller = TextEditingController();
-    final text = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('发弹幕'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 50,
-          decoration: const InputDecoration(hintText: '说点什么...'),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-              child: const Text('发送')),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (text == null || text.isEmpty) return;
+    setState(() => _danmakuInputActive = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _danmakuFocus.requestFocus();
+    });
+  }
+
+  Future<void> _submitDanmaku() async {
+    final video = _video;
+    final text = _danmakuController.text.trim();
+    if (video == null || text.isEmpty) return;
 
     final position = _playerKey.currentState?.currentPosition ?? Duration.zero;
     try {
@@ -966,6 +1088,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           )]..sort((a, b) => a.timeMs.compareTo(b.timeMs));
         });
       }
+      _danmakuController.clear();
+      _danmakuFocus.requestFocus();
       final msg = !result.ok
           ? '弹幕发送失败'
           : (result.pending ? '弹幕已提交，等待审核' : '弹幕已发送');
@@ -1001,23 +1125,29 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   }
 
   Widget _buildActionRow(ThemeData theme) {
+    final favorited = ref.watch(favoritesProvider).value?.any((f) {
+          return widget.subject.id.isNotEmpty
+              ? f.subjectId == widget.subject.id
+              : f.searchTitle == widget.subject.title;
+        }) ??
+        false;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => setState(() => _favorited = !_favorited),
+            onTap: () => _toggleFavorite(favorited),
             child: Icon(
-              _favorited ? Icons.star_rounded : Icons.star_border_rounded,
+              favorited ? Icons.star_rounded : Icons.star_border_rounded,
               size: 26,
-              color: _favorited
+              color: favorited
                   ? AppColors.vipGold
                   : theme.colorScheme.secondary,
             ),
           ),
           const Spacer(),
           _buildActionIcon(Icons.favorite_rounded, const Color(0xFFFF6B9D),
-              () => setState(() => _favorited = true)),
+              () => _toggleFavorite(favorited)),
           const SizedBox(width: 20),
           _buildActionIcon(Icons.download_rounded, const Color(0xFFFF9F43),
               () => _comingSoon('缓存下载')),
@@ -1030,6 +1160,30 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         ],
       ),
     );
+  }
+
+  Future<void> _toggleFavorite(bool favorited) async {
+    final notifier = ref.read(favoritesProvider.notifier);
+    final messenger = ScaffoldMessenger.of(context);
+    if (favorited) {
+      await notifier.remove(widget.subject.id, widget.subject.title);
+      messenger.showSnackBar(const SnackBar(content: Text('已取消收藏')));
+      return;
+    }
+    final video = _video;
+    await notifier.add(Favorite(
+      subjectId: widget.subject.id,
+      title: widget.subject.title,
+      sourceName: video?.sourceName ?? video?.source ?? '',
+      cover: widget.subject.cover,
+      year: widget.subject.year ?? '',
+      totalEpisodes: (video != null && video.playGroups.isNotEmpty)
+          ? video.playGroups.first.urls.length
+          : 0,
+      saveTime: DateTime.now().millisecondsSinceEpoch,
+      searchTitle: widget.subject.title,
+    ));
+    messenger.showSnackBar(const SnackBar(content: Text('已收藏')));
   }
 
   Widget _buildActionIcon(IconData icon, Color color, VoidCallback onTap) {
