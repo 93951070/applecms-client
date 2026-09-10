@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/comment.dart';
@@ -118,11 +120,54 @@ class CmsService {
   }
 
   Future<VideoDetail?> getDetail(SiteConfig site, String id) async {
-    if (id.trim().isEmpty) return null;
+    final key = id.trim();
+    if (key.isEmpty) return null;
+
+    // 1) 内存缓存命中：立即返回，后台静默刷新
+    final mem = _detailMemCache[key];
+    if (mem != null) {
+      unawaited(_fetchAndCache(site, key));
+      return mem;
+    }
+
+    // 2) 磁盘缓存命中：切后台/杀进程后再次进入仍可秒开
+    final cached = await _loadCachedDetail(key, site);
+    if (cached != null) {
+      unawaited(_fetchAndCache(site, key));
+      return cached;
+    }
+
+    // 3) 无缓存：走网关取一次
+    return _fetchAndCache(site, key);
+  }
+
+  /// 内存中的详情缓存，避免页面重建时重复请求。
+  static final Map<String, VideoDetail> _detailMemCache = {};
+
+  /// 读取内存缓存（同步），用于页面首帧立即渲染。
+  VideoDetail? cachedDetail(String id) => _detailMemCache[id.trim()];
+
+  Future<VideoDetail?> _loadCachedDetail(String key, SiteConfig site) async {
     try {
-      final data = await _api.videoDetail(await _base(), id.trim());
+      final raw =
+          await _ref.read(configServiceProvider).getCachedVideoDetail(key);
+      if (raw == null) return null;
+      final detail = _detailFromGateway(raw, site);
+      if (detail.playGroups.isEmpty) return null;
+      _detailMemCache[key] = detail;
+      return detail;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<VideoDetail?> _fetchAndCache(SiteConfig site, String key) async {
+    try {
+      final data = await _api.videoDetail(await _base(), key);
       final detail = _detailFromGateway(data, site);
       if (detail.playGroups.isEmpty) return null;
+      _detailMemCache[key] = detail;
+      unawaited(_ref.read(configServiceProvider).cacheVideoDetail(key, data));
       return detail;
     } catch (_) {
       return null;

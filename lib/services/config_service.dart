@@ -180,6 +180,38 @@ class ConfigService {
     await prefs.setStringList(keyHistory, data);
   }
 
+  /// 视频详情本地缓存：切后台/重启后再次进入可秒开，避免长时间空白。
+  static const String keyVideoDetailCache = 'video_detail_cache';
+  static const String keyVideoDetailIndex = 'video_detail_cache_index';
+  static const int _videoDetailCacheLimit = 50;
+
+  Future<Map<String, dynamic>?> getCachedVideoDetail(String id) async {
+    if (id.isEmpty) return null;
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('$keyVideoDetailCache:$id');
+    if (raw == null) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> cacheVideoDetail(String id, Map<String, dynamic> data) async {
+    if (id.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('$keyVideoDetailCache:$id', jsonEncode(data));
+    final index = prefs.getStringList(keyVideoDetailIndex) ?? <String>[];
+    index.remove(id);
+    index.insert(0, id);
+    while (index.length > _videoDetailCacheLimit) {
+      final evicted = index.removeLast();
+      await prefs.remove('$keyVideoDetailCache:$evicted');
+    }
+    await prefs.setStringList(keyVideoDetailIndex, index);
+  }
+
   Future<Map<String, SkipConfig>> getSkipConfigs() async {
     final prefs = await SharedPreferences.getInstance();
     final data = prefs.getString(keySkipConfigs);

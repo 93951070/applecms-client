@@ -125,74 +125,68 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     _loadData();
   }
 
+  bool _didStartPlayback = false;
+  final Map<String, String> _episodeUrlCache = {};
+
   Future<void> _loadData() async {
     final cmsService = ref.read(cmsServiceProvider);
-    final configService = ref.read(configServiceProvider);
+    final id = widget.subject.id.trim();
 
-    setState(() {
-      _loadingMessage = '正在加载播放源...';
-    });
+    if (id.isEmpty) {
+      setState(() {
+        _isSearching = false;
+        _loadingMessage = '视频信息缺失';
+      });
+      return;
+    }
 
-    final site = await configService.getPrimarySite();
+    // 单后端架构：只有唯一数据源，直接用缓存秒开，空闲时再静默刷新。
+    // 命中缓存时立刻渲染简介与选集，避免「暂无简介」「正在加载播放源」。
+    final cached = cmsService.cachedDetail(id);
+    if (cached != null) {
+      _applyDetail(cached, startPlayback: !_didStartPlayback);
+    } else {
+      setState(() {
+        _isSearching = true;
+        _loadingMessage = '';
+      });
+    }
+
+    final site = await ref.read(configServiceProvider).getPrimarySite();
     if (!mounted) return;
 
-    if (site.disabled) {
-      setState(() {
-        _isSearching = false;
-        _loadingMessage = '未配置有效视频源';
-      });
-      return;
-    }
+    final detail = await cmsService.getDetail(site, id);
+    if (!mounted) return;
 
-    // 1) 优先按 id 直取详情（对接收 CMS 时唯一可靠的方式）
-    VideoDetail? detail;
-    final id = widget.subject.id.trim();
-    if (id.isNotEmpty) {
-      detail = await cmsService.getDetail(site, id);
-      if (!mounted) return;
-    }
-
-    // 2) 无 id 或直取失败时，按标题搜索兜底
     if (detail == null) {
-      final results = await cmsService.search(site, widget.subject.title);
-      if (!mounted) return;
-      detail = _pickBestMatch(results);
-    }
-
-    if (detail == null || detail.playGroups.isEmpty) {
-      setState(() {
-        _isSearching = false;
-        _loadingMessage = '暂无可播放资源';
-      });
+      if (_video == null) {
+        setState(() {
+          _isSearching = false;
+          _loadingMessage = '加载失败，请检查网络后重试';
+        });
+      }
       return;
     }
-
-    final fullDetail = detail;
-    setState(() {
-      _video = fullDetail;
-      _doubanId = fullDetail.id;
-      _loadingMessage = '正在准备播放...';
-      _isSearching = false;
-    });
-
-    _loadSkipConfig();
-    _loadComments();
-    _handlePlayAction(_currentEpisodeIndex, resumePosition: _initialResumePosition);
+    _applyDetail(detail, startPlayback: !_didStartPlayback);
   }
 
-  /// 搜索兜底时挑选最匹配的一条
-  VideoDetail? _pickBestMatch(List<VideoDetail> results) {
-    final target = widget.subject.title.replaceAll(' ', '').toLowerCase();
-    VideoDetail? loose;
-    for (final r in results) {
-      final name = r.title.replaceAll(' ', '').toLowerCase();
-      if (name == target) return r;
-      if (loose == null && (name.contains(target) || target.contains(name))) {
-        loose = r;
-      }
-    }
-    if (loose != null) return loose;
-    return results.isEmpty ? null : results.first;
+  /// 应用详情数据。仅在尚未开始播放时启动取流，避免刷新时打断播放。
+  void _applyDetail(VideoDetail detail, {required bool startPlayback}) {
+    setState(() {
+      _video = detail;
+      if (detail.id.isNotEmpty) _doubanId = detail.id;
+      _isSearching = false;
+      _loadingMessage = '';
+    });
+
+    if (!startPlayback) return;
+    _didStartPlayback = true;
+    final total = detail.playGroups.first.urls.length;
+    final index = total <= 0 ? 0 : _currentEpisodeIndex.clamp(0, total - 1);
+    _currentEpisodeIndex = index;
+    _loadSkipConfig();
+    _loadComments();
+    _handlePlayAction(index, resumePosition: _initialResumePosition);
   }
 
   void _handlePlayAction(int index, {double? resumePosition}) {
@@ -221,6 +215,20 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     final group = video.playGroups.first;
     if (_currentEpisodeIndex >= group.urls.length) return;
 
+    // 命中预取缓存：切集/重进无需再次等待网关解析。
+    final cacheKey = '${video.id}:$_currentEpisodeIndex';
+    final prefetched = _episodeUrlCache[cacheKey];
+    if (prefetched != null && prefetched.isNotEmpty) {
+      setState(() {
+        _resolvedUrl = prefetched;
+        _resolvingPlay = false;
+        _accessMessage = null;
+        _errorMessage = null;
+      });
+      _prefetchEpisodes();
+      return;
+    }
+
     setState(() {
       _resolvingPlay = true;
       _accessMessage = null;
@@ -246,10 +254,12 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       if (result.hasAccess &&
           result.playUrl != null &&
           result.playUrl!.isNotEmpty) {
+        _episodeUrlCache[cacheKey] = result.playUrl!;
         setState(() {
           _resolvedUrl = result.playUrl;
           _resolvingPlay = false;
         });
+        _prefetchEpisodes();
       } else if (!result.hasAccess) {
         setState(() {
           _accessMessage =
@@ -270,6 +280,45 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         _errorMessage = '取流失败，请检查网络后重试';
         _resolvingPlay = false;
       });
+    }
+  }
+
+  /// 预取当前集之后最多 3 集的播放地址，减少切集时的缓冲等待。
+  Future<void> _prefetchEpisodes() async {
+    final video = _video;
+    if (video == null || video.playGroups.isEmpty) return;
+    final group = video.playGroups.first;
+    final total = group.urls.length;
+    final start = _currentEpisodeIndex + 1;
+    final end = (start + 3) > total ? total : (start + 3);
+    if (start >= end) return;
+
+    final config = ref.read(configServiceProvider);
+    final api = ref.read(appApiServiceProvider);
+    final base = await config.getApiBaseUrl();
+    final token = await config.getAuthToken();
+    final playSource = video.playGroups.indexOf(group);
+
+    for (var i = start; i < end; i++) {
+      final key = '${video.id}:$i';
+      if (_episodeUrlCache.containsKey(key)) continue;
+      try {
+        final result = await api.play(
+          base,
+          videoId: video.id,
+          playSource: playSource < 0 ? 0 : playSource,
+          playIndex: i,
+          token: token,
+        );
+        if (result.hasAccess &&
+            result.playUrl != null &&
+            result.playUrl!.isNotEmpty) {
+          _episodeUrlCache[key] = result.playUrl!;
+        }
+      } catch (e) {
+        debugPrint('预取第 $i 集失败: $e');
+      }
+      if (!mounted) return;
     }
   }
 
@@ -886,11 +935,31 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name,
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: theme.colorScheme.secondary)),
+                Row(
+                  children: [
+                    Text(name,
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: theme.colorScheme.secondary)),
+                    if (comment.kind == 1) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: AppColors.pinkLight,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text('弹幕',
+                            style: TextStyle(
+                                fontSize: 10,
+                                color: AppColors.pink,
+                                fontWeight: FontWeight.w600)),
+                      ),
+                    ],
+                  ],
+                ),
                 const SizedBox(height: 3),
                 Text(comment.content,
                     style: const TextStyle(fontSize: 14, height: 1.35)),
@@ -1088,6 +1157,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
             content: text,
           )]..sort((a, b) => a.timeMs.compareTo(b.timeMs));
         });
+        // 评论与弹幕数据互通：发送弹幕后同步刷新评论区。
+        _commentsLoaded = false;
+        _loadComments();
       }
       _danmakuController.clear();
       _danmakuFocus.requestFocus();
@@ -1217,8 +1289,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   Widget _buildDescRow(ThemeData theme) {
     final desc = widget.subject.description ?? _video?.desc;
-    final text =
-        (desc != null && desc.trim().isNotEmpty) ? desc.trim() : '暂无简介';
+    final hasDesc = desc != null && desc.trim().isNotEmpty;
+    // 详情仍在加载且尚无简介时，不显示占位，避免闪出「暂无简介」。
+    if (!hasDesc && _isSearching) return const SizedBox.shrink();
+    final text = hasDesc ? desc.trim() : '暂无简介';
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => setState(() => _descExpanded = !_descExpanded),

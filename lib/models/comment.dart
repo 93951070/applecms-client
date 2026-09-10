@@ -7,6 +7,8 @@ class VideoComment {
   final String content;
   final int likeCount;
   final int createdAt;
+  /// 发言类型：0=评论，1=弹幕。评论区会同时展示两者。
+  final int kind;
 
   const VideoComment({
     required this.id,
@@ -15,6 +17,7 @@ class VideoComment {
     required this.content,
     this.likeCount = 0,
     this.createdAt = 0,
+    this.kind = 0,
   });
 
   factory VideoComment.fromJson(Map<String, dynamic> json) {
@@ -25,6 +28,7 @@ class VideoComment {
       content: (json['content'] ?? '').toString(),
       likeCount: (json['like_count'] as num?)?.toInt() ?? 0,
       createdAt: (json['created_at'] as num?)?.toInt() ?? 0,
+      kind: (json['kind'] as num?)?.toInt() ?? 0,
     );
   }
 

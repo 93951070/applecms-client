@@ -42,6 +42,24 @@ class PlayGroup {
   final List<String> titles;
 
   PlayGroup({required this.name, required this.urls, required this.titles});
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'urls': urls,
+        'titles': titles,
+      };
+
+  factory PlayGroup.fromJson(Map<String, dynamic> json) {
+    final titles = List<String>.from((json['titles'] as List?) ?? const []);
+    final urls = List<String>.from((json['urls'] as List?) ?? const []);
+    return PlayGroup(
+      name: (json['name'] ?? '').toString(),
+      urls: urls.length == titles.length
+          ? urls
+          : List<String>.filled(titles.length, ''),
+      titles: titles,
+    );
+  }
 }
 
 class VideoDetail {
@@ -66,6 +84,35 @@ class VideoDetail {
     this.desc,
     this.typeName,
   });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'poster': poster,
+        'source': source,
+        'source_name': sourceName,
+        'year': year,
+        'desc': desc,
+        'type_name': typeName,
+        'play_groups': playGroups.map((g) => g.toJson()).toList(),
+      };
+
+  factory VideoDetail.fromJson(Map<String, dynamic> json) {
+    return VideoDetail(
+      id: (json['id'] ?? '').toString(),
+      title: (json['title'] ?? '').toString(),
+      poster: (json['poster'] ?? '').toString(),
+      playGroups: ((json['play_groups'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((e) => PlayGroup.fromJson(Map<String, dynamic>.from(e)))
+          .toList(),
+      source: (json['source'] ?? '').toString(),
+      sourceName: (json['source_name'] ?? '').toString(),
+      year: json['year']?.toString(),
+      desc: json['desc']?.toString(),
+      typeName: json['type_name']?.toString(),
+    );
+  }
 
   @override
   bool operator ==(Object other) =>
