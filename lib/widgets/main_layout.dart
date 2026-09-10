@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'appad_widgets.dart';
 
-/// 手机端主框架：底部玻璃 4-Tab 导航（首页 / 排行榜 / 一起看 / 我的）
+/// 手机端主框架：底部扁平 4-Tab 导航（首页 / 排行榜 / 一起看 / 我的）
 class MainLayout extends StatelessWidget {
   final Widget child;
   final String currentPath;
@@ -20,7 +20,6 @@ class MainLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      extendBody: true,
       body: child,
       bottomNavigationBar: AppTabBar(
         current: _currentIndex,

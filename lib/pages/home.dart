@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -43,12 +45,16 @@ class HomePage extends ConsumerStatefulWidget {
 }
 
 class _HomePageState extends ConsumerState<HomePage> {
-  static const _tabs = ['电影', '连续剧', '动漫', '综艺'];
-  static const _typeIds = [1, 2, 3, 4];
+  static const _tabs = ['推荐', '电影', '连续剧', '动漫', '综艺'];
+  static bool _hasCheckedUpdate = false;
 
   int _tab = 0;
   int _heroPage = 0;
-  static bool _hasCheckedUpdate = false;
+
+  bool _continueVisible = false;
+  bool _continueScheduled = false;
+  bool _continueDismissed = false;
+  Timer? _continueTimer;
 
   @override
   void initState() {
@@ -61,75 +67,81 @@ class _HomePageState extends ConsumerState<HomePage> {
     });
   }
 
+  @override
+  void dispose() {
+    _continueTimer?.cancel();
+    super.dispose();
+  }
+
   void _openDetail(VideoDetail video) {
     Navigator.of(context).push(MaterialPageRoute(
       builder: (context) => VideoDetailPage(subject: _toSubject(video)),
     ));
   }
 
+  /// 观看记录首次出现时，底部浮出「继续观看」条，3 秒不点自动消失
+  void _maybeScheduleContinue(List<PlayRecord> list) {
+    if (list.isEmpty || _continueScheduled || _continueDismissed) return;
+    _continueScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _continueVisible = true);
+      _continueTimer?.cancel();
+      _continueTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _continueVisible = false);
+      });
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final typeId = _typeIds[_tab];
+    final history = ref.watch(historyProvider);
+    final historyList = history.value ?? const <PlayRecord>[];
+    _maybeScheduleContinue(historyList);
+
+    final recommend = _tab == 0;
+    final typeId = recommend ? 1 : _tab;
     final current = ref.watch(cmsCategoryProvider(typeId));
     final anime = ref.watch(cmsCategoryProvider(3));
-    final history = ref.watch(historyProvider);
 
     return ZenScaffold(
       body: SafeArea(
         bottom: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
           children: [
-            _buildTopBar(),
-            AppTabStrip(
-              tabs: _tabs,
-              current: _tab,
-              onChanged: (i) => setState(() {
-                _tab = i;
-                _heroPage = 0;
-              }),
-            ),
-            Expanded(
-              child: RefreshIndicator(
-                color: AppColors.pink,
-                onRefresh: () async {
-                  ref.invalidate(cmsCategoryProvider(typeId));
-                  ref.invalidate(cmsCategoryProvider(3));
-                },
-                child: ListView(
-                  physics: const AlwaysScrollableScrollPhysics(
-                    parent: BouncingScrollPhysics(),
-                  ),
-                  padding: const EdgeInsets.only(bottom: 120),
-                  children: [
-                    history.maybeWhen(
-                      data: (list) => _buildContinue(list),
-                      orElse: () => const SizedBox.shrink(),
-                    ),
-                    current.maybeWhen(
-                      data: (list) => _buildHero(list),
-                      orElse: () => const SizedBox.shrink(),
-                    ),
-                    current.maybeWhen(
-                      data: (list) => _buildSection(
-                        title: '热门${_tabs[_tab]}',
-                        icon: Icons.local_fire_department,
-                        videos: list,
-                      ),
-                      orElse: () => _buildSectionSkeleton(),
-                    ),
-                    anime.maybeWhen(
-                      data: (list) => _buildSection(
-                        title: '次元世界',
-                        icon: Icons.auto_awesome,
-                        videos: list,
-                      ),
-                      orElse: () => const SizedBox.shrink(),
-                    ),
-                  ],
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildTopBar(),
+                AppTabStrip(
+                  tabs: _tabs,
+                  current: _tab,
+                  onChanged: (i) => setState(() {
+                    _tab = i;
+                    _heroPage = 0;
+                  }),
                 ),
-              ),
+                Expanded(
+                  child: RefreshIndicator(
+                    color: AppColors.pink,
+                    onRefresh: () async {
+                      ref.invalidate(cmsCategoryProvider(typeId));
+                      if (recommend) ref.invalidate(cmsCategoryProvider(3));
+                    },
+                    child: recommend
+                        ? _buildRecommend(current, anime)
+                        : _buildCategoryGrid(current),
+                  ),
+                ),
+              ],
             ),
+            if (_continueVisible && historyList.isNotEmpty)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: _buildContinue(historyList.first),
+              ),
           ],
         ),
       ),
@@ -201,9 +213,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  Widget _buildContinue(List<PlayRecord> history) {
-    if (history.isEmpty) return const SizedBox.shrink();
-    final record = history.first;
+  Widget _buildContinue(PlayRecord record) {
     return ContinueBar(
       text: '继续观看：${record.title} 第 ${record.index + 1} 集',
       onTap: () {
@@ -218,6 +228,49 @@ class _HomePageState extends ConsumerState<HomePage> {
           builder: (context) => VideoDetailPage(subject: subject),
         ));
       },
+      onClose: () {
+        _continueTimer?.cancel();
+        setState(() {
+          _continueVisible = false;
+          _continueDismissed = true;
+        });
+      },
+    );
+  }
+
+  // ==================== 推荐页 ====================
+
+  Widget _buildRecommend(
+    AsyncValue<List<VideoDetail>> current,
+    AsyncValue<List<VideoDetail>> anime,
+  ) {
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(
+        parent: BouncingScrollPhysics(),
+      ),
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [
+        current.maybeWhen(
+          data: (list) => _buildHero(list),
+          orElse: () => const SizedBox.shrink(),
+        ),
+        current.maybeWhen(
+          data: (list) => _buildSection(
+            title: '精品推荐',
+            icon: Icons.local_fire_department,
+            videos: list,
+          ),
+          orElse: () => _buildSectionSkeleton(),
+        ),
+        anime.maybeWhen(
+          data: (list) => _buildSection(
+            title: '次元世界',
+            icon: Icons.auto_awesome,
+            videos: list,
+          ),
+          orElse: () => const SizedBox.shrink(),
+        ),
+      ],
     );
   }
 
@@ -371,6 +424,76 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
+  // ==================== 分类页（网格） ====================
+
+  Widget _buildCategoryGrid(AsyncValue<List<VideoDetail>> async) {
+    return async.when(
+      loading: () => GridView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        gridDelegate: _gridDelegate(context),
+        itemCount: 6,
+        itemBuilder: (context, i) => const _GridSkeleton(),
+      ),
+      error: (e, _) => ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(top: 120),
+        children: [
+          Icon(Icons.cloud_off,
+              size: 44,
+              color: Theme.of(context).colorScheme.secondary),
+          const SizedBox(height: 12),
+          Center(
+            child: Text('加载失败，下拉重试',
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.secondary)),
+          ),
+        ],
+      ),
+      data: (list) {
+        if (list.isEmpty) {
+          return ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.only(top: 120),
+            children: [
+              Icon(Icons.inbox_outlined,
+                  size: 44,
+                  color: Theme.of(context).colorScheme.secondary),
+              const SizedBox(height: 12),
+              Center(
+                child: Text('暂无内容',
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.secondary)),
+              ),
+            ],
+          );
+        }
+        return GridView.builder(
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          gridDelegate: _gridDelegate(context),
+          itemCount: list.length,
+          itemBuilder: (context, i) => _GridCard(
+            video: list[i],
+            onTap: () => _openDetail(list[i]),
+          ),
+        );
+      },
+    );
+  }
+
+  SliverGridDelegate _gridDelegate(BuildContext context) {
+    final w = MediaQuery.of(context).size.width;
+    final columns = w >= 600 ? 4 : (w >= 420 ? 3 : 3);
+    return SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: columns,
+      crossAxisSpacing: 10,
+      mainAxisSpacing: 14,
+      childAspectRatio: 0.58,
+    );
+  }
+
   Widget _buildSectionSkeleton() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -382,7 +505,8 @@ class _HomePageState extends ConsumerState<HomePage> {
             width: 120,
             height: 18,
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06),
+              color:
+                  Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(4),
             ),
           ),
@@ -408,6 +532,56 @@ class _HomePageState extends ConsumerState<HomePage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 分类网格卡片（海报自适应格子宽度）
+class _GridCard extends StatelessWidget {
+  const _GridCard({required this.video, required this.onTap});
+
+  final VideoDetail video;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final w = c.maxWidth;
+          return PosterCard(
+            title: video.title,
+            imageUrl: video.poster,
+            year: video.year,
+            width: w,
+            height: w * 1.45,
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _GridSkeleton extends StatelessWidget {
+  const _GridSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, c) {
+        final w = c.maxWidth;
+        return Container(
+          width: w,
+          height: w * 1.45,
+          decoration: BoxDecoration(
+            color:
+                Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(12),
+          ),
+        );
+      },
     );
   }
 }

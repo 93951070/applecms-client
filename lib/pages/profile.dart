@@ -30,7 +30,7 @@ class ProfilePage extends ConsumerWidget {
       body: SafeArea(
         bottom: false,
         child: ListView(
-          padding: const EdgeInsets.only(bottom: 120),
+          padding: const EdgeInsets.only(bottom: 24),
           children: [
             const SizedBox(height: 14),
             Padding(

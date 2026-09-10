@@ -84,7 +84,7 @@ class _RankPageState extends ConsumerState<RankPage> {
                           ref.invalidate(cmsCategoryProvider(typeId));
                         },
                         child: ListView.builder(
-                          padding: const EdgeInsets.only(bottom: 120),
+                          padding: const EdgeInsets.only(bottom: 24),
                           itemCount: list.length,
                           itemBuilder: (context, i) => _RankItem(
                             no: i + 1,

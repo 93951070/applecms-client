@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import '../core/theme.dart';
 import 'cover_image.dart';
@@ -21,7 +19,7 @@ Color _text3(BuildContext context) => _isDark(context)
     ? AppColors.darkText3
     : AppColors.lightText3;
 
-/// 底部导航（玻璃胶囊，4 Tab：首页 / 排行榜 / 一起看 / 我的）
+/// 底部导航（扁平全宽，4 Tab：首页 / 排行榜 / 一起看 / 我的）
 class AppTabBar extends StatelessWidget {
   const AppTabBar({super.key, required this.current, required this.onTap});
 
@@ -37,57 +35,49 @@ class AppTabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(26),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-            child: Container(
-              height: 62,
-              decoration: BoxDecoration(
-                color: (_isDark(context) ? const Color(0xFF1C171B) : Colors.white)
-                    .withValues(alpha: _isDark(context) ? 0.72 : 0.82),
-                borderRadius: BorderRadius.circular(26),
-                border: Border.all(
-                  color: _isDark(context)
-                      ? Colors.white.withValues(alpha: 0.08)
-                      : Colors.white.withValues(alpha: 0.7),
-                ),
-              ),
-              child: Row(
-                children: List.generate(_items.length, (i) {
-                  final (outline, filled, label) = _items[i];
-                  final active = i == current;
-                  final color = active
-                      ? AppColors.pink
-                      : _text3(context);
-                  return Expanded(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => onTap(i),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(active ? filled : outline, size: 23, color: color),
-                          const SizedBox(height: 3),
-                          Text(
-                            label,
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                              color: color,
-                            ),
-                          ),
-                        ],
+    final isDark = _isDark(context);
+    final inactive = isDark ? AppColors.darkText3 : const Color(0xFF9B9BA1);
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1C171B) : Colors.white,
+        border: Border(
+          top: BorderSide(
+            color: isDark ? const Color(0xFF2C262B) : const Color(0xFFEFEFF2),
+            width: 1,
+          ),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 56,
+          child: Row(
+            children: List.generate(_items.length, (i) {
+              final (outline, filled, label) = _items[i];
+              final active = i == current;
+              final color = active ? AppColors.pink : inactive;
+              return Expanded(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => onTap(i),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(active ? filled : outline, size: 22, color: color),
+                      const SizedBox(height: 3),
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                          color: color,
+                        ),
                       ),
-                    ),
-                  );
-                }),
-              ),
-            ),
+                    ],
+                  ),
+                ),
+              );
+            }),
           ),
         ),
       ),
