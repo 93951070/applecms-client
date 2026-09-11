@@ -20,16 +20,23 @@ class VideoComment {
     this.kind = 0,
   });
 
-  factory VideoComment.fromJson(Map<String, dynamic> json) {
+  factory VideoComment.fromJson(Map<String, dynamic> json, {String base = ''}) {
     return VideoComment(
       id: (json['comment_id'] ?? '').toString(),
       userName: (json['user_name'] ?? '用户').toString(),
-      userPortrait: _nonEmpty(json['user_portrait']),
+      userPortrait: _absolute(base, _nonEmpty(json['user_portrait'])),
       content: (json['content'] ?? '').toString(),
       likeCount: (json['like_count'] as num?)?.toInt() ?? 0,
       createdAt: (json['created_at'] as num?)?.toInt() ?? 0,
       kind: (json['kind'] as num?)?.toInt() ?? 0,
     );
+  }
+
+  static String? _absolute(String base, String? path) {
+    if (path == null || path.isEmpty) return path;
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    if (path.startsWith('/') && base.isNotEmpty) return '$base$path';
+    return path;
   }
 
   static String? _nonEmpty(dynamic value) {

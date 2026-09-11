@@ -6,6 +6,15 @@ import '../models/site.dart';
 
 final configServiceProvider = Provider((ref) => ConfigService());
 
+/// 将后端返回的相对媒体地址（如 `/static/...`）拼接为可访问的绝对地址。
+String absoluteMediaUrl(String base, String? path) {
+  final p = (path ?? '').trim();
+  if (p.isEmpty) return '';
+  if (p.startsWith('http://') || p.startsWith('https://')) return p;
+  if (p.startsWith('/') && base.isNotEmpty) return '$base$p';
+  return p;
+}
+
 /// 当前网站会员接口基址（去掉结尾斜杠），用于拼接相对资源地址。
 final apiBaseUrlProvider = FutureProvider<String>((ref) async {
   return ref.read(configServiceProvider).getApiBaseUrl();

@@ -259,8 +259,9 @@ class CmsService {
     int page = 1,
     int limit = 20,
   }) async {
+    final base = await _base();
     final data = await _api.fetchComments(
-      await _base(),
+      base,
       vodId,
       page: page,
       limit: limit,
@@ -270,7 +271,10 @@ class CmsService {
     if (raw is List) {
       for (final e in raw) {
         if (e is Map) {
-          items.add(VideoComment.fromJson(Map<String, dynamic>.from(e)));
+          items.add(VideoComment.fromJson(
+            Map<String, dynamic>.from(e),
+            base: base,
+          ));
         }
       }
     }

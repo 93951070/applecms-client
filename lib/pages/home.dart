@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../providers/history_provider.dart';
+import '../providers/auth_provider.dart';
 import '../models/movie.dart';
 import '../models/site.dart';
 import '../core/theme.dart';
@@ -173,18 +174,38 @@ class _HomePageState extends ConsumerState<HomePage> {
         children: [
           GestureDetector(
             onTap: () => context.go('/profile'),
-            child: Container(
-              width: 34,
-              height: 34,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFFA8C0FF), Color(0xFFFF9AE0)],
-                ),
-              ),
-              child: const Icon(Icons.pets, size: 17, color: Colors.white),
+            child: Consumer(
+              builder: (context, ref, _) {
+                final user = ref.watch(authProvider).user;
+                final baseUrl = ref.watch(apiBaseUrlProvider).maybeWhen(
+                      data: (v) => v,
+                      orElse: () => '',
+                    );
+                final portrait = absoluteMediaUrl(baseUrl, user?.portrait);
+                return Container(
+                  width: 34,
+                  height: 34,
+                  clipBehavior: Clip.antiAlias,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFFA8C0FF), Color(0xFFFF9AE0)],
+                    ),
+                  ),
+                  child: portrait.isNotEmpty
+                      ? Image.network(
+                          portrait,
+                          width: 34,
+                          height: 34,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const Icon(Icons.pets,
+                              size: 17, color: Colors.white),
+                        )
+                      : const Icon(Icons.pets, size: 17, color: Colors.white),
+                );
+              },
             ),
           ),
           const SizedBox(width: 10),
@@ -221,7 +242,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           ),
           const SizedBox(width: 12),
           GestureDetector(
-            onTap: () => context.push('/search'),
+            onTap: () => context.push('/history'),
             child: Icon(Icons.history,
                 size: 21,
                 color: Theme.of(context).colorScheme.onSurface),

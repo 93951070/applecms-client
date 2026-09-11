@@ -21,6 +21,7 @@ class ZenVideoControls extends StatefulWidget {
   final Function(double)? onVolumeChanged;
   final bool danmakuEnabled;
   final ValueListenable<bool>? danmakuListenable;
+  final ValueListenable<bool>? danmakuInputListenable;
   final VoidCallback? onDanmakuToggle;
   final List<String> episodeTitles;
   final int currentEpisodeIndex;
@@ -44,6 +45,7 @@ class ZenVideoControls extends StatefulWidget {
     this.onVolumeChanged,
     this.danmakuEnabled = true,
     this.danmakuListenable,
+    this.danmakuInputListenable,
     this.onDanmakuToggle,
     this.episodeTitles = const [],
     this.currentEpisodeIndex = 0,
@@ -69,6 +71,7 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
   bool _showSpeedSubMenu = false;
   bool _showEpisodePanel = false;
   late final ValueNotifier<bool> _danmakuFallbackNotifier;
+  late final ValueNotifier<bool> _danmakuInputFallbackNotifier;
   bool _isBarHovered = false;
   bool _isLocked = false;
   bool _showVolumeSlider = false;
@@ -102,6 +105,8 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
     _localSkipConfig = widget.skipConfig;
     _lastVolume = widget.initialVolume;
     _danmakuFallbackNotifier = ValueNotifier<bool>(widget.danmakuEnabled);
+    _danmakuInputFallbackNotifier =
+        ValueNotifier<bool>(widget.danmakuInputActive);
     _initBrightness();
     // 仅初始化后请求一次焦点用于桌面端快捷键，之后不再抢占。
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -120,6 +125,9 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
       setState(() {
         _localSkipConfig = widget.skipConfig;
       });
+    }
+    if (oldWidget.danmakuInputActive != widget.danmakuInputActive) {
+      _danmakuInputFallbackNotifier.value = widget.danmakuInputActive;
     }
   }
 
@@ -162,12 +170,15 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
     });
   }
 
+  bool get _danmakuInputActive =>
+      (widget.danmakuInputListenable ?? _danmakuInputFallbackNotifier).value;
+
   void _startHideTimer() {
     _hideTimer = Timer(const Duration(seconds: 3), () {
       if (mounted &&
           !_showSettings &&
           !_showEpisodePanel &&
-          !widget.danmakuInputActive) {
+          !_danmakuInputActive) {
         setState(() {
           _displayToggles = false;
         });
@@ -317,7 +328,19 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
                     children: <Widget>[
                       _buildTopBar(context),
                       const Spacer(),
-                      if (widget.danmakuEnabled) _buildDanmakuInputBar(),
+                      ValueListenableBuilder<bool>(
+                        valueListenable:
+                            widget.danmakuListenable ?? _danmakuFallbackNotifier,
+                        builder: (context, enabled, _) {
+                          if (!enabled) return const SizedBox.shrink();
+                          return ValueListenableBuilder<bool>(
+                            valueListenable: widget.danmakuInputListenable ??
+                                _danmakuInputFallbackNotifier,
+                            builder: (context, active, _) =>
+                                _buildDanmakuInputBar(active),
+                          );
+                        },
+                      ),
                       _buildBottomBar(context),
                     ],
                   ),
@@ -763,13 +786,13 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
 
   /// 弹幕输入条：位于控制条正上方，不遮挡弹幕开关/设置/全屏按钮；
   /// 由 Chewie 渲染，因此竖屏与全屏（横屏）都可用。
-  Widget _buildDanmakuInputBar() {
+  Widget _buildDanmakuInputBar(bool active) {
     return AnimatedOpacity(
       opacity: _displayToggles ? 1.0 : 0.0,
       duration: const Duration(milliseconds: 300),
       child: Container(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-        child: widget.danmakuInputActive
+        child: active
             ? Row(
                 children: [
                   Expanded(

@@ -90,6 +90,8 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   // 控制条上的弹幕开关控件只创建一次，用 Listenable 让图标能随状态刷新。
   final ValueNotifier<bool> _danmakuEnabledNotifier =
       ValueNotifier<bool>(true);
+  final ValueNotifier<bool> _danmakuInputNotifier =
+      ValueNotifier<bool>(false);
 
   Duration get currentPosition => _videoController?.value.position ?? Duration.zero;
 
@@ -112,6 +114,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
         AnimationController(vsync: this, duration: const Duration(seconds: 1))
           ..repeat();
     _danmakuEnabledNotifier.value = widget.danmakuEnabled;
+    _danmakuInputNotifier.value = widget.danmakuInputActive;
     _initializePlayer();
   }
 
@@ -130,6 +133,9 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
       if (!widget.danmakuEnabled) {
         _activeDanmaku.clear();
       }
+    }
+    if (oldWidget.danmakuInputActive != widget.danmakuInputActive) {
+      _danmakuInputNotifier.value = widget.danmakuInputActive;
     }
   }
 
@@ -247,6 +253,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
             widget.onSelectEpisode?.call(index, wasFullScreen);
           },
           danmakuInputActive: widget.danmakuInputActive,
+          danmakuInputListenable: _danmakuInputNotifier,
           danmakuController: widget.danmakuController,
           danmakuFocus: widget.danmakuFocus,
           onDanmakuInputActivate: widget.onDanmakuInputActivate,
@@ -398,6 +405,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
     _chewieController?.dispose();
     _danmakuTicker.dispose();
     _danmakuEnabledNotifier.dispose();
+    _danmakuInputNotifier.dispose();
     WakelockPlus.disable();
     super.dispose();
   }

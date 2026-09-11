@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -976,6 +978,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
             _comments.insert(0, created);
             _commentTotal += 1;
           });
+          // 服务端会补齐头像等资料，稍后以服务端数据为准刷新一次。
+          unawaited(_loadComments());
         }
         _commentController.clear();
         FocusScope.of(context).unfocus();

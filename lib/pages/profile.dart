@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/theme.dart';
 import '../models/site.dart';
@@ -640,7 +641,7 @@ class ProfilePage extends ConsumerWidget {
                 iconColor: iconColor,
                 bgColor: bgColor,
                 label: label,
-                onTap: () => _onQuickTap(context, label),
+                onTap: () => _onQuickTap(context, ref, label),
               ),
             ),
         ],
@@ -648,7 +649,7 @@ class ProfilePage extends ConsumerWidget {
     );
   }
 
-  void _onQuickTap(BuildContext context, String label) {
+  void _onQuickTap(BuildContext context, WidgetRef ref, String label) {
     switch (label) {
       case '我的收藏':
         Navigator.of(context, rootNavigator: true).push(
@@ -665,8 +666,25 @@ class ProfilePage extends ConsumerWidget {
           MaterialPageRoute(builder: (_) => const DownloadsPage()),
         );
         break;
+      case '分享好友':
+        _shareApp(context, ref);
+        break;
       default:
         _comingSoon(context, label);
+    }
+  }
+
+  Future<void> _shareApp(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final base = await ref.read(configServiceProvider).getApiBaseUrl();
+      final site = await ref.read(configServiceProvider).getPrimarySite();
+      await Share.share(
+        '发现一个看片神器「${site.name}」，精彩影视免费看：$base',
+        subject: '推荐一个看片神器',
+      );
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(content: Text('分享失败，请稍后重试')));
     }
   }
 

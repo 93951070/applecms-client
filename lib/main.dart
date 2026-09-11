@@ -16,6 +16,7 @@ import 'pages/profile.dart';
 import 'pages/login_page.dart';
 import 'pages/watch.dart';
 import 'pages/messages_page.dart';
+import 'pages/play_history_page.dart';
 import 'providers/settings_provider.dart';
 import 'services/ad_block_service.dart';
 import 'services/config_service.dart';
@@ -306,6 +307,13 @@ final _router = GoRouter(
       pageBuilder: (context, state) => _buildPageWithPlatformTransition(
         state,
         const MessagesPage(),
+      ),
+    ),
+    GoRoute(
+      path: '/history',
+      pageBuilder: (context, state) => _buildPageWithPlatformTransition(
+        state,
+        const PlayHistoryPage(),
       ),
     ),
   ],
