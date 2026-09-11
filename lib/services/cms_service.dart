@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/comment.dart';
 import '../models/site.dart';
 import '../models/system_message.dart';
+import '../models/user.dart';
 import 'app_api_service.dart';
 import 'config_service.dart';
 
@@ -383,6 +384,81 @@ class CmsService {
     final token = await _ref.read(configServiceProvider).getAuthToken();
     if (token == null || token.isEmpty) return;
     await _api.markAllMessagesRead(await _base(), token: token);
+  }
+
+  /// 账号播放记录（仅登录后可用）。
+  Future<List<PlayRecord>> fetchServerHistory() async {
+    final token = await _ref.read(configServiceProvider).getAuthToken();
+    if (token == null || token.isEmpty) return const [];
+    final data = await _api.fetchHistory(await _base(), token: token);
+    final raw = data['items'];
+    final items = <PlayRecord>[];
+    if (raw is List) {
+      for (final e in raw) {
+        if (e is Map) {
+          items.add(_historyToRecord(Map<String, dynamic>.from(e)));
+        }
+      }
+    }
+    return items;
+  }
+
+  /// 上报一条播放进度到账号。
+  Future<void> pushServerHistory(PlayRecord record) async {
+    final token = await _ref.read(configServiceProvider).getAuthToken();
+    if (token == null || token.isEmpty || record.doubanId.isEmpty) return;
+    await _api.saveHistory(
+      await _base(),
+      videoId: record.doubanId,
+      episode: record.index,
+      playSource: 0,
+      positionMs: record.playTime * 1000,
+      totalMs: record.totalTime * 1000,
+      title: record.title,
+      cover: record.cover,
+      token: token,
+    );
+  }
+
+  /// 清除账号播放记录；`videoId` 为空时清空全部。
+  Future<void> clearServerHistory({String? videoId}) async {
+    final token = await _ref.read(configServiceProvider).getAuthToken();
+    if (token == null || token.isEmpty) return;
+    await _api.clearHistory(await _base(), videoId: videoId, token: token);
+  }
+
+  /// 更新账号资料（昵称/头像），返回更新后的用户。
+  Future<AppUser?> updateProfile({String? nickname, String? avatar}) async {
+    final token = await _ref.read(configServiceProvider).getAuthToken();
+    if (token == null || token.isEmpty) {
+      throw const AppApiException('请先登录');
+    }
+    final data = await _api.updateProfile(
+      await _base(),
+      nickname: nickname,
+      avatar: avatar,
+      token: token,
+    );
+    final user = data['user'];
+    if (user is Map) return AppUser.fromJson(Map<String, dynamic>.from(user));
+    return null;
+  }
+
+  PlayRecord _historyToRecord(Map<String, dynamic> json) {
+    final title = (json['title'] ?? '').toString();
+    return PlayRecord(
+      title: title,
+      sourceName: '',
+      cover: (json['cover'] ?? '').toString(),
+      year: '',
+      index: _asInt(json['episode']),
+      totalEpisodes: 0,
+      playTime: _asInt(json['position_ms']) ~/ 1000,
+      totalTime: _asInt(json['total_ms']) ~/ 1000,
+      saveTime: _asInt(json['updated_at']) ~/ 1000,
+      searchTitle: title,
+      doubanId: (json['video_id'] ?? '').toString(),
+    );
   }
 }
 

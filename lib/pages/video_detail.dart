@@ -486,98 +486,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               ),
             ),
           ),
-          if (_video != null && _danmakuEnabled)
-            Positioned(
-              left: 10,
-              // 右侧留出播放器自身的「设置/放大」图标位置，避免遮挡。
-              right: 96,
-              bottom: 8,
-              child: _buildDanmakuInputOverlay(),
-            ),
         ],
       ),
-    );
-  }
-
-  /// 播放器底部的弹幕输入条（B 站风格）：开启弹幕后显示「发个弹幕吧…」，
-  /// 点击后展开输入框。开关本身在右上角，独立于这里。
-  Widget _buildDanmakuInputOverlay() {
-    if (_danmakuInputActive) {
-      return Row(
-        children: [
-          Expanded(
-            child: Container(
-              height: 32,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.55),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white24),
-              ),
-              child: TextField(
-                controller: _danmakuController,
-                focusNode: _danmakuFocus,
-                maxLength: 50,
-                maxLines: 1,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _submitDanmaku(),
-                style: const TextStyle(color: Colors.white, fontSize: 13),
-                decoration: const InputDecoration(
-                  hintText: '发个弹幕吧...',
-                  hintStyle: TextStyle(color: Colors.white70, fontSize: 13),
-                  counterText: '',
-                  isDense: true,
-                  border: InputBorder.none,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          _danmakuBarButton('发送', _submitDanmaku),
-          const SizedBox(width: 6),
-          _danmakuBarButton('关闭', () {
-            _danmakuFocus.unfocus();
-            setState(() => _danmakuInputActive = false);
-          }),
-        ],
-      );
-    }
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        if (_danmakuEnabled) ...[
-          Flexible(
-            child: GestureDetector(
-              onTap: _openDanmakuInput,
-              child: Container(
-                height: 30,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.edit_rounded, size: 14, color: Colors.white70),
-                    SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        '发个弹幕吧...',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: Colors.white70, fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ],
     );
   }
 
@@ -593,24 +503,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     });
   }
 
-  Widget _danmakuBarButton(String label, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 32,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: AppColors.pink,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(
-              color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-        ),
-      ),
-    );
+  void _closeDanmakuInput() {
+    _danmakuFocus.unfocus();
+    setState(() => _danmakuInputActive = false);
   }
 
   Widget _buildPlayerContent() {
@@ -695,6 +590,12 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           setState(() => _restoreFullScreen = false);
         }
       },
+      danmakuInputActive: _danmakuInputActive,
+      danmakuController: _danmakuController,
+      danmakuFocus: _danmakuFocus,
+      onDanmakuInputActivate: _openDanmakuInput,
+      onDanmakuInputClose: _closeDanmakuInput,
+      onDanmakuSubmit: _submitDanmaku,
     );
   }
 

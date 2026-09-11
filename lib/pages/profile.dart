@@ -1,12 +1,16 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/theme.dart';
 import '../models/site.dart';
 import '../models/movie.dart';
 import '../providers/auth_provider.dart';
 import '../providers/history_provider.dart';
+import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
@@ -37,6 +41,7 @@ class ProfilePage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final siteAsync = ref.watch(profileSiteProvider);
     final historyAsync = ref.watch(historyProvider);
+    final baseUrl = ref.watch(apiBaseUrlProvider).valueOrNull ?? '';
     final siteName = siteAsync.maybeWhen(
       data: (s) => s.name,
       orElse: () => '未配置',
@@ -48,7 +53,7 @@ class ProfilePage extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.only(bottom: 24),
           children: [
-            _buildUserHeader(context, ref, siteName),
+            _buildUserHeader(context, ref, siteName, baseUrl),
             _buildVipBanner(context, ref),
             SectionHead(
               icon: const Icon(Icons.history_rounded,
@@ -75,7 +80,7 @@ class ProfilePage extends ConsumerWidget {
   // ==================== 用户信息头 ====================
 
   Widget _buildUserHeader(
-      BuildContext context, WidgetRef ref, String siteName) {
+      BuildContext context, WidgetRef ref, String siteName, String baseUrl) {
     final theme = Theme.of(context);
     final auth = ref.watch(authProvider);
     final user = auth.user;
@@ -84,7 +89,7 @@ class ProfilePage extends ConsumerWidget {
     final uid = user != null && user.id.isNotEmpty
         ? user.id
         : (user?.userName ?? '未登录');
-    final portrait = user?.portrait ?? '';
+    final portrait = _absoluteMediaUrl(baseUrl, user?.portrait ?? '');
     final isVip = loggedIn && (user?.isVip ?? false);
 
     void onTapHeader() {
@@ -96,7 +101,9 @@ class ProfilePage extends ConsumerWidget {
       child: Row(
         children: [
           GestureDetector(
-            onTap: onTapHeader,
+            onTap: loggedIn
+                ? () => _pickAndUploadAvatar(context, ref)
+                : onTapHeader,
             child: Container(
               width: 68,
               height: 68,
@@ -421,16 +428,8 @@ class ProfilePage extends ConsumerWidget {
   Widget _buildAccountSection(BuildContext context, WidgetRef ref) {
     final loggedIn = ref.watch(authProvider).isLoggedIn;
     if (!loggedIn) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
-        child: ZenButton(
-          height: 46,
-          backgroundColor: AppColors.pink,
-          onPressed: () => context.push('/login'),
-          child: const Text('登录 / 注册',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
-        ),
-      );
+      // 未登录时不再在底部放醒目的「登录 / 注册」按钮，点击顶部头像即可登录。
+      return const SizedBox.shrink();
     }
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
@@ -466,6 +465,62 @@ class ProfilePage extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  String _absoluteMediaUrl(String base, String path) {
+    final p = path.trim();
+    if (p.isEmpty) return p;
+    if (p.startsWith('http://') || p.startsWith('https://')) return p;
+    if (p.startsWith('/') && base.isNotEmpty) return '$base$p';
+    return p;
+  }
+
+  String _mimeFromName(String name) {
+    final lower = name.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    return 'image/jpeg';
+  }
+
+  Future<void> _pickAndUploadAvatar(BuildContext context, WidgetRef ref) async {
+    final picker = ImagePicker();
+    final file = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 512,
+      maxHeight: 512,
+      imageQuality: 85,
+    );
+    if (file == null || !context.mounted) return;
+
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('读取图片失败')));
+      }
+      return;
+    }
+    final dataUrl = 'data:${_mimeFromName(file.name)};base64,${base64Encode(bytes)}';
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('正在上传头像…')));
+    }
+    try {
+      await ref.read(cmsServiceProvider).updateProfile(avatar: dataUrl);
+      await ref.read(authProvider.notifier).refresh();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(content: Text('头像已更新')));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text('头像更新失败：$e')));
+      }
+    }
   }
 
   // ==================== 观看历史 ====================

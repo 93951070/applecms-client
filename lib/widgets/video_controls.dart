@@ -25,6 +25,12 @@ class ZenVideoControls extends StatefulWidget {
   final List<String> episodeTitles;
   final int currentEpisodeIndex;
   final void Function(int index, bool wasFullScreen)? onSelectEpisode;
+  final bool danmakuInputActive;
+  final TextEditingController? danmakuController;
+  final FocusNode? danmakuFocus;
+  final VoidCallback? onDanmakuInputActivate;
+  final VoidCallback? onDanmakuInputClose;
+  final VoidCallback? onDanmakuSubmit;
 
   const ZenVideoControls({
     super.key,
@@ -42,6 +48,12 @@ class ZenVideoControls extends StatefulWidget {
     this.episodeTitles = const [],
     this.currentEpisodeIndex = 0,
     this.onSelectEpisode,
+    this.danmakuInputActive = false,
+    this.danmakuController,
+    this.danmakuFocus,
+    this.onDanmakuInputActivate,
+    this.onDanmakuInputClose,
+    this.onDanmakuSubmit,
   });
 
   @override
@@ -152,7 +164,10 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
 
   void _startHideTimer() {
     _hideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && !_showSettings && !_showEpisodePanel) {
+      if (mounted &&
+          !_showSettings &&
+          !_showEpisodePanel &&
+          !widget.danmakuInputActive) {
         setState(() {
           _displayToggles = false;
         });
@@ -299,9 +314,10 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
 
                 if (!_showSettings && !_showEpisodePanel) ...[
                   Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: <Widget>[
                       _buildTopBar(context),
+                      const Spacer(),
+                      if (widget.danmakuEnabled) _buildDanmakuInputBar(),
                       _buildBottomBar(context),
                     ],
                   ),
@@ -740,6 +756,110 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// 弹幕输入条：位于控制条正上方，不遮挡弹幕开关/设置/全屏按钮；
+  /// 由 Chewie 渲染，因此竖屏与全屏（横屏）都可用。
+  Widget _buildDanmakuInputBar() {
+    return AnimatedOpacity(
+      opacity: _displayToggles ? 1.0 : 0.0,
+      duration: const Duration(milliseconds: 300),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+        child: widget.danmakuInputActive
+            ? Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      height: 32,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.55),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: TextField(
+                        controller: widget.danmakuController,
+                        focusNode: widget.danmakuFocus,
+                        maxLength: 50,
+                        maxLines: 1,
+                        textInputAction: TextInputAction.send,
+                        onChanged: (_) => _cancelAndRestartTimer(),
+                        onSubmitted: (_) => widget.onDanmakuSubmit?.call(),
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        decoration: const InputDecoration(
+                          hintText: '发个弹幕吧...',
+                          hintStyle: TextStyle(color: Colors.white70, fontSize: 13),
+                          counterText: '',
+                          isDense: true,
+                          border: InputBorder.none,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _danmakuBarButton('发送', () => widget.onDanmakuSubmit?.call()),
+                  const SizedBox(width: 6),
+                  _danmakuBarButton('取消', () => widget.onDanmakuInputClose?.call()),
+                ],
+              )
+            : Row(
+                children: [
+                  Flexible(
+                    child: GestureDetector(
+                      onTap: () {
+                        widget.onDanmakuInputActivate?.call();
+                        _cancelAndRestartTimer();
+                      },
+                      child: Container(
+                        height: 30,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.4),
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.edit_rounded,
+                                size: 14, color: Colors.white70),
+                            SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                '发个弹幕吧...',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    color: Colors.white70, fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Widget _danmakuBarButton(String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.16),
+          borderRadius: BorderRadius.circular(15),
+        ),
+        child: Center(
+          child: Text(label,
+              style: const TextStyle(color: Colors.white, fontSize: 12)),
         ),
       ),
     );

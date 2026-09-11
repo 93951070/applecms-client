@@ -257,6 +257,75 @@ class AppApiService {
     );
   }
 
+  /// 播放记录列表，需登录令牌。
+  Future<Map<String, dynamic>> fetchHistory(String base, {String? token}) async {
+    return _request(
+      base,
+      method: 'GET',
+      path: '$_apiPrefix/history',
+      token: token,
+    );
+  }
+
+  /// 上报播放进度，需登录令牌。
+  Future<void> saveHistory(
+    String base, {
+    required String videoId,
+    required int episode,
+    required int playSource,
+    required int positionMs,
+    required int totalMs,
+    String title = '',
+    String cover = '',
+    String? token,
+  }) async {
+    await _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/history',
+      jsonBody: {
+        'video_id': videoId,
+        'episode': episode,
+        'play_source': playSource,
+        'position_ms': positionMs,
+        'total_ms': totalMs,
+        'title': title,
+        'cover': cover,
+      },
+      token: token,
+    );
+  }
+
+  /// 清除播放记录；传入 `videoId` 只清除该条，需登录令牌。
+  Future<void> clearHistory(String base, {String? videoId, String? token}) async {
+    await _request(
+      base,
+      method: 'DELETE',
+      path: '$_apiPrefix/history',
+      query: videoId == null ? '' : _encodeQuery({'video_id': videoId}),
+      token: token,
+    );
+  }
+
+  /// 更新账号资料（昵称/头像），需登录令牌。
+  Future<Map<String, dynamic>> updateProfile(
+    String base, {
+    String? nickname,
+    String? avatar,
+    String? token,
+  }) async {
+    return _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/user/profile',
+      jsonBody: {
+        if (nickname != null) 'nickname': nickname,
+        if (avatar != null) 'avatar': avatar,
+      },
+      token: token,
+    );
+  }
+
   /// 提交意见反馈，登录可选。
   Future<Map<String, dynamic>> postFeedback(
     String base, {

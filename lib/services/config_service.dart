@@ -6,6 +6,11 @@ import '../models/site.dart';
 
 final configServiceProvider = Provider((ref) => ConfigService());
 
+/// 当前网站会员接口基址（去掉结尾斜杠），用于拼接相对资源地址。
+final apiBaseUrlProvider = FutureProvider<String>((ref) async {
+  return ref.read(configServiceProvider).getApiBaseUrl();
+});
+
 class ConfigService {
   static const String keySites = 'cms_sites';
   static const String keyThemeMode = 'theme_mode';

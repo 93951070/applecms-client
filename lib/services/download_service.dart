@@ -88,16 +88,23 @@ class DownloadsNotifier extends Notifier<List<OfflineDownload>> {
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_key) ?? const [];
-    final list = <OfflineDownload>[];
+    final loaded = <OfflineDownload>[];
     for (final s in raw) {
       try {
-        list.add(OfflineDownload.fromJson(
+        loaded.add(OfflineDownload.fromJson(
             Map<String, dynamic>.from(jsonDecode(s) as Map)));
       } catch (_) {
         // 忽略损坏的记录
       }
     }
-    state = list;
+    // 合并而非覆盖：加载是异步的，期间用户可能已发起新的下载任务，
+    // 若直接覆盖会把新任务从列表里抹掉（表现为「过一会就消失」）。
+    final merged = <String, OfflineDownload>{
+      for (final d in loaded) d.id: d,
+      for (final d in state) d.id: d,
+    };
+    state = merged.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
 
   Future<void> _persist() async {

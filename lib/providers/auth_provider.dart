@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/user.dart';
 import '../services/auth_service.dart';
 import '../services/config_service.dart';
+import 'history_provider.dart';
 
 class AuthState {
   final bool initialized;
@@ -69,6 +72,7 @@ class AuthModel extends Notifier<AuthState> {
       state = AuthState(
           initialized: true, token: result.token, user: result.user);
       if (result.user == null) await refresh();
+      unawaited(ref.read(historyProvider.notifier).reload());
       return null;
     }
     state = AuthState(
@@ -93,6 +97,7 @@ class AuthModel extends Notifier<AuthState> {
       state = AuthState(
           initialized: true, token: result.token, user: result.user);
       if (result.user == null) await refresh();
+      unawaited(ref.read(historyProvider.notifier).reload());
       return null;
     }
     state = AuthState(
@@ -107,6 +112,7 @@ class AuthModel extends Notifier<AuthState> {
       await ref.read(authServiceProvider).logout(base, token);
     }
     await _clearToken();
+    await ref.read(historyProvider.notifier).onLoggedOut();
   }
 
   Future<RedeemResult> redeemCard(String code) async {

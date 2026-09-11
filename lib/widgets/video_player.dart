@@ -31,6 +31,12 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
   final void Function(int index, bool wasFullScreen)? onSelectEpisode;
   final bool autoEnterFullScreen;
   final VoidCallback? onAutoFullScreenDone;
+  final bool danmakuInputActive;
+  final TextEditingController? danmakuController;
+  final FocusNode? danmakuFocus;
+  final VoidCallback? onDanmakuInputActivate;
+  final VoidCallback? onDanmakuInputClose;
+  final VoidCallback? onDanmakuSubmit;
 
   const EchoVideoPlayer({
     super.key,
@@ -53,6 +59,12 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
     this.onSelectEpisode,
     this.autoEnterFullScreen = false,
     this.onAutoFullScreenDone,
+    this.danmakuInputActive = false,
+    this.danmakuController,
+    this.danmakuFocus,
+    this.onDanmakuInputActivate,
+    this.onDanmakuInputClose,
+    this.onDanmakuSubmit,
   });
 
   @override
@@ -234,6 +246,12 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
             if (wasFullScreen) _chewieController?.exitFullScreen();
             widget.onSelectEpisode?.call(index, wasFullScreen);
           },
+          danmakuInputActive: widget.danmakuInputActive,
+          danmakuController: widget.danmakuController,
+          danmakuFocus: widget.danmakuFocus,
+          onDanmakuInputActivate: widget.onDanmakuInputActivate,
+          onDanmakuInputClose: widget.onDanmakuInputClose,
+          onDanmakuSubmit: widget.onDanmakuSubmit,
         ),
         materialProgressColors: ChewieProgressColors(
           playedColor: widget.isLive ? Colors.white : const Color(0xFF0A84FF),
