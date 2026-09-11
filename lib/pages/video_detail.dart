@@ -141,6 +141,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   bool _didStartPlayback = false;
   final Map<String, String> _episodeUrlCache = {};
+  final Set<String> _prefetchingKeys = {};
 
   Future<void> _loadData() async {
     final cmsService = ref.read(cmsServiceProvider);
@@ -297,7 +298,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     }
   }
 
-  /// 预取当前集之后最多 3 集的播放地址，减少切集时的缓冲等待。
+  /// 并行预取当前集之后最多 3 集的播放地址，减少切集时的缓冲等待。
+  ///
+  /// 串行逐个请求会让第 2、3 集依次等一个 RTT，切集明显变慢；这里改为
+  /// 并发发起并对同一集做去重，最近一集能最快就绪。
   Future<void> _prefetchEpisodes() async {
     final video = _video;
     if (video == null || video.playGroups.isEmpty) return;
@@ -312,27 +316,45 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     final base = await config.getApiBaseUrl();
     final token = await config.getAuthToken();
     final playSource = video.playGroups.indexOf(group);
+    final sourceIndex = playSource < 0 ? 0 : playSource;
 
+    final pending = <Future<void>>[];
     for (var i = start; i < end; i++) {
       final key = '${video.id}:$i';
       if (_episodeUrlCache.containsKey(key)) continue;
-      try {
-        final result = await api.play(
-          base,
-          videoId: video.id,
-          playSource: playSource < 0 ? 0 : playSource,
-          playIndex: i,
-          token: token,
-        );
-        if (result.hasAccess &&
-            result.playUrl != null &&
-            result.playUrl!.isNotEmpty) {
-          _episodeUrlCache[key] = result.playUrl!;
-        }
-      } catch (e) {
-        debugPrint('预取第 $i 集失败: $e');
+      if (!_prefetchingKeys.add(key)) continue;
+      pending.add(_prefetchEpisode(api, base, video.id, sourceIndex, i, key, token));
+    }
+    if (pending.isEmpty) return;
+    await Future.wait(pending);
+  }
+
+  Future<void> _prefetchEpisode(
+    AppApiService api,
+    String base,
+    String videoId,
+    int playSource,
+    int index,
+    String key,
+    String? token,
+  ) async {
+    try {
+      final result = await api.play(
+        base,
+        videoId: videoId,
+        playSource: playSource,
+        playIndex: index,
+        token: token,
+      );
+      if (result.hasAccess &&
+          result.playUrl != null &&
+          result.playUrl!.isNotEmpty) {
+        _episodeUrlCache[key] = result.playUrl!;
       }
-      if (!mounted) return;
+    } catch (e) {
+      debugPrint('预取第 $index 集失败: $e');
+    } finally {
+      _prefetchingKeys.remove(key);
     }
   }
 
@@ -455,6 +477,13 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           ),
           if (_video != null)
             Positioned(
+              top: 4,
+              // 弹幕开关独立于播放器自身控制条，固定在右上角常显，不随进度条隐藏。
+              right: 4,
+              child: _buildPlayerDanmakuToggle(),
+            ),
+          if (_video != null && _danmakuEnabled)
+            Positioned(
               left: 10,
               // 右侧留出播放器自身的「设置/放大」图标位置，避免遮挡。
               right: 96,
@@ -466,8 +495,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     );
   }
 
-  /// 播放器底部的弹幕条（B 站风格）：关闭弹幕时仅保留一个很小的开关，
-  /// 开启后才显示「发个弹幕吧…」输入条，避免遮挡播放器自身控件。
+  /// 播放器底部的弹幕输入条（B 站风格）：开启弹幕后显示「发个弹幕吧…」，
+  /// 点击后展开输入框。开关本身在右上角，独立于这里。
   Widget _buildDanmakuInputOverlay() {
     if (_danmakuInputActive) {
       return Row(
@@ -544,12 +573,12 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           ),
           const SizedBox(width: 8),
         ],
-        _buildPlayerDanmakuToggle(),
       ],
     );
   }
 
-  /// 播放器内的弹幕开关：与播放器「设置/放大」图标同样小巧。
+  /// 播放器内的弹幕开关：固定在右上角常显，独立于播放器自身的控制条，
+  /// 不随进度条一起隐藏。
   Widget _buildPlayerDanmakuToggle() {
     final on = _danmakuEnabled;
     return GestureDetector(
