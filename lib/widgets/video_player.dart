@@ -81,6 +81,10 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   bool _wasPlayingBeforePause = false;
   Duration? _resumeOverride;
 
+  /// 初始化代次号：切集/重试/离场时自增，使任何在途的旧初始化立即作废，
+  /// 并强制释放它创建的控制器，避免出现「上一集还在后台出声」。
+  int _initToken = 0;
+
   // 弹幕叠加层
   late final AnimationController _danmakuTicker;
   final Set<int> _spawnedDanmaku = {};
@@ -142,29 +146,44 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   }
 
   Future<void> _initializePlayer() async {
-    if (_isDisposed) return;
+    if (_isDisposed || !mounted) return;
+    final token = ++_initToken;
+
+    // 切集瞬间先暂停当前实例，旧音轨立即停止，不等待异步释放完成。
+    _videoController?.pause();
+
     setState(() {
       _isInitializing = true;
       _errorMessage = null;
     });
 
+    VideoPlayerController? controller;
+
     try {
       final oldVideoController = _videoController;
       final oldChewieController = _chewieController;
-      
+
       _videoController = null;
       _chewieController = null;
 
       if (oldChewieController != null) {
-        oldChewieController.dispose();
+        try {
+          oldChewieController.dispose();
+        } catch (e) {
+          debugPrint('EchoVideoPlayer: dispose old chewie failed: $e');
+        }
       }
       if (oldVideoController != null) {
         oldVideoController.removeListener(_videoListener);
-        await oldVideoController.dispose();
+        try {
+          await oldVideoController.dispose();
+        } catch (e) {
+          debugPrint('EchoVideoPlayer: dispose old video failed: $e');
+        }
         // 释放旧播放器资源后再创建新实例，避免底层解码器抢占。
         await Future.delayed(const Duration(milliseconds: 200));
       }
-      if (_isDisposed) return;
+      if (_isDisposed || !mounted || token != _initToken) return;
 
       // 1. 判定是否为标准的 M3U8 格式（用于代理服务器处理）
       final isM3u8 = widget.url.toLowerCase().contains('.m3u8');
@@ -184,7 +203,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
         }
       }
 
-      final controller = VideoPlayerController.networkUrl(
+      controller = VideoPlayerController.networkUrl(
         Uri.parse(playUrl),
         httpHeaders: {
           'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
@@ -192,10 +211,19 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
         },
         formatHint: useHlsHint ? VideoFormat.hls : null,
       );
-      
-      _videoController = controller;
+
       await controller.initialize();
-      if (_isDisposed) return;
+
+      // 初始化期间若已切集或离场，直接丢弃该控制器，绝不允许它开始播放。
+      if (_isDisposed || !mounted || token != _initToken) {
+        if (_videoController == controller) _videoController = null;
+        try {
+          await controller.dispose();
+        } catch (_) {}
+        return;
+      }
+
+      _videoController = controller;
 
       // 计算跳转位置：优先使用回前台恢复时的覆盖进度
       Duration? startAt;
@@ -216,6 +244,15 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
       // 设置音量
       final volume = ref.read(playerVolumeProvider);
       await controller.setVolume(volume);
+
+      // 期间若再次切集/离场，释放本控制器，避免出现「上一集还在后台出声」。
+      if (_isDisposed || !mounted || token != _initToken) {
+        if (_videoController == controller) _videoController = null;
+        try {
+          await controller.dispose();
+        } catch (_) {}
+        return;
+      }
 
       // 进度监听
       controller.addListener(_videoListener);
@@ -278,14 +315,19 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
         });
       }
     } catch (e) {
+      if (controller != null && _videoController != controller) {
+        try {
+          await controller.dispose();
+        } catch (_) {}
+      }
       debugPrint('EchoVideoPlayer error: $e');
-      if (mounted) {
+      if (mounted && !_isDisposed) {
         setState(() {
           _errorMessage = e.toString().contains('404') ? '资源不存在 (404)' : '无法加载视频，请检查网络或更换线路';
         });
       }
     } finally {
-      if (!_isDisposed && mounted) {
+      if (!_isDisposed && mounted && token == _initToken) {
         setState(() => _isInitializing = false);
       }
     }
@@ -390,6 +432,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   @override
   void dispose() {
     _isDisposed = true;
+    _initToken++;
     _bufferingTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     
