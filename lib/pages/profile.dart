@@ -41,7 +41,9 @@ class ProfilePage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final siteAsync = ref.watch(profileSiteProvider);
     final historyAsync = ref.watch(historyProvider);
-    final baseUrl = ref.watch(apiBaseUrlProvider).valueOrNull ?? '';
+    final baseUrl = ref
+        .watch(apiBaseUrlProvider)
+        .maybeWhen(data: (v) => v, orElse: () => '');
     final siteName = siteAsync.maybeWhen(
       data: (s) => s.name,
       orElse: () => '未配置',

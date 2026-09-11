@@ -43,9 +43,10 @@ class HistoryNotifier extends Notifier<AsyncValue<List<PlayRecord>>> {
     // 获取当前列表并更新
     final currentHistory = state.value ?? [];
     final updatedHistory = List<PlayRecord>.from(currentHistory);
+    final recordVodId = record.doubanId ?? '';
 
     updatedHistory.removeWhere((r) =>
-        (record.doubanId.isNotEmpty && r.doubanId == record.doubanId) ||
+        (recordVodId.isNotEmpty && r.doubanId == recordVodId) ||
         r.searchTitle == record.searchTitle);
     updatedHistory.insert(0, record);
     if (updatedHistory.length > 20) updatedHistory.removeLast();
@@ -55,7 +56,7 @@ class HistoryNotifier extends Notifier<AsyncValue<List<PlayRecord>>> {
 
     // 异步持久化（本机缓存 + 账号）
     await service.saveHistory(updatedHistory);
-    if (record.doubanId.isNotEmpty) {
+    if (recordVodId.isNotEmpty) {
       try {
         await ref.read(cmsServiceProvider).pushServerHistory(record);
       } catch (_) {}
@@ -75,7 +76,7 @@ class HistoryNotifier extends Notifier<AsyncValue<List<PlayRecord>>> {
     final service = ref.read(configServiceProvider);
     final currentHistory = state.value ?? [];
     final matched = currentHistory.where((r) => r.searchTitle == searchTitle);
-    final vodId = matched.isNotEmpty ? matched.first.doubanId : '';
+    final vodId = matched.isNotEmpty ? (matched.first.doubanId ?? '') : '';
     final updatedHistory = currentHistory.where((r) => r.searchTitle != searchTitle).toList();
 
     state = AsyncData(updatedHistory);

@@ -406,10 +406,11 @@ class CmsService {
   /// 上报一条播放进度到账号。
   Future<void> pushServerHistory(PlayRecord record) async {
     final token = await _ref.read(configServiceProvider).getAuthToken();
-    if (token == null || token.isEmpty || record.doubanId.isEmpty) return;
+    final vodId = record.doubanId ?? '';
+    if (token == null || token.isEmpty || vodId.isEmpty) return;
     await _api.saveHistory(
       await _base(),
-      videoId: record.doubanId,
+      videoId: vodId,
       episode: record.index,
       playSource: 0,
       positionMs: record.playTime * 1000,
