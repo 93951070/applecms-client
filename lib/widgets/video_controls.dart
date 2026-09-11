@@ -8,6 +8,7 @@ import 'package:chewie/chewie.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/site.dart';
 import 'zen_ui.dart';
+import 'bili_loading.dart';
 
 class ZenVideoControls extends StatefulWidget {
   final bool isAdBlockingEnabled;
@@ -248,7 +249,7 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
             child: Stack(
               children: [
                 if (_latestValue == null || !_latestValue!.isInitialized || _latestValue!.isBuffering)
-                  const Center(child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                  const Center(child: BiliLoading(size: 40, color: Colors.white, strokeWidth: 2.5)),
                 
                 _buildHitArea(),
 

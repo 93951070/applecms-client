@@ -9,6 +9,7 @@ import '../models/site.dart';
 import '../services/ad_block_service.dart';
 import '../providers/settings_provider.dart';
 import 'video_controls.dart';
+import 'bili_loading.dart';
 
 class EchoVideoPlayer extends ConsumerStatefulWidget {
   final String url;
@@ -414,7 +415,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
 
     if (_isInitializing || _chewieController == null || !_videoController!.value.isInitialized) {
       return const Center(
-        child: CircularProgressIndicator(color: Colors.white),
+        child: BiliLoading(size: 44, color: Colors.white),
       );
     }
 

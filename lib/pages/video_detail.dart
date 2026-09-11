@@ -17,6 +17,7 @@ import '../widgets/cover_image.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
 import '../widgets/video_player.dart';
+import '../widgets/bili_loading.dart';
 
 /// 播放页「好剧推送」数据源（默认电影分类）
 final _recommendProvider = FutureProvider<List<VideoDetail>>((ref) async {
@@ -455,7 +456,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           if (_video != null)
             Positioned(
               left: 10,
-              right: 10,
+              // 右侧留出播放器自身的「设置/放大」图标位置，避免遮挡。
+              right: 96,
               bottom: 8,
               child: _buildDanmakuInputOverlay(),
             ),
@@ -464,18 +466,19 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     );
   }
 
-  /// 播放器上方的弹幕输入条（B 站风格，非弹窗），点击后在原位唤起输入法。
+  /// 播放器底部的弹幕条（B 站风格）：关闭弹幕时仅保留一个很小的开关，
+  /// 开启后才显示「发个弹幕吧…」输入条，避免遮挡播放器自身控件。
   Widget _buildDanmakuInputOverlay() {
     if (_danmakuInputActive) {
       return Row(
         children: [
           Expanded(
             child: Container(
-              height: 36,
+              height: 32,
               padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.55),
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: Colors.white24),
               ),
               child: TextField(
@@ -506,55 +509,72 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         ],
       );
     }
+
     return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
       children: [
-        Expanded(
-          child: GestureDetector(
-            onTap: _openDanmakuInput,
-            child: Container(
-              height: 34,
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.45),
-                borderRadius: BorderRadius.circular(17),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.edit_rounded, size: 15, color: Colors.white70),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '发个弹幕吧...',
-                      style: TextStyle(color: Colors.white70, fontSize: 13),
+        if (_danmakuEnabled) ...[
+          Flexible(
+            child: GestureDetector(
+              onTap: _openDanmakuInput,
+              child: Container(
+                height: 30,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.edit_rounded, size: 14, color: Colors.white70),
+                    SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        '发个弹幕吧...',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-        const SizedBox(width: 8),
-        GestureDetector(
-          onTap: () => setState(() => _danmakuEnabled = !_danmakuEnabled),
-          child: Container(
-            height: 34,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.45),
-              borderRadius: BorderRadius.circular(17),
-            ),
-            child: Text(
-              _danmakuEnabled ? '弹幕开' : '弹幕关',
-              style: TextStyle(
-                color: _danmakuEnabled ? AppColors.pinkLight : Colors.white60,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ),
+          const SizedBox(width: 8),
+        ],
+        _buildPlayerDanmakuToggle(),
       ],
+    );
+  }
+
+  /// 播放器内的弹幕开关：与播放器「设置/放大」图标同样小巧。
+  Widget _buildPlayerDanmakuToggle() {
+    final on = _danmakuEnabled;
+    return GestureDetector(
+      onTap: () => setState(() {
+        _danmakuEnabled = !_danmakuEnabled;
+        if (!_danmakuEnabled) {
+          _danmakuFocus.unfocus();
+          _danmakuInputActive = false;
+        }
+      }),
+      child: Container(
+        width: 30,
+        height: 30,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.4),
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white24),
+        ),
+        child: Icon(
+          on ? Icons.subtitles : Icons.subtitles_off,
+          size: 17,
+          color: on ? AppColors.pinkLight : Colors.white54,
+        ),
+      ),
     );
   }
 
@@ -562,12 +582,12 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: 34,
+        height: 32,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: AppColors.pink,
-          borderRadius: BorderRadius.circular(17),
+          borderRadius: BorderRadius.circular(16),
         ),
         child: Text(
           label,
@@ -592,7 +612,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (_isSearching) ...[
-                  const CircularProgressIndicator(color: Colors.white),
+                  const BiliLoading(size: 44, color: Colors.white),
                   const SizedBox(height: 16),
                 ],
                 Padding(
@@ -624,7 +644,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
     final resolved = _resolvedUrl;
     if (resolved == null) {
-      return const Center(child: CircularProgressIndicator(color: Colors.white));
+      return const Center(
+          child: BiliLoading(size: 44, color: Colors.white));
     }
 
     return EchoVideoPlayer(
@@ -734,44 +755,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           _buildContentTab(theme, '视频', 0),
           const SizedBox(width: 22),
           _buildContentTab(theme, '评论', 1),
-          const Spacer(),
-          _buildDanmakuToggle(),
-          const SizedBox(width: 8),
-          _buildDanmakuButton(),
         ],
-      ),
-    );
-  }
-
-  Widget _buildDanmakuToggle() {
-    return GestureDetector(
-      onTap: () => setState(() => _danmakuEnabled = !_danmakuEnabled),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        decoration: BoxDecoration(
-          color: _danmakuEnabled ? AppColors.pinkLight : Colors.grey.shade200,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              _danmakuEnabled
-                  ? Icons.chat_bubble
-                  : Icons.chat_bubble_outline,
-              size: 13,
-              color: _danmakuEnabled ? AppColors.pink : Colors.grey,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              _danmakuEnabled ? '弹幕开' : '弹幕关',
-              style: TextStyle(
-                fontSize: 12,
-                color: _danmakuEnabled ? AppColors.pink : Colors.grey,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -807,41 +791,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildDanmakuButton() {
-    return GestureDetector(
-      onTap: _openDanmakuInput,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 5, 5, 5),
-        decoration: BoxDecoration(
-          color: AppColors.pinkLight,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('点我发弹幕',
-                style: TextStyle(fontSize: 12, color: AppColors.pink)),
-            const SizedBox(width: 8),
-            Container(
-              width: 22,
-              height: 22,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: AppColors.pink,
-                borderRadius: BorderRadius.circular(7),
-              ),
-              child: const Text('弹',
-                  style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700)),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1144,7 +1093,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       context.push('/login');
       return;
     }
-    setState(() => _danmakuInputActive = true);
+    setState(() {
+      _danmakuEnabled = true;
+      _danmakuInputActive = true;
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _danmakuFocus.requestFocus();
     });
