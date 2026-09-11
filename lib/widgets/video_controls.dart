@@ -11,8 +11,6 @@ import 'zen_ui.dart';
 import 'bili_loading.dart';
 
 class ZenVideoControls extends StatefulWidget {
-  final bool isAdBlockingEnabled;
-  final VoidCallback? onAdBlockingToggle;
   final VoidCallback? onNextEpisode;
   final bool hasNextEpisode;
   final SkipConfig skipConfig;
@@ -35,8 +33,6 @@ class ZenVideoControls extends StatefulWidget {
 
   const ZenVideoControls({
     super.key,
-    this.isAdBlockingEnabled = true,
-    this.onAdBlockingToggle,
     this.onNextEpisode,
     this.hasNextEpisode = false,
     required this.skipConfig,
@@ -540,16 +536,6 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
           subtitle: '${_latestValue?.playbackSpeed}x',
           trailing: const Icon(LucideIcons.chevronRight, color: Colors.white38, size: 12),
           onTap: () => setState(() => _showSpeedSubMenu = true),
-        ),
-        _buildSettingItem(
-          title: '去广告',
-          trailing: Transform.scale(
-            scale: 0.7,
-            child: ZenSwitch(
-              value: widget.isAdBlockingEnabled,
-              onChanged: (val) => widget.onAdBlockingToggle?.call(),
-            ),
-          ),
         ),
         _buildSettingItem(
           title: '跳过片头片尾',

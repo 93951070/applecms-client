@@ -6,7 +6,6 @@ import 'package:chewie/chewie.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../models/comment.dart';
 import '../models/site.dart';
-import '../services/ad_block_service.dart';
 import '../providers/settings_provider.dart';
 import 'video_controls.dart';
 import 'bili_loading.dart';
@@ -185,16 +184,12 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
       }
       if (_isDisposed || !mounted || token != _initToken) return;
 
-      // 1. 判定是否为标准的 M3U8 格式（用于代理服务器处理）
+      // 判定是否为标准的 M3U8 格式（用于 HLS 提示）。
+      // 广告过滤已下沉到服务端，客户端直接播放后端下发的地址，不再起本地代理。
       final isM3u8 = widget.url.toLowerCase().contains('.m3u8');
-      
-      // 2. 判定是否需要开启去广告代理（仅限点播且是 M3U8）
-      final isAdBlockEnabled = ref.read(adBlockEnabledProvider);
-      final playUrl = (!widget.isLive && isAdBlockEnabled && isM3u8)
-          ? ref.read(adBlockServiceProvider).getProxyUrl(widget.url, referer: widget.referer)
-          : widget.url;
+      final playUrl = widget.url;
 
-      // 3. 判定是否给播放器 HLS 格式提示
+      // 判定是否给播放器 HLS 格式提示
       bool useHlsHint = isM3u8;
       if (widget.isLive && !isM3u8) {
         final otherExtensions = ['.mp4', '.mov', '.mpd', '.mkv', '.webm'];
@@ -266,11 +261,6 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
         allowFullScreen: true,
         isLive: widget.isLive,
         customControls: ZenVideoControls(
-          isAdBlockingEnabled: isAdBlockEnabled,
-          onAdBlockingToggle: () {
-            final currentEnabled = ref.read(adBlockEnabledProvider);
-            ref.read(adBlockEnabledProvider.notifier).setEnabled(!currentEnabled);
-          },
           skipConfig: widget.skipConfig ?? SkipConfig(),
           onSkipConfigChange: widget.onSkipConfigChange,
           initialVolume: volume,
@@ -494,12 +484,6 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    // 核心修正：监听去广告开关，变化时重新初始化播放器
-    ref.listen(adBlockEnabledProvider, (previous, next) {
-      if (previous != next) {
-        _initializePlayer();
-      }
-    });
 
     if (_errorMessage != null || (_videoController?.value.hasError ?? false)) {
       return Center(

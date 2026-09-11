@@ -405,7 +405,7 @@ class AppApiService {
       success: data['success'] == true,
       hasAccess: data['has_access'] == true,
       message: (data['message'] ?? '').toString(),
-      playUrl: _nonEmpty(data['play_url']),
+      playUrl: _absolutePlayUrl(base, _nonEmpty(data['play_url'])),
       episodeName: _nonEmpty(data['episode_name']),
       playToken: _nonEmpty(data['play_token']),
       expireAt: (data['expire_at'] as num?)?.toInt(),
@@ -655,6 +655,18 @@ class AppApiService {
   String? _nonEmpty(dynamic value) {
     final s = value?.toString();
     return (s == null || s.isEmpty) ? null : s;
+  }
+
+  /// 后端可能下发相对地址（如服务端 HLS 过滤入口 `/api/app/v1/hls`），
+  /// 这里统一按当前 API 基地址补全为绝对地址。
+  String? _absolutePlayUrl(String base, String? url) {
+    if (url == null || url.isEmpty) return url;
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    try {
+      return Uri.parse(base).resolve(url).toString();
+    } catch (_) {
+      return url;
+    }
   }
 
   Map<String, dynamic>? _asMap(dynamic v) {

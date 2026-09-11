@@ -723,32 +723,30 @@ class AdBlockSettingsPage extends ConsumerWidget {
             sliver: SliverList(
               delegate: SliverChildListDelegate([
                 _buildSettingGroup(context, [
-                  _buildSwitchItem(
-                    context,
-                    icon: LucideIcons.shield,
-                    title: '开启广告拦截',
-                    value: ref.watch(adBlockEnabledProvider),
-                    onChanged: (val) => ref.read(adBlockEnabledProvider.notifier).setEnabled(val),
-                  ),
-                  _buildNavigationItem(
-                    context,
-                    icon: LucideIcons.shieldAlert,
-                    title: '黑名单关键字管理',
-                    onTap: () => _showAdBlockKeywordsEditor(context, ref),
-                  ),
-                  _buildNavigationItem(
-                    context,
-                    icon: LucideIcons.shieldCheck,
-                    title: '白名单关键字管理',
-                    showDivider: false,
-                    onTap: () => _showAdBlockWhitelistEditor(context, ref),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(LucideIcons.shieldCheck,
+                            size: 20,
+                            color: theme.colorScheme.primary.withValues(alpha: 0.7)),
+                        const SizedBox(width: 16),
+                        const Expanded(
+                          child: Text(
+                            '广告过滤由服务端自动完成，无需在客户端设置。',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ]),
                 const SizedBox(height: 24),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Text(
-                    '提示：广告拦截主要针对 M3U8 格式的视频流。如果某些视频由于拦截逻辑无法播放，请尝试添加白名单或暂时关闭此功能。',
+                    '提示：服务端会识别并过滤 M3U8 中的广告分片，客户端直接播放处理后的播放列表。',
                     style: TextStyle(
                       fontSize: 13,
                       color: theme.colorScheme.secondary.withValues(alpha: 0.6),

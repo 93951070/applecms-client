@@ -18,7 +18,6 @@ import 'pages/watch.dart';
 import 'pages/messages_page.dart';
 import 'pages/play_history_page.dart';
 import 'providers/settings_provider.dart';
-import 'services/ad_block_service.dart';
 import 'services/config_service.dart';
 import 'widgets/main_layout.dart';
 import 'widgets/edit_dialog.dart';
@@ -29,8 +28,6 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final container = ProviderContainer();
-  // 初始化广告拦截服务器
-  await container.read(adBlockServiceProvider).init();
 
   runApp(
     UncontrolledProviderScope(
