@@ -1254,11 +1254,16 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   }
 
   Widget _buildDescRow(ThemeData theme) {
-    final desc = widget.subject.description ?? _video?.desc;
+    final subjectDesc = widget.subject.description;
+    final loadedDesc = _video?.desc;
+    // 列表页传入的 subject.description 常为空串，不能直接压制详情接口返回的简介
+    final desc = (subjectDesc != null && subjectDesc.trim().isNotEmpty)
+        ? subjectDesc
+        : loadedDesc;
     final hasDesc = desc != null && desc.trim().isNotEmpty;
     // 详情仍在加载且尚无简介时，不显示占位，避免闪出「暂无简介」。
     if (!hasDesc && _isSearching) return const SizedBox.shrink();
-    final text = hasDesc ? desc.trim() : '暂无简介';
+    final text = (desc != null && desc.trim().isNotEmpty) ? desc.trim() : '暂无简介';
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () => setState(() => _descExpanded = !_descExpanded),
