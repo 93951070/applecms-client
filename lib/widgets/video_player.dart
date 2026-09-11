@@ -96,7 +96,9 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   Duration get currentPosition => _videoController?.value.position ?? Duration.zero;
 
   /// 暂停播放。用于离开当前页面时停止后台继续出声。
+  /// 进入 Chewie 全屏同样会触发路由 push，此时不应暂停。
   void pausePlayback() {
+    if (_chewieController?.isFullScreen ?? false) return;
     _videoController?.pause();
     _bufferingTimer?.cancel();
     _bufferingTimer = null;
@@ -159,10 +161,9 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
       if (oldVideoController != null) {
         oldVideoController.removeListener(_videoListener);
         await oldVideoController.dispose();
+        // 释放旧播放器资源后再创建新实例，避免底层解码器抢占。
+        await Future.delayed(const Duration(milliseconds: 200));
       }
-
-      // 为了确保旧播放器资源完全释放，稍微等一下
-      await Future.delayed(const Duration(milliseconds: 200));
       if (_isDisposed) return;
 
       // 1. 判定是否为标准的 M3U8 格式（用于代理服务器处理）

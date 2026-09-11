@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../core/share_utils.dart';
 import '../core/theme.dart';
 import '../models/site.dart';
 import '../models/movie.dart';
@@ -63,7 +63,7 @@ class ProfilePage extends ConsumerWidget {
                   size: 18, color: AppColors.pink),
               title: '观看历史',
               moreText: '更多',
-              onMore: () => _showHistoryActions(context, ref),
+              onMore: () => context.push('/history'),
             ),
             _buildHistory(context, ref, historyAsync),
             _buildQuickEntries(context, ref),
@@ -678,9 +678,13 @@ class ProfilePage extends ConsumerWidget {
     final messenger = ScaffoldMessenger.of(context);
     try {
       final base = await ref.read(configServiceProvider).getApiBaseUrl();
-      final site = await ref.read(configServiceProvider).getPrimarySite();
-      await Share.share(
-        '发现一个看片神器「${site.name}」，精彩影视免费看：$base',
+      var name = '视频';
+      try {
+        name = (await ref.read(configServiceProvider).getPrimarySite()).name;
+      } catch (_) {}
+      await shareText(
+        context,
+        '发现一个看片神器「$name」，精彩影视免费看：$base',
         subject: '推荐一个看片神器',
       );
     } catch (_) {

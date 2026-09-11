@@ -150,6 +150,7 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
     _hideTimer?.cancel();
     _hintTimer?.cancel();
     _danmakuFallbackNotifier.dispose();
+    _danmakuInputFallbackNotifier.dispose();
     _keyboardFocus.dispose();
     super.dispose();
   }

@@ -15,6 +15,7 @@ import '../providers/favorites_provider.dart';
 import '../services/download_service.dart';
 import '../core/theme.dart';
 import '../core/navigation.dart';
+import '../core/share_utils.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
@@ -1125,13 +1126,28 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               _cacheCurrentEpisode),
           const SizedBox(width: 20),
           _buildActionIcon(Icons.share_rounded, const Color(0xFF3B82F6),
-              () => _comingSoon('分享')),
+              _shareVideo),
           const SizedBox(width: 20),
           _buildActionIcon(Icons.edit_rounded, AppColors.pink,
               () => _comingSoon('编辑')),
         ],
       ),
     );
+  }
+
+  Future<void> _shareVideo() async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final base = await ref.read(configServiceProvider).getApiBaseUrl();
+      final title = widget.subject.title;
+      await shareText(
+        context,
+        '我正在看「$title」，一起来看：$base',
+        subject: '推荐你看 $title',
+      );
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(content: Text('分享失败，请稍后重试')));
+    }
   }
 
   Future<void> _cacheCurrentEpisode() async {
