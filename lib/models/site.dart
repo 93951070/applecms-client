@@ -72,6 +72,7 @@ class VideoDetail {
   final String? year;
   final String? desc;
   final String? typeName;
+  final int typeId;
 
   VideoDetail({
     required this.id,
@@ -83,6 +84,7 @@ class VideoDetail {
     this.year,
     this.desc,
     this.typeName,
+    this.typeId = 0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -94,6 +96,7 @@ class VideoDetail {
         'year': year,
         'desc': desc,
         'type_name': typeName,
+        'type_id': typeId,
         'play_groups': playGroups.map((g) => g.toJson()).toList(),
       };
 
@@ -111,6 +114,9 @@ class VideoDetail {
       year: json['year']?.toString(),
       desc: json['desc']?.toString(),
       typeName: json['type_name']?.toString(),
+      typeId: (json['type_id'] is int)
+          ? json['type_id'] as int
+          : int.tryParse(json['type_id']?.toString() ?? '') ?? 0,
     );
   }
 

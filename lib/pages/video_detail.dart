@@ -19,13 +19,15 @@ import '../widgets/appad_widgets.dart';
 import '../widgets/video_player.dart';
 import '../widgets/bili_loading.dart';
 
-/// 播放页「好剧推送」数据源（默认电影分类）
-final _recommendProvider = FutureProvider<List<VideoDetail>>((ref) async {
+/// 播放页「同类推荐」数据源：按当前视频所属分类拉取同分类内容。
+final _recommendProvider =
+    FutureProvider.family<List<VideoDetail>, int>((ref, typeId) async {
+  if (typeId <= 0) return [];
   final config = ref.read(configServiceProvider);
   final cms = ref.read(cmsServiceProvider);
   final site = await config.getPrimarySite();
   if (site.disabled) return [];
-  return cms.getCategoryList(site, 1, page: 1, pageSize: 12);
+  return cms.getCategoryList(site, typeId, page: 1, pageSize: 18);
 });
 
 class VideoDetailPage extends ConsumerStatefulWidget {
@@ -77,6 +79,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   List<DanmakuItem> _danmaku = const [];
   String _danmakuEpisodeKey = '';
   bool _danmakuEnabled = true;
+
+  /// 播放器内切集时，若当时处于全屏则在新一集加载完成后自动回到全屏。
+  bool _restoreFullScreen = false;
 
   final GlobalKey<EchoVideoPlayerState> _playerKey = GlobalKey<EchoVideoPlayerState>();
 
@@ -209,8 +214,14 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     if (video == null || video.playGroups.isEmpty) return;
     final total = video.playGroups.first.urls.length;
     final safeIndex = total <= 0 ? 0 : index.clamp(0, total - 1);
+    final isEpisodeChange = safeIndex != _currentEpisodeIndex;
     setState(() {
-      _initialResumePosition = resumePosition ?? _initialResumePosition;
+      if (resumePosition != null) {
+        _initialResumePosition = resumePosition;
+      } else if (isEpisodeChange) {
+        // 切换集数时不要沿用上一集的续播进度，从新一集开头播放。
+        _initialResumePosition = null;
+      }
       _currentEpisodeIndex = safeIndex;
       _resolvedUrl = null;
       _accessMessage = null;
@@ -475,13 +486,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               ),
             ),
           ),
-          if (_video != null)
-            Positioned(
-              top: 4,
-              // 弹幕开关独立于播放器自身控制条，固定在右上角常显，不随进度条隐藏。
-              right: 4,
-              child: _buildPlayerDanmakuToggle(),
-            ),
           if (_video != null && _danmakuEnabled)
             Positioned(
               left: 10,
@@ -577,34 +581,16 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     );
   }
 
-  /// 播放器内的弹幕开关：固定在右上角常显，独立于播放器自身的控制条，
-  /// 不随进度条一起隐藏。
-  Widget _buildPlayerDanmakuToggle() {
-    final on = _danmakuEnabled;
-    return GestureDetector(
-      onTap: () => setState(() {
-        _danmakuEnabled = !_danmakuEnabled;
-        if (!_danmakuEnabled) {
-          _danmakuFocus.unfocus();
-          _danmakuInputActive = false;
-        }
-      }),
-      child: Container(
-        width: 30,
-        height: 30,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.4),
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white24),
-        ),
-        child: Icon(
-          on ? Icons.subtitles : Icons.subtitles_off,
-          size: 17,
-          color: on ? AppColors.pinkLight : Colors.white54,
-        ),
-      ),
-    );
+  /// 弹幕开关（由播放器控制条上的按钮触发）：与「设置/放大」同尺寸、
+  /// 随控制条一起显隐。
+  void _toggleDanmaku() {
+    setState(() {
+      _danmakuEnabled = !_danmakuEnabled;
+      if (!_danmakuEnabled) {
+        _danmakuFocus.unfocus();
+        _danmakuInputActive = false;
+      }
+    });
   }
 
   Widget _danmakuBarButton(String label, VoidCallback onTap) {
@@ -696,6 +682,19 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       onEnded: _autoPlayNext ? _playNextEpisode : null,
       danmaku: _danmaku,
       danmakuEnabled: _danmakuEnabled,
+      onDanmakuToggle: _toggleDanmaku,
+      episodeTitles: group.titles,
+      currentEpisodeIndex: _currentEpisodeIndex,
+      onSelectEpisode: (index, wasFullScreen) {
+        _restoreFullScreen = wasFullScreen;
+        _handlePlayAction(index);
+      },
+      autoEnterFullScreen: _restoreFullScreen,
+      onAutoFullScreenDone: () {
+        if (_restoreFullScreen && mounted) {
+          setState(() => _restoreFullScreen = false);
+        }
+      },
     );
   }
 
@@ -1403,12 +1402,14 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     );
   }
 
-  // ==================== 好剧推送 ====================
+  // ==================== 同类推荐 ====================
 
   Widget _buildRecommend(ThemeData theme) {
-    final async = ref.watch(_recommendProvider);
+    final typeId = _video?.typeId ?? 0;
+    if (typeId <= 0) return const SizedBox.shrink();
+    final async = ref.watch(_recommendProvider(typeId));
     final list = (async.value ?? const <VideoDetail>[])
-        .where((v) => v.title != widget.subject.title)
+        .where((v) => v.id != _video?.id && v.title != widget.subject.title)
         .take(12)
         .toList();
     if (list.isEmpty) return const SizedBox.shrink();
@@ -1418,7 +1419,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         SectionHead(
           icon: const Icon(Icons.live_tv_rounded,
               size: 18, color: AppColors.pink),
-          title: '好剧推送',
+          title: '同类推荐',
           moreText: '更多',
           onMore: () => context.push('/search'),
         ),

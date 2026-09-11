@@ -19,6 +19,12 @@ class ZenVideoControls extends StatefulWidget {
   final Function(SkipConfig)? onSkipConfigChange;
   final double initialVolume;
   final Function(double)? onVolumeChanged;
+  final bool danmakuEnabled;
+  final ValueListenable<bool>? danmakuListenable;
+  final VoidCallback? onDanmakuToggle;
+  final List<String> episodeTitles;
+  final int currentEpisodeIndex;
+  final void Function(int index, bool wasFullScreen)? onSelectEpisode;
 
   const ZenVideoControls({
     super.key,
@@ -30,6 +36,12 @@ class ZenVideoControls extends StatefulWidget {
     this.onSkipConfigChange,
     this.initialVolume = 0.5,
     this.onVolumeChanged,
+    this.danmakuEnabled = true,
+    this.danmakuListenable,
+    this.onDanmakuToggle,
+    this.episodeTitles = const [],
+    this.currentEpisodeIndex = 0,
+    this.onSelectEpisode,
   });
 
   @override
@@ -43,6 +55,8 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
   bool _displayToggles = false;
   bool _showSettings = false;
   bool _showSpeedSubMenu = false;
+  bool _showEpisodePanel = false;
+  late final ValueNotifier<bool> _danmakuFallbackNotifier;
   bool _isBarHovered = false;
   bool _isLocked = false;
   bool _showVolumeSlider = false;
@@ -75,6 +89,7 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
     super.initState();
     _localSkipConfig = widget.skipConfig;
     _lastVolume = widget.initialVolume;
+    _danmakuFallbackNotifier = ValueNotifier<bool>(widget.danmakuEnabled);
     _initBrightness();
     // 仅初始化后请求一次焦点用于桌面端快捷键，之后不再抢占。
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -114,6 +129,7 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
     _videoPlayerController?.removeListener(_updateState);
     _hideTimer?.cancel();
     _hintTimer?.cancel();
+    _danmakuFallbackNotifier.dispose();
     _keyboardFocus.dispose();
     super.dispose();
   }
@@ -136,7 +152,7 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
 
   void _startHideTimer() {
     _hideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && !_showSettings) {
+      if (mounted && !_showSettings && !_showEpisodePanel) {
         setState(() {
           _displayToggles = false;
         });
@@ -232,10 +248,11 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
               _cancelAndRestartTimer();
               return;
             }
-            if (_showSettings) {
+            if (_showSettings || _showEpisodePanel) {
               setState(() {
                 _showSettings = false;
                 _showSpeedSubMenu = false;
+                _showEpisodePanel = false;
                 _startHideTimer();
               });
             } else if (_displayToggles) {
@@ -245,7 +262,7 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
             }
           },
           child: AbsorbPointer(
-            absorbing: !_displayToggles && !_showSettings,
+            absorbing: !_displayToggles && !_showSettings && !_showEpisodePanel,
             child: Stack(
               children: [
                 if (_latestValue == null || !_latestValue!.isInitialized || _latestValue!.isBuffering)
@@ -278,8 +295,9 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
                   ),
                 
                 if (_showSettings && !_isLocked) _buildSettingsOverlay(),
+                if (_showEpisodePanel && !_isLocked) _buildEpisodePanel(),
 
-                if (!_showSettings) ...[
+                if (!_showSettings && !_showEpisodePanel) ...[
                   Column(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: <Widget>[
@@ -364,6 +382,106 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
                 const Divider(color: Colors.white12, height: 1),
                 Expanded(
                   child: _showSpeedSubMenu ? _buildSpeedList() : _buildMainSettingsList(),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEpisodePanel() {
+    final total = widget.episodeTitles.length;
+    return Positioned(
+      right: 0,
+      top: 0,
+      bottom: 0,
+      child: GestureDetector(
+        onTap: () {}, // 拦截点击，防止冒泡到顶层导致面板关闭
+        behavior: HitTestBehavior.opaque,
+        child: Theme(
+          data: ThemeData(brightness: Brightness.dark),
+          child: Container(
+            width: 250,
+            color: Colors.black.withOpacity(0.9),
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _showEpisodePanel = false;
+                            _startHideTimer();
+                          });
+                        },
+                        child: const Icon(LucideIcons.chevronLeft,
+                            color: Colors.white70, size: 16),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '选集 ($total)',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(color: Colors.white12, height: 1),
+                Expanded(
+                  child: GridView.builder(
+                    padding: const EdgeInsets.all(12),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 5,
+                      mainAxisSpacing: 8,
+                      crossAxisSpacing: 8,
+                      childAspectRatio: 1.3,
+                    ),
+                    itemCount: total,
+                    itemBuilder: (context, index) {
+                      final selected = index == widget.currentEpisodeIndex;
+                      return GestureDetector(
+                        onTap: () {
+                          setState(() => _showEpisodePanel = false);
+                          final wasFull =
+                              _chewieController?.isFullScreen ?? false;
+                          widget.onSelectEpisode?.call(index, wasFull);
+                        },
+                        child: Container(
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? const Color(0xFF0A84FF)
+                                : Colors.white10,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: selected
+                                  ? const Color(0xFF0A84FF)
+                                  : Colors.white24,
+                            ),
+                          ),
+                          child: Text(
+                            '${index + 1}',
+                            style: TextStyle(
+                              color: selected ? Colors.white : Colors.white70,
+                              fontSize: 12,
+                              fontWeight: selected
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ],
             ),
@@ -569,12 +687,37 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
                   _buildPosition(context),
                   
                   const Spacer(),
-                  
+
+                  // 弹幕开关：与设置/放大同尺寸，随控制条一起显隐
+                  ValueListenableBuilder<bool>(
+                    valueListenable: widget.danmakuListenable ??
+                        _danmakuFallbackNotifier,
+                    builder: (context, enabled, _) => _buildIconBtn(
+                      enabled ? LucideIcons.captions : LucideIcons.captionsOff,
+                      () {
+                        widget.onDanmakuToggle?.call();
+                        _cancelAndRestartTimer();
+                      },
+                    ),
+                  ),
+
+                  // 选集：竖屏与全屏均可展开
+                  if (widget.episodeTitles.length > 1)
+                    _buildIconBtn(LucideIcons.listVideo, () {
+                      setState(() {
+                        _showEpisodePanel = true;
+                        _showSettings = false;
+                        _showSpeedSubMenu = false;
+                        _displayToggles = true;
+                      });
+                    }),
+
                   // 右侧组合：[设置] [应用全屏] [桌面全屏]
                   if (!isLive)
                     _buildIconBtn(LucideIcons.settings, () {
                       setState(() {
                         _showSettings = true;
+                        _showEpisodePanel = false;
                         _displayToggles = true;
                       });
                     }),
@@ -739,10 +882,11 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
   Widget _buildHitArea() {
     return GestureDetector(
       onTap: () {
-        if (_showSettings) {
+        if (_showSettings || _showEpisodePanel) {
           setState(() {
             _showSettings = false;
             _showSpeedSubMenu = false;
+            _showEpisodePanel = false;
           });
         } else if (_displayToggles) {
           setState(() => _displayToggles = false);

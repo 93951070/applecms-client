@@ -195,6 +195,7 @@ class CmsService {
       year: item['vod_year']?.toString(),
       desc: '',
       typeName: item['type_name']?.toString(),
+      typeId: _asInt(item['type_id']),
     );
   }
 
@@ -233,6 +234,7 @@ class CmsService {
           .replaceAll(RegExp(r'<[^>]*>'), '')
           .trim(),
       typeName: data['type_name']?.toString(),
+      typeId: _asInt(data['type_id']),
     );
   }
 

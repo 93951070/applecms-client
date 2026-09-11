@@ -25,6 +25,12 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
   final VoidCallback? onEnded;
   final List<DanmakuItem> danmaku;
   final bool danmakuEnabled;
+  final VoidCallback? onDanmakuToggle;
+  final List<String> episodeTitles;
+  final int currentEpisodeIndex;
+  final void Function(int index, bool wasFullScreen)? onSelectEpisode;
+  final bool autoEnterFullScreen;
+  final VoidCallback? onAutoFullScreenDone;
 
   const EchoVideoPlayer({
     super.key,
@@ -41,6 +47,12 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
     this.onEnded,
     this.danmaku = const [],
     this.danmakuEnabled = true,
+    this.onDanmakuToggle,
+    this.episodeTitles = const [],
+    this.currentEpisodeIndex = 0,
+    this.onSelectEpisode,
+    this.autoEnterFullScreen = false,
+    this.onAutoFullScreenDone,
   });
 
   @override
@@ -63,6 +75,10 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   final List<_ActiveDanmaku> _activeDanmaku = [];
   static const int _danmakuLifetimeMs = 7000;
 
+  // 控制条上的弹幕开关控件只创建一次，用 Listenable 让图标能随状态刷新。
+  final ValueNotifier<bool> _danmakuEnabledNotifier =
+      ValueNotifier<bool>(true);
+
   Duration get currentPosition => _videoController?.value.position ?? Duration.zero;
 
   /// 暂停播放。用于离开当前页面时停止后台继续出声。
@@ -83,6 +99,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
     _danmakuTicker =
         AnimationController(vsync: this, duration: const Duration(seconds: 1))
           ..repeat();
+    _danmakuEnabledNotifier.value = widget.danmakuEnabled;
     _initializePlayer();
   }
 
@@ -96,9 +113,11 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
       _spawnedDanmaku.clear();
       _activeDanmaku.clear();
     }
-    if (oldWidget.danmakuEnabled != widget.danmakuEnabled &&
-        !widget.danmakuEnabled) {
-      _activeDanmaku.clear();
+    if (oldWidget.danmakuEnabled != widget.danmakuEnabled) {
+      _danmakuEnabledNotifier.value = widget.danmakuEnabled;
+      if (!widget.danmakuEnabled) {
+        _activeDanmaku.clear();
+      }
     }
   }
 
@@ -204,6 +223,17 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
           },
           hasNextEpisode: widget.hasNextEpisode,
           onNextEpisode: widget.onNextEpisode,
+          danmakuEnabled: widget.danmakuEnabled,
+          danmakuListenable: _danmakuEnabledNotifier,
+          onDanmakuToggle: widget.onDanmakuToggle,
+          episodeTitles: widget.episodeTitles,
+          currentEpisodeIndex: widget.currentEpisodeIndex,
+          onSelectEpisode: (index, wasFullScreen) {
+            // 切集前先退出全屏，避免旧的 Chewie 全屏路由持有已被释放的控制器；
+            // 页面会在新一集就绪后按需重新进入全屏。
+            if (wasFullScreen) _chewieController?.exitFullScreen();
+            widget.onSelectEpisode?.call(index, wasFullScreen);
+          },
         ),
         materialProgressColors: ChewieProgressColors(
           playedColor: widget.isLive ? Colors.white : const Color(0xFF0A84FF),
@@ -212,6 +242,15 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
           backgroundColor: Colors.white.withOpacity(0.1),
         ),
       );
+
+      if (widget.autoEnterFullScreen) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!_isDisposed && mounted && _chewieController != null) {
+            _chewieController!.enterFullScreen();
+          }
+          widget.onAutoFullScreenDone?.call();
+        });
+      }
     } catch (e) {
       debugPrint('EchoVideoPlayer error: $e');
       if (mounted) {
@@ -340,6 +379,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
     _videoController?.dispose();
     _chewieController?.dispose();
     _danmakuTicker.dispose();
+    _danmakuEnabledNotifier.dispose();
     WakelockPlus.disable();
     super.dispose();
   }
