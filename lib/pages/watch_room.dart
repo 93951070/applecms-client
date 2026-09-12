@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../core/share_utils.dart';
 import '../core/theme.dart';
 import '../models/watch_party.dart';
 import '../providers/auth_provider.dart';
@@ -15,7 +17,8 @@ class _WatchColors {
   _WatchColors._();
 
   static const Color bg = Color(0xFF0B0B0F);
-  static const Color panel = Color(0xFF121218);
+  static const Color panel = Color(0xFF15151B);
+  static const Color panel2 = Color(0xFF1C1C24);
   static const Color card = Color(0xFF23232B);
   static const Color line = Color(0xFF26262F);
   static const Color text = Color(0xFFF5F5F7);
@@ -44,7 +47,7 @@ class _ChatLine {
       : '$userId|$createdAt|$content';
 }
 
-/// 一起看房间页：服务器权威时间线 + 心跳纠偏。
+/// 一起看房间页：横屏沉浸、服务器权威时间线 + 心跳纠偏。
 class WatchRoomPage extends ConsumerStatefulWidget {
   final String code;
   final WatchRoomInfo? initialRoom;
@@ -55,7 +58,8 @@ class WatchRoomPage extends ConsumerStatefulWidget {
   ConsumerState<WatchRoomPage> createState() => _WatchRoomPageState();
 }
 
-class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
+class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
+    with WidgetsBindingObserver {
   static const _emojiSet = [
     '😀', '😄', '😍', '🤣', '😭', '😱', '👍', '👏',
     '🙌', '❤️', '🔥', '🎉', '🍿', '😂', '🤔', '😴',
@@ -70,6 +74,8 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
   List<_ChatLine> _lines = [];
   final Set<String> _seenKeys = {};
   int _lastMessageAt = 0;
+  bool _hasMoreHistory = false;
+  bool _loadingHistory = false;
 
   Set<String> _knownMemberIds = {};
   Map<String, String> _memberNames = {};
@@ -88,28 +94,64 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
   DateTime _lastSyncAt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _leaving = false;
   late final WatchPartyService _service;
+  late final String _myId;
+
+  bool _chatVisible = true;
+  int _unread = 0;
+  int _tickFails = 0;
+  bool _reconnecting = false;
+  bool _ended = false;
+  bool _busy = false;
 
   @override
   void initState() {
     super.initState();
     _service = ref.read(watchPartyServiceProvider);
+    _myId = ref.read(authProvider).user?.id ?? '';
     _room = widget.initialRoom;
     if (_room != null) {
       _episode = _room!.episode;
       _playSource = _room!.playSource;
       _initialPosition = _room!.positionMs / 1000.0;
     }
+    WidgetsBinding.instance.addObserver(this);
+    _enterImmersive();
     _bootstrap();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _chatInput.dispose();
     _chatScroll.dispose();
     _leaving = true;
     _service.leaveRoom(widget.code).ignore();
+    _restoreSystemUi();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _enterImmersive();
+      if (!_loading && !_ended) _tick();
+    }
+  }
+
+  void _enterImmersive() {
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    WakelockPlus.enable();
+  }
+
+  void _restoreSystemUi() {
+    WakelockPlus.disable();
+    SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   Future<void> _bootstrap() async {
@@ -138,20 +180,29 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
   Future<void> _resolveUrl() async {
     final room = _room;
     if (room == null || room.vodId.isEmpty) return;
-    final result = await _service.resolvePlayUrl(
-      vodId: room.vodId,
-      playSource: _playSource,
-      playIndex: _episode,
-    );
-    if (!mounted) return;
-    if (result.success && result.hasAccess && (result.playUrl ?? '').isNotEmpty) {
-      setState(() {
-        _playUrl = result.playUrl;
-        _error = null;
-      });
-    } else {
+    try {
+      final result = await _service.resolvePlayUrl(
+        vodId: room.vodId,
+        playSource: _playSource,
+        playIndex: _episode,
+      );
+      if (!mounted) return;
+      if (result.success &&
+          result.hasAccess &&
+          (result.playUrl ?? '').isNotEmpty) {
+        setState(() {
+          _playUrl = result.playUrl;
+          _error = null;
+        });
+      } else {
+        setState(
+          () => _error = result.message.isEmpty ? '暂时无法播放该内容' : result.message,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
       setState(
-        () => _error = result.message.isEmpty ? '暂时无法播放该内容' : result.message,
+        () => _error = e.toString().replaceFirst('AppApiException: ', ''),
       );
     }
   }
@@ -223,6 +274,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
       for (final m in msgs) {
         _addMessage(m);
       }
+      _hasMoreHistory = msgs.length >= 50;
     });
     _scrollChatToEnd();
   }
@@ -232,15 +284,45 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
     final msgs = await _service.fetchMessages(widget.code, since: since);
     if (msgs.isEmpty || !mounted) return;
     var changed = false;
+    var incoming = 0;
     for (final m in msgs) {
       final before = _lines.length;
       _addMessage(m);
-      if (_lines.length != before) changed = true;
+      if (_lines.length != before) {
+        changed = true;
+        if (m.userId != _myId) incoming++;
+      }
     }
     if (changed) {
+      if (!_chatVisible && incoming > 0) _unread += incoming;
       setState(() {});
-      _scrollChatToEnd();
+      if (_chatVisible) _scrollChatToEnd();
     }
+  }
+
+  /// 上拉加载更早的聊天记录。
+  Future<void> _loadOlderMessages() async {
+    if (_loadingHistory || !_hasMoreHistory || _lines.isEmpty) return;
+    setState(() => _loadingHistory = true);
+    final oldest = _lines.first.createdAt;
+    final msgs =
+        await _service.fetchMessages(widget.code, before: oldest);
+    if (!mounted) return;
+    final older = <_ChatLine>[];
+    for (final m in msgs) {
+      final line = _ChatLine(
+        userId: m.userId,
+        name: m.nickName.isEmpty ? '观众' : m.nickName,
+        content: m.content,
+        createdAt: m.createdAt,
+      );
+      if (_seenKeys.add(line.key)) older.add(line);
+    }
+    setState(() {
+      _lines.insertAll(0, older);
+      _hasMoreHistory = msgs.length >= 50;
+      _loadingHistory = false;
+    });
   }
 
   void _scrollChatToEnd() {
@@ -257,7 +339,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
 
   Future<void> _tick() async {
     final room = _room;
-    if (room == null || _leaving) return;
+    if (room == null || _leaving || _ended) return;
     final player = _playerKey.currentState;
     final isControl = room.canControl;
     try {
@@ -268,21 +350,54 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
           positionMs: player.currentPosition.inMilliseconds,
           episode: _episode,
           playSource: _playSource,
+          buffering: player.isBuffering,
         );
+        _onTickSuccess();
         _updateRoom(updated);
       } else {
-        final updated =
-            await _service.heartbeat(widget.code, buffering: false);
+        final updated = await _service.heartbeat(
+          widget.code,
+          buffering: player?.isBuffering ?? false,
+        );
         if (!mounted) return;
+        _onTickSuccess();
         _updateRoom(updated);
         await _applyRemote(updated);
       }
       await _refreshMessages();
-    } catch (_) {}
+    } catch (e) {
+      _onTickError(e.toString());
+    }
+  }
+
+  void _onTickSuccess() {
+    if (_tickFails != 0 || _reconnecting) {
+      _tickFails = 0;
+      if (mounted) setState(() => _reconnecting = false);
+    }
+  }
+
+  void _onTickError(String raw) {
+    if (raw.contains('房间不存在') || raw.contains('已结束')) {
+      _handleEnded();
+      return;
+    }
+    _tickFails++;
+    if (_tickFails >= 4 && mounted && !_reconnecting) {
+      setState(() => _reconnecting = true);
+    }
+  }
+
+  void _handleEnded() {
+    if (_ended || !mounted) return;
+    _ended = true;
+    _timer?.cancel();
+    setState(() {});
   }
 
   /// 成员侧按服务器时间线纠偏，偏差超过 1.5 秒才 seek。
   Future<void> _applyRemote(WatchRoomInfo room) async {
+    final player = _playerKey.currentState;
     if (room.episode != _episode) {
       _episode = room.episode;
       _playSource = room.playSource;
@@ -290,9 +405,15 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
       await _resolveUrl();
       return;
     }
-    final player = _playerKey.currentState;
     if (player == null || _playUrl == null) return;
-    if (DateTime.now().difference(_lastSyncAt).inSeconds < 2) return;
+    if (room.stallHold && !room.isHost) {
+      if (player.isPlaying) player.forcePause();
+      return;
+    }
+    if (DateTime.now().difference(_lastSyncAt).inSeconds < 2) {
+      if (room.paused && player.isPlaying) player.forcePause();
+      return;
+    }
     final target = Duration(milliseconds: room.positionMs);
     final drift = (player.currentPosition - target).inMilliseconds.abs();
     if (drift > 1500) {
@@ -325,13 +446,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
       setState(() => _addMessage(msg));
       _scrollChatToEnd();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('AppApiException: ', '')),
-          ),
-        );
-      }
+      _toast(e.toString().replaceFirst('AppApiException: ', ''));
     }
   }
 
@@ -346,18 +461,144 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
 
   Future<void> _copyInvite(WatchRoomInfo room) async {
     await Clipboard.setData(
-      ClipboardData(text: '我在一起看「${room.title}」，房间号 ${room.code}，一起来看吧'),
+      ClipboardData(
+        text: '我在一起看「${room.title}」，房间号 ${room.code}，一起来看吧',
+      ),
     );
     if (mounted) _toast('房间号 ${room.code} 已复制');
   }
 
+  Future<void> _shareInvite(WatchRoomInfo room) async {
+    await shareText(
+      context,
+      '我在一起看「${room.title}」，房间号 ${room.code}，打开 EchoTV 输入房间号一起来看吧',
+      subject: '一起看邀请',
+    );
+  }
+
   Future<void> _closeRoom() async {
+    final ok = await _confirm('解散房间', '解散后所有成员将退出，确定解散吗？', '解散');
+    if (!ok) return;
     _timer?.cancel();
     _leaving = true;
     try {
       await _service.closeRoom(widget.code);
     } catch (_) {}
     if (mounted) Navigator.of(context).pop();
+  }
+
+  Future<bool> _confirm(String title, String message, String action) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _WatchColors.panel2,
+        title: Text(title,
+            style: const TextStyle(color: _WatchColors.text, fontSize: 16)),
+        content: Text(message,
+            style: const TextStyle(color: _WatchColors.text2, fontSize: 13.5)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消',
+                style: TextStyle(color: _WatchColors.text2)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(action, style: const TextStyle(color: AppColors.pink)),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  Future<void> _runBusy(Future<void> Function() task) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await task();
+    } catch (e) {
+      _toast(e.toString().replaceFirst('AppApiException: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _transferHost(WatchRoomInfo room, WatchMemberInfo m) async {
+    final ok = await _confirm('移交房主', '将房主移交给「${_displayName(m)}」？', '移交');
+    if (!ok) return;
+    await _runBusy(() async {
+      final updated =
+          await _service.transferHost(widget.code, m.userId);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      _updateRoom(updated);
+      _toast('已移交房主');
+    });
+  }
+
+  Future<void> _kickMember(WatchRoomInfo room, WatchMemberInfo m) async {
+    final ok = await _confirm('移出成员', '将「${_displayName(m)}」移出房间？', '移出');
+    if (!ok) return;
+    await _runBusy(() async {
+      final updated = await _service.kickMember(widget.code, m.userId);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      _updateRoom(updated);
+      _toast('已移出成员');
+    });
+  }
+
+  Future<void> _toggleMute(WatchRoomInfo room, WatchMemberInfo m) async {
+    await _runBusy(() async {
+      final updated = await _service.muteMember(
+        widget.code,
+        m.userId,
+        muted: !m.muted,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      _updateRoom(updated);
+      _toast(m.muted ? '已解除禁言' : '已禁言');
+    });
+  }
+
+  Future<void> _changeEpisode(int delta) async {
+    if (_busy) return;
+    final room = _room;
+    if (room == null || !room.canControl) return;
+    final next = _episode + delta;
+    if (next < 0) return;
+    final prevEpisode = _episode;
+    final prevSource = _playSource;
+    setState(() {
+      _episode = next;
+      _playSource = room.playSource;
+    });
+    final result = await _service.resolvePlayUrl(
+      vodId: room.vodId,
+      playSource: _playSource,
+      playIndex: _episode,
+    );
+    if (!result.success ||
+        !result.hasAccess ||
+        (result.playUrl ?? '').isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _episode = prevEpisode;
+        _playSource = prevSource;
+      });
+      _toast(delta > 0 ? '没有下一集了' : '已经是第一集');
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _playUrl = result.playUrl;
+      _initialPosition = 0;
+      _error = null;
+    });
+    _playerKey.currentState?.resumePlayback();
+    _tick();
   }
 
   void _showEmojiPicker() {
@@ -410,6 +651,246 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
     );
   }
 
+  void _showMembers() {
+    final room = _room;
+    if (room == null) return;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => _membersSheet(room),
+    );
+  }
+
+  void _showSettings() {
+    final room = _room;
+    if (room == null || !room.isHost) return;
+    var allowControl = room.allowMemberControl;
+    var limit = room.memberLimit;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Container(
+          margin: const EdgeInsets.all(14),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          decoration: BoxDecoration(
+            color: _WatchColors.panel,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: const Color(0x1FFFFFFF)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('房间设置',
+                  style: TextStyle(
+                      color: _WatchColors.text,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                value: allowControl,
+                activeColor: AppColors.pink,
+                title: const Text('允许成员控制播放',
+                    style: TextStyle(color: _WatchColors.text, fontSize: 13.5)),
+                subtitle: const Text('开启后成员也可暂停、拖动进度',
+                    style: TextStyle(color: _WatchColors.text3, fontSize: 11.5)),
+                onChanged: (v) => setSheet(() => allowControl = v),
+              ),
+              const Divider(height: 18, color: _WatchColors.line),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text('房间人数上限',
+                        style: TextStyle(
+                            color: _WatchColors.text, fontSize: 13.5)),
+                  ),
+                  IconButton(
+                    onPressed: limit > 2
+                        ? () => setSheet(() => limit--)
+                        : null,
+                    icon: const Icon(Icons.remove_circle_outline_rounded,
+                        color: _WatchColors.text2),
+                  ),
+                  Text('$limit',
+                      style: const TextStyle(
+                          color: _WatchColors.text,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600)),
+                  IconButton(
+                    onPressed: limit < 50 ? () => setSheet(() => limit++) : null,
+                    icon: const Icon(Icons.add_circle_outline_rounded,
+                        color: _WatchColors.text2),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.pink,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24)),
+                  ),
+                  onPressed: () => _runBusy(() async {
+                    final updated = await _service.updateSettings(
+                      widget.code,
+                      allowMemberControl: allowControl,
+                      memberLimit: limit,
+                    );
+                    if (!mounted) return;
+                    Navigator.of(ctx).pop();
+                    _updateRoom(updated);
+                    _toast('房间设置已更新');
+                  }),
+                  child: const Text('保存'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _membersSheet(WatchRoomInfo room) {
+    return Container(
+      margin: const EdgeInsets.all(14),
+      constraints: const BoxConstraints(maxHeight: 340),
+      padding: const EdgeInsets.fromLTRB(16, 14, 12, 12),
+      decoration: BoxDecoration(
+        color: _WatchColors.panel,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0x1FFFFFFF)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('房间成员',
+                  style: TextStyle(
+                      color: _WatchColors.text,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700)),
+              const SizedBox(width: 8),
+              Text('${room.members.length}/${room.memberLimit}',
+                  style: const TextStyle(
+                      color: _WatchColors.text3, fontSize: 12)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Flexible(
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: room.members.length,
+              separatorBuilder: (_, __) =>
+                  const Divider(height: 14, color: _WatchColors.line),
+              itemBuilder: (ctx, i) {
+                final m = room.members[i];
+                final isSelf = m.userId == _myId;
+                return Row(
+                  children: [
+                    _avatar(m, size: 34, bordered: false),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  _displayName(m),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      color: _WatchColors.text, fontSize: 13.5),
+                                ),
+                              ),
+                              if (m.isHost)
+                                const Padding(
+                                  padding: EdgeInsets.only(left: 6),
+                                  child: _Badge(text: '房主', color: AppColors.pink),
+                                ),
+                              if (m.muted)
+                                const Padding(
+                                  padding: EdgeInsets.only(left: 4),
+                                  child: Icon(Icons.mic_off_rounded,
+                                      size: 13, color: _WatchColors.text3),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            m.buffering
+                                ? '缓冲中…'
+                                : (m.online ? '在线' : '离线'),
+                            style: TextStyle(
+                              color: m.buffering
+                                  ? AppColors.vipGold
+                                  : _WatchColors.text3,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (room.isHost && !isSelf && !m.isHost) ...[
+                      _memberAction(
+                        icon: Icons.swap_horiz_rounded,
+                        tip: '移交',
+                        onTap: () => _transferHost(room, m),
+                      ),
+                      _memberAction(
+                        icon: m.muted
+                            ? Icons.volume_up_rounded
+                            : Icons.mic_off_rounded,
+                        tip: m.muted ? '解除' : '禁言',
+                        onTap: () => _toggleMute(room, m),
+                      ),
+                      _memberAction(
+                        icon: Icons.person_remove_alt_1_rounded,
+                        tip: '移出',
+                        color: const Color(0xFFFF5B5B),
+                        onTap: () => _kickMember(room, m),
+                      ),
+                    ],
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _memberAction({
+    required IconData icon,
+    required String tip,
+    required VoidCallback onTap,
+    Color color = _WatchColors.text2,
+  }) {
+    return Tooltip(
+      message: tip,
+      child: IconButton(
+        onPressed: _busy ? null : onTap,
+        icon: Icon(icon, size: 19, color: color),
+        visualDensity: VisualDensity.compact,
+      ),
+    );
+  }
+
+  Future<void> _openChat() async {
+    if (mounted) setState(() => _unread = 0);
+  }
+
   void _toast(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -420,32 +901,39 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
     );
   }
 
+  String _displayName(WatchMemberInfo m) =>
+      m.nickName.isEmpty ? '观众' : m.nickName;
+
   @override
   Widget build(BuildContext context) {
     final room = _room;
-    final myId = ref.watch(authProvider).user?.id ?? '';
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light,
-      child: Scaffold(
-        backgroundColor: _WatchColors.bg,
-        body: _loading
-            ? const Center(
-                child: CircularProgressIndicator(color: AppColors.pink))
-            : room == null
-                ? _buildError()
-                : SafeArea(
-                    child: Column(
-                      children: [
-                        _buildStage(room),
-                        Expanded(child: _buildSocial(room, myId)),
-                      ],
-                    ),
-                  ),
+    return PopScope(
+      canPop: _chatVisible || _room == null,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _chatVisible) {
+          if (mounted) setState(() => _chatVisible = false);
+        } else if (didPop) {
+          _restoreSystemUi();
+        }
+      },
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.light,
+        child: Scaffold(
+          resizeToAvoidBottomInset: true,
+          backgroundColor: _WatchColors.bg,
+          body: _loading
+              ? const Center(
+                  child: CircularProgressIndicator(color: AppColors.pink))
+              : room == null
+                  ? _buildError()
+                  : _buildRoom(room),
+        ),
       ),
     );
   }
 
   Widget _buildError() {
+    final ended = _ended;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -454,7 +942,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
               size: 42, color: _WatchColors.text3),
           const SizedBox(height: 12),
           Text(
-            _error ?? '房间不存在或已结束',
+            ended ? '房间已结束' : (_error ?? '房间不存在或已结束'),
             style: const TextStyle(color: _WatchColors.text2, fontSize: 14),
           ),
           const SizedBox(height: 18),
@@ -468,35 +956,89 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
                 borderRadius: BorderRadius.circular(22),
               ),
             ),
-            child: const Text(
-              '返回',
-              style: TextStyle(color: Colors.white, fontSize: 13.5),
-            ),
+            child: const Text('返回',
+                style: TextStyle(color: Colors.white, fontSize: 13.5)),
           ),
         ],
       ),
     );
   }
 
-  // ==================== 播放区 ====================
+  // ==================== 主布局 ====================
 
-  Widget _buildStage(WatchRoomInfo room) {
-    final width = MediaQuery.of(context).size.width;
-    return SizedBox(
-      width: width,
-      height: width * 9 / 16,
-      child: Stack(
-        fit: StackFit.expand,
+  Widget _buildRoom(WatchRoomInfo room) {
+    final size = MediaQuery.sizeOf(context);
+    final landscape = size.width >= size.height;
+    final stage = Stack(
+      fit: StackFit.expand,
+      children: [
+        Container(color: Colors.black, child: _buildPlayer(room)),
+        Positioned(top: 0, left: 0, right: 0, child: _buildTopBar(room)),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: _buildStageBottom(room),
+        ),
+        if (_ended) _buildEndedOverlay(),
+      ],
+    );
+    if (!landscape) {
+      return Column(
         children: [
-          Container(color: Colors.black, child: _buildPlayer(room)),
-          Positioned(top: 0, left: 0, right: 0, child: _buildTopBar(room)),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _buildStageBottom(room),
-          ),
+          SizedBox(height: size.width * 9 / 16, child: stage),
+          if (_chatVisible) Expanded(child: _buildSocial(room)),
         ],
+      );
+    }
+    final panelWidth = _chatVisible
+        ? (size.width * 0.36).clamp(280.0, 380.0)
+        : 0.0;
+    return Row(
+      children: [
+        Expanded(flex: 1, child: stage),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          width: panelWidth,
+          child: panelWidth <= 0.5
+              ? const SizedBox.shrink()
+              : _buildSocial(room),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEndedOverlay() {
+    return Positioned.fill(
+      child: Container(
+        color: const Color(0xCC000000),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.emoji_emotions_outlined,
+                size: 40, color: Colors.white70),
+            const SizedBox(height: 12),
+            const Text('房间已结束',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: TextButton.styleFrom(
+                backgroundColor: _WatchColors.card,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 30, vertical: 10),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(22)),
+              ),
+              child: const Text('返回',
+                  style: TextStyle(color: Colors.white, fontSize: 13.5)),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -552,7 +1094,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
         ),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           _overlayIcon(
             Icons.arrow_back_ios_new_rounded,
@@ -620,23 +1162,20 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
                       const Icon(Icons.circle,
                           size: 5, color: AppColors.scoreGreen),
                       const SizedBox(width: 3),
-                      Text(
-                        '$online 人在线',
-                        style: const TextStyle(
-                            color: Colors.white70, fontSize: 11),
-                      ),
+                      Text('$online 人在线',
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 11)),
                     ],
                   ),
                 ),
               ],
             ),
           ),
-          _overlayIcon(
-            Icons.person_add_alt_1_rounded,
-            () => _copyInvite(room),
-          ),
+          _overlayIcon(Icons.ios_share_rounded, () => _shareInvite(room)),
+          _overlayIcon(Icons.people_alt_rounded, _showMembers),
           if (room.isHost)
-            _overlayIcon(Icons.close_rounded, _closeRoom),
+            _overlayIcon(Icons.tune_rounded, _showSettings),
+          if (room.isHost) _overlayIcon(Icons.close_rounded, _closeRoom),
         ],
       ),
     );
@@ -655,7 +1194,47 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
       child: Row(
         children: [
           _statusPill(room),
+          const SizedBox(width: 8),
+          if (room.canControl) ...[
+            _overlayIcon(Icons.skip_previous_rounded,
+                () => _changeEpisode(-1)),
+            _overlayIcon(Icons.skip_next_rounded, () => _changeEpisode(1)),
+          ],
           const Spacer(),
+          if (!_chatVisible)
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                _overlayIcon(Icons.chat_bubble_rounded, () {
+                  setState(() => _chatVisible = true);
+                  _openChat();
+                }),
+                if (_unread > 0)
+                  Positioned(
+                    right: 2,
+                    top: 2,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: AppColors.pink,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        _unread > 99 ? '99+' : '$_unread',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+              ],
+            )
+          else
+            _overlayIcon(Icons.keyboard_arrow_right_rounded,
+                () => setState(() => _chatVisible = false)),
+          const SizedBox(width: 4),
           _miniMemberStack(room),
         ],
       ),
@@ -681,7 +1260,15 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
     final Color color;
     final IconData icon;
     final String text;
-    if (room.canControl) {
+    if (_reconnecting) {
+      color = AppColors.vipGold;
+      icon = Icons.wifi_tethering_error_rounded;
+      text = '连接不稳定，正在重连…';
+    } else if (room.stallHold && !room.isHost) {
+      color = AppColors.vipGold;
+      icon = Icons.hourglass_bottom_rounded;
+      text = '房主缓冲中，已暂停等待…';
+    } else if (room.canControl) {
       color = AppColors.pink;
       icon = Icons.tune_rounded;
       text = room.paused ? '已暂停 · 你控制播放' : '播放中 · 你控制播放';
@@ -755,240 +1342,113 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
 
   // ==================== 社交区 ====================
 
-  Widget _buildSocial(WatchRoomInfo room, String myId) {
+  Widget _buildSocial(WatchRoomInfo room) {
     return Container(
       decoration: const BoxDecoration(
         color: _WatchColors.panel,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        border: Border(top: BorderSide(color: Color(0x14FFFFFF))),
+        border: Border(left: BorderSide(color: Color(0x14FFFFFF))),
       ),
       child: Column(
         children: [
-          _buildMembersStrip(room),
+          _buildPanelHeader(room),
           const Divider(height: 1, color: _WatchColors.line),
-          Expanded(child: _buildChat(myId)),
-          _buildInput(),
+          Expanded(child: _buildChat()),
+          _buildInput(room),
         ],
       ),
     );
   }
 
-  Widget _buildMembersStrip(WatchRoomInfo room) {
+  Widget _buildPanelHeader(WatchRoomInfo room) {
     final online = room.members.where((m) => m.online).length;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 11, 10, 9),
+      padding: const EdgeInsets.fromLTRB(14, 10, 6, 8),
       child: Row(
         children: [
-          Container(
-            width: 7,
-            height: 7,
-            decoration: const BoxDecoration(
-              color: AppColors.scoreGreen,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 6),
-          const Text(
-            '一起看',
-            style: TextStyle(
-              color: AppColors.pink,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
+          const Text('聊天',
+              style: TextStyle(
+                  color: _WatchColors.text,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700)),
           const SizedBox(width: 8),
-          Text(
-            '$online/${room.memberLimit} 人在线',
-            style: const TextStyle(fontSize: 11.5, color: _WatchColors.text3),
+          const Icon(Icons.circle, size: 6, color: AppColors.scoreGreen),
+          const SizedBox(width: 4),
+          Text('$online 人在线',
+              style: const TextStyle(color: _WatchColors.text2, fontSize: 11.5)),
+          const Spacer(),
+          IconButton(
+            onPressed: () => setState(() => _chatVisible = false),
+            icon: const Icon(Icons.keyboard_arrow_right_rounded,
+                color: _WatchColors.text2, size: 22),
+            visualDensity: VisualDensity.compact,
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: SizedBox(
-              height: 28,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: room.members.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 6),
-                itemBuilder: (context, i) => _avatar(room.members[i], size: 28),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          _inviteChip(() => _copyInvite(room)),
         ],
       ),
     );
   }
 
-  Widget _inviteChip(VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: AppColors.pink.withValues(alpha: 0.16),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.pink.withValues(alpha: 0.4)),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.add_rounded, size: 14, color: AppColors.pink),
-            SizedBox(width: 2),
-            Text(
-              '邀请',
-              style: TextStyle(
-                color: AppColors.pink,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _avatar(WatchMemberInfo m, {double size = 32, bool bordered = false}) {
-    final name = m.nickName.isEmpty ? '观众' : m.nickName;
-    final color = m.isHost
-        ? AppColors.vipGold
-        : (m.online ? AppColors.auroraBlue : _WatchColors.text3);
-    return SizedBox(
-      width: size,
-      height: size,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: color.withValues(alpha: 0.18),
-              border: Border.all(
-                color: m.isHost
-                    ? AppColors.vipGold
-                    : (bordered ? Colors.white : Colors.transparent),
-                width: m.isHost ? 1.6 : (bordered ? 1.5 : 0),
-              ),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              name.characters.first,
-              style: TextStyle(
-                fontSize: size * 0.42,
-                fontWeight: FontWeight.w600,
-                color: color,
-              ),
-            ),
-          ),
-          if (m.isHost)
-            Positioned(
-              right: -2,
-              top: -2,
-              child: Container(
-                padding: const EdgeInsets.all(1.5),
-                decoration: const BoxDecoration(
-                  color: AppColors.vipGoldDeep,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.star_rounded,
-                    size: 9, color: Colors.white),
-              ),
-            ),
-          if (m.buffering && !m.isHost)
-            Positioned(
-              right: 0,
-              bottom: 0,
-              child: Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: AppColors.vipGold,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: _WatchColors.panel, width: 1.5),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildChat(String myId) {
+  Widget _buildChat() {
     if (_lines.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.chat_bubble_outline_rounded,
-                size: 30, color: _WatchColors.text3.withValues(alpha: 0.7)),
-            const SizedBox(height: 8),
-            const Text(
-              '还没有消息，和大家打个招呼吧',
-              style: TextStyle(fontSize: 12.5, color: _WatchColors.text3),
-            ),
-          ],
-        ),
+      return const Center(
+        child: Text('还没有消息，来说点什么吧',
+            style: TextStyle(color: _WatchColors.text3, fontSize: 12.5)),
       );
     }
     return ListView.builder(
       controller: _chatScroll,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      itemCount: _lines.length,
-      itemBuilder: (context, index) => _buildLine(_lines[index], myId),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
+      itemCount: _lines.length + 1,
+      itemBuilder: (ctx, i) {
+        if (i == 0) {
+          if (!_hasMoreHistory) return const SizedBox(height: 2);
+          return Center(
+            child: TextButton(
+              onPressed: _loadingHistory ? null : _loadOlderMessages,
+              child: Text(
+                _loadingHistory ? '加载中…' : '查看更早的消息',
+                style: const TextStyle(
+                    color: _WatchColors.text2, fontSize: 11.5),
+              ),
+            ),
+          );
+        }
+        final line = _lines[i - 1];
+        if (line.system) return _systemLine(line);
+        return _messageLine(line);
+      },
     );
   }
 
-  Widget _buildLine(_ChatLine line, String myId) {
-    if (line.system) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Center(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.07),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text(
-              line.content,
-              style: const TextStyle(
-                fontSize: 11.5,
-                color: _WatchColors.text3,
-              ),
-            ),
+  Widget _systemLine(_ChatLine line) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+          decoration: BoxDecoration(
+            color: const Color(0x14FFFFFF),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            line.content,
+            style: const TextStyle(color: _WatchColors.text3, fontSize: 11),
           ),
         ),
-      );
-    }
-    final mine = myId.isNotEmpty && line.userId == myId;
+      ),
+    );
+  }
+
+  Widget _messageLine(_ChatLine line) {
+    final mine = line.userId == _myId;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment:
             mine ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!mine) ...[
-            Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.auroraBlue.withValues(alpha: 0.18),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                line.name.characters.first,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.auroraBlue,
-                ),
-              ),
-            ),
+            _letterAvatar(line.name, size: 28),
             const SizedBox(width: 8),
           ],
           Flexible(
@@ -996,113 +1456,177 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage> {
               crossAxisAlignment:
                   mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               children: [
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 3, left: 2, right: 2),
-                  child: Text(
-                    mine
-                        ? _formatTime(line.createdAt)
-                        : '${line.name}  ${_formatTime(line.createdAt)}',
-                    style: const TextStyle(
-                      fontSize: 10.5,
-                      color: _WatchColors.text3,
+                if (!mine)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Text(
+                      line.name,
+                      style: const TextStyle(
+                          color: _WatchColors.text3, fontSize: 11),
                     ),
                   ),
-                ),
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                      const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
                   decoration: BoxDecoration(
-                    color: mine ? AppColors.pink : _WatchColors.card,
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(16),
-                      topRight: const Radius.circular(16),
-                      bottomLeft: Radius.circular(mine ? 16 : 4),
-                      bottomRight: Radius.circular(mine ? 4 : 16),
-                    ),
-                    border: mine
-                        ? null
-                        : Border.all(color: const Color(0x14FFFFFF)),
+                    color: mine
+                        ? AppColors.pink
+                        : _WatchColors.panel2,
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     line.content,
                     style: const TextStyle(
-                      fontSize: 14,
-                      height: 1.35,
-                      color: _WatchColors.text,
-                    ),
+                        color: Colors.white, fontSize: 13.5, height: 1.3),
                   ),
                 ),
               ],
             ),
           ),
-          if (mine) const SizedBox(width: 4),
+          if (mine) const SizedBox(width: 2),
         ],
       ),
     );
   }
 
-  Widget _buildInput() {
-    return SafeArea(
-      top: false,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(10, 6, 10, 10),
-        child: Row(
-          children: [
-            _overlayIcon(Icons.emoji_emotions_outlined, _showEmojiPicker),
-            const SizedBox(width: 4),
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: _WatchColors.card,
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: const Color(0x12FFFFFF)),
+  Widget _buildInput(WatchRoomInfo room) {
+    final muted = !room.isHost &&
+        room.members.any((m) => m.userId == _myId && m.muted);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: _WatchColors.line)),
+      ),
+      child: muted
+          ? Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              alignment: Alignment.center,
+              child: const Text(
+                '你已被房主禁言',
+                style: TextStyle(color: _WatchColors.text3, fontSize: 12.5),
+              ),
+            )
+          : Row(
+              children: [
+                IconButton(
+                  onPressed: _showEmojiPicker,
+                  icon: const Icon(Icons.emoji_emotions_outlined,
+                      color: _WatchColors.text2, size: 22),
+                  visualDensity: VisualDensity.compact,
                 ),
-                child: TextField(
-                  controller: _chatInput,
-                  style: const TextStyle(
-                      color: _WatchColors.text, fontSize: 14),
-                  cursorColor: AppColors.pink,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => _sendMessage(),
-                  decoration: const InputDecoration(
-                    hintText: '和大家一起聊聊…',
-                    hintStyle: TextStyle(
-                        fontSize: 13, color: _WatchColors.text3),
-                    isDense: true,
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-                    border: InputBorder.none,
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: _WatchColors.panel2,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: TextField(
+                      controller: _chatInput,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _sendMessage(),
+                      style: const TextStyle(
+                          color: _WatchColors.text, fontSize: 13.5),
+                      decoration: const InputDecoration(
+                        hintText: '说点什么…',
+                        hintStyle: TextStyle(
+                            color: _WatchColors.text3, fontSize: 13),
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 10),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: _sendMessage,
-              child: Container(
-                width: 40,
-                height: 40,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: [AppColors.pink, AppColors.pinkDeep],
-                  ),
+                const SizedBox(width: 6),
+                IconButton(
+                  onPressed: _sendMessage,
+                  icon: const Icon(Icons.send_rounded,
+                      color: AppColors.pink, size: 20),
+                  visualDensity: VisualDensity.compact,
                 ),
-                child: const Icon(Icons.arrow_upward_rounded,
-                    size: 20, color: Colors.white),
-              ),
+              ],
             ),
-          ],
+    );
+  }
+
+  // ==================== 头像 ====================
+
+  Widget _avatar(WatchMemberInfo m, {required double size, bool bordered = true}) {
+    final name = _displayName(m);
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: _colorFor(name),
+        border: bordered
+            ? Border.all(color: Colors.black.withValues(alpha: 0.5), width: 1.5)
+            : null,
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        name.characters.first,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: size * 0.42,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
   }
 
-  String _formatTime(int ms) {
-    if (ms <= 0) return '';
-    final t = DateTime.fromMillisecondsSinceEpoch(ms);
-    final h = t.hour.toString().padLeft(2, '0');
-    final m = t.minute.toString().padLeft(2, '0');
-    return '$h:$m';
+  Widget _letterAvatar(String name, {required double size}) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(shape: BoxShape.circle, color: _colorFor(name)),
+      alignment: Alignment.center,
+      child: Text(
+        name.characters.first,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: size * 0.42,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Color _colorFor(String name) {
+    const palette = [
+      Color(0xFF7C5CFF),
+      Color(0xFF2E8BFF),
+      Color(0xFF16A34A),
+      Color(0xFFF59E0B),
+      Color(0xFFEF4444),
+      Color(0xFF0EA5E9),
+      Color(0xFFDB2777),
+    ];
+    if (name.isEmpty) return palette.first;
+    return palette[name.codeUnitAt(0) % palette.length];
+  }
+}
+
+class _Badge extends StatelessWidget {
+  final String text;
+  final Color color;
+
+  const _Badge({required this.text, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(color: color, fontSize: 9.5, fontWeight: FontWeight.w700),
+      ),
+    );
   }
 }

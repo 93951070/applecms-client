@@ -106,6 +106,9 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
 
   bool get isPlaying => _videoController?.value.isPlaying ?? false;
 
+  /// 是否正在缓冲（一起看同步上报用）。
+  bool get isBuffering => _videoController?.value.isBuffering ?? false;
+
   /// 暂停播放。用于离开当前页面时停止后台继续出声。
   /// 进入 Chewie 全屏同样会触发路由 push，此时不应暂停。
   void pausePlayback() {

@@ -387,6 +387,7 @@ class AppApiService {
     required int positionMs,
     required int episode,
     required int playSource,
+    bool buffering = false,
     String? token,
   }) async {
     return _request(
@@ -398,6 +399,7 @@ class AppApiService {
         'position_ms': positionMs,
         'episode': episode,
         'play_source': playSource,
+        'buffering': buffering,
       },
       token: token,
     );
@@ -452,13 +454,91 @@ class AppApiService {
     String base,
     String code, {
     int since = 0,
+    int before = 0,
     String? token,
   }) async {
+    final params = <String, String>{};
+    if (since > 0) params['since'] = '$since';
+    if (before > 0) params['before'] = '$before';
     return _request(
       base,
       method: 'GET',
       path: '$_apiPrefix/watch/rooms/${Uri.encodeComponent(code)}/messages',
-      query: since > 0 ? _encodeQuery({'since': '$since'}) : '',
+      query: params.isEmpty ? '' : _encodeQuery(params),
+      token: token,
+    );
+  }
+
+  /// 房主移交房间，需登录令牌。
+  Future<Map<String, dynamic>> watchTransferHost(
+    String base,
+    String code, {
+    required String targetUserId,
+    String? token,
+  }) async {
+    return _request(
+      base,
+      method: 'POST',
+      path:
+          '$_apiPrefix/watch/rooms/${Uri.encodeComponent(code)}/transfer',
+      jsonBody: {'target_user_id': targetUserId},
+      token: token,
+    );
+  }
+
+  /// 房主移出成员，需登录令牌。
+  Future<Map<String, dynamic>> watchKickMember(
+    String base,
+    String code, {
+    required String targetUserId,
+    String? token,
+  }) async {
+    return _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/watch/rooms/${Uri.encodeComponent(code)}/kick',
+      jsonBody: {'target_user_id': targetUserId},
+      token: token,
+    );
+  }
+
+  /// 房主禁言/解除禁言成员，需登录令牌。
+  Future<Map<String, dynamic>> watchMuteMember(
+    String base,
+    String code, {
+    required String targetUserId,
+    required bool muted,
+    String? token,
+  }) async {
+    return _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/watch/rooms/${Uri.encodeComponent(code)}/mute',
+      jsonBody: {'target_user_id': targetUserId, 'muted': muted},
+      token: token,
+    );
+  }
+
+  /// 房主修改房间设置，需登录令牌。
+  Future<Map<String, dynamic>> watchUpdateSettings(
+    String base,
+    String code, {
+    bool? allowMemberControl,
+    int? memberLimit,
+    String? token,
+  }) async {
+    final body = <String, dynamic>{};
+    if (allowMemberControl != null) {
+      body['allow_member_control'] = allowMemberControl;
+    }
+    if (memberLimit != null) {
+      body['member_limit'] = memberLimit;
+    }
+    return _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/watch/rooms/${Uri.encodeComponent(code)}/settings',
+      jsonBody: body,
       token: token,
     );
   }

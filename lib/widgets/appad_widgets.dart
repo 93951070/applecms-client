@@ -19,7 +19,7 @@ Color _text3(BuildContext context) => _isDark(context)
     ? AppColors.darkText3
     : AppColors.lightText3;
 
-/// 底部导航（扁平全宽，4 Tab：首页 / 排行榜 / 一起看 / 我的）
+/// 底部导航（扁平全宽，3 Tab：首页 / 排行榜 / 我的）
 class AppTabBar extends StatelessWidget {
   const AppTabBar({super.key, required this.current, required this.onTap});
 
@@ -29,7 +29,6 @@ class AppTabBar extends StatelessWidget {
   static const _items = [
     (Icons.home_outlined, Icons.home_rounded, '首页'),
     (Icons.leaderboard_outlined, Icons.leaderboard_rounded, '排行榜'),
-    (Icons.slideshow_outlined, Icons.slideshow_rounded, '一起看'),
     (Icons.person_outline_rounded, Icons.person_rounded, '我的'),
   ];
 

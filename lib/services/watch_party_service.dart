@@ -77,6 +77,7 @@ class WatchPartyService {
     required int positionMs,
     required int episode,
     required int playSource,
+    bool buffering = false,
   }) async {
     final token = await _token();
     if (token == null || token.isEmpty) {
@@ -89,6 +90,7 @@ class WatchPartyService {
       positionMs: positionMs,
       episode: episode,
       playSource: playSource,
+      buffering: buffering,
       token: token,
     );
     return _roomFrom(data);
@@ -128,6 +130,7 @@ class WatchPartyService {
   Future<List<WatchChatMessage>> fetchMessages(
     String code, {
     int since = 0,
+    int before = 0,
   }) async {
     final token = await _token();
     if (token == null || token.isEmpty) return const [];
@@ -135,6 +138,7 @@ class WatchPartyService {
       await _base(),
       code,
       since: since,
+      before: before,
       token: token,
     );
     final raw = data['items'];
@@ -181,6 +185,76 @@ class WatchPartyService {
       playIndex: playIndex,
       token: token,
     );
+  }
+
+  /// 房主移交房间。
+  Future<WatchRoomInfo> transferHost(String code, String targetUserId) async {
+    final token = await _token();
+    if (token == null || token.isEmpty) {
+      throw const AppApiException('请先登录');
+    }
+    final data = await _api.watchTransferHost(
+      await _base(),
+      code,
+      targetUserId: targetUserId,
+      token: token,
+    );
+    return _roomFrom(data);
+  }
+
+  /// 房主移出成员。
+  Future<WatchRoomInfo> kickMember(String code, String targetUserId) async {
+    final token = await _token();
+    if (token == null || token.isEmpty) {
+      throw const AppApiException('请先登录');
+    }
+    final data = await _api.watchKickMember(
+      await _base(),
+      code,
+      targetUserId: targetUserId,
+      token: token,
+    );
+    return _roomFrom(data);
+  }
+
+  /// 房主禁言/解除禁言成员。
+  Future<WatchRoomInfo> muteMember(
+    String code,
+    String targetUserId, {
+    required bool muted,
+  }) async {
+    final token = await _token();
+    if (token == null || token.isEmpty) {
+      throw const AppApiException('请先登录');
+    }
+    final data = await _api.watchMuteMember(
+      await _base(),
+      code,
+      targetUserId: targetUserId,
+      muted: muted,
+      token: token,
+    );
+    return _roomFrom(data);
+  }
+
+  /// 房主修改房间设置。
+  Future<WatchRoomInfo> updateSettings(
+    String code, {
+    bool? allowMemberControl,
+    int? memberLimit,
+  }) async {
+    final token = await _token();
+    if (token == null || token.isEmpty) {
+      throw const AppApiException('请先登录');
+    }
+    final data = await _api.watchUpdateSettings(
+      await _base(),
+      code,
+      allowMemberControl: allowMemberControl,
+      memberLimit: memberLimit,
+      token: token,
+    );
+    return _roomFrom(data);
   }
 
   WatchRoomInfo _roomFrom(Map<String, dynamic> data) {

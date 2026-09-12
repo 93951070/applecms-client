@@ -4,6 +4,7 @@ class WatchMemberInfo {
   final String nickName;
   final bool online;
   final bool buffering;
+  final bool muted;
   final bool isHost;
 
   const WatchMemberInfo({
@@ -11,6 +12,7 @@ class WatchMemberInfo {
     this.nickName = '',
     this.online = false,
     this.buffering = false,
+    this.muted = false,
     this.isHost = false,
   });
 
@@ -20,6 +22,7 @@ class WatchMemberInfo {
       nickName: (json['nick_name'] ?? '').toString(),
       online: json['online'] == true,
       buffering: json['buffering'] == true,
+      muted: json['muted'] == true,
       isHost: json['is_host'] == true,
     );
   }
@@ -42,6 +45,8 @@ class WatchRoomInfo {
   final bool isPublic;
   final int memberLimit;
   final bool allowMemberControl;
+  final bool hostBuffering;
+  final bool stallHold;
   final List<WatchMemberInfo> members;
   final int updatedAt;
   final int lastActiveAt;
@@ -62,6 +67,8 @@ class WatchRoomInfo {
     this.isPublic = false,
     this.memberLimit = 8,
     this.allowMemberControl = false,
+    this.hostBuffering = false,
+    this.stallHold = false,
     this.members = const [],
     this.updatedAt = 0,
     this.lastActiveAt = 0,
@@ -93,6 +100,8 @@ class WatchRoomInfo {
       isPublic: json['is_public'] == true,
       memberLimit: (json['member_limit'] as num?)?.toInt() ?? 8,
       allowMemberControl: json['allow_member_control'] == true,
+      hostBuffering: json['host_buffering'] == true,
+      stallHold: json['stall_hold'] == true,
       members: members,
       updatedAt: (json['updated_at'] as num?)?.toInt() ?? 0,
       lastActiveAt: (json['last_active_at'] as num?)?.toInt() ?? 0,

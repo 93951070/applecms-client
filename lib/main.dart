@@ -13,7 +13,6 @@ import 'pages/search.dart';
 import 'pages/rank.dart';
 import 'pages/profile.dart';
 import 'pages/login_page.dart';
-import 'pages/watch.dart';
 import 'pages/messages_page.dart';
 import 'pages/play_history_page.dart';
 import 'providers/settings_provider.dart';
@@ -216,13 +215,6 @@ final _router = GoRouter(
           pageBuilder: (context, state) => _buildPageWithPlatformTransition(
             state,
             const RankPage(),
-          ),
-        ),
-        GoRoute(
-          path: '/watch',
-          pageBuilder: (context, state) => _buildPageWithPlatformTransition(
-            state,
-            const WatchPage(),
           ),
         ),
         GoRoute(
