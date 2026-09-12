@@ -383,10 +383,9 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   }
 
   Widget _buildRightRail() {
-    final sheetHeight = MediaQuery.of(context).size.height * 0.52;
     return Positioned(
       right: 8,
-      bottom: _commentsOpen ? sheetHeight + 8 : 96,
+      bottom: 96,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -428,11 +427,10 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
     final e = _entries[_current];
     final detail = _dramaDetails[e.vodId];
     final desc = detail?.desc?.trim() ?? '';
-    final sheetHeight = MediaQuery.of(context).size.height * 0.52;
     return Positioned(
       left: 14,
       right: 76,
-      bottom: _commentsOpen ? sheetHeight + 8 : 44,
+      bottom: 44,
       child: GestureDetector(
         onTap: _showDramaInfo,
         behavior: HitTestBehavior.opaque,
