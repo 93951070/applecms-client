@@ -950,8 +950,12 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
   }
 
   Widget _buildPauseIcon() {
-    return const Center(
-      child: Icon(Icons.play_arrow_rounded, color: Colors.white54, size: 68),
+    // 暂停图标仅作提示，必须忽略指针事件，否则会挡住下方的手势层，
+    // 导致点击图标区域无法恢复播放（只能点到图标旁边的空白）。
+    return const IgnorePointer(
+      child: Center(
+        child: Icon(Icons.play_arrow_rounded, color: Colors.white54, size: 68),
+      ),
     );
   }
 
@@ -1004,7 +1008,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
   }
 
   Widget _buildMessage(String message, {bool retry = false}) {
-    final showUpgrade = !retry &&
+    final isLock = !retry &&
         (widget.locked || message.contains('会员') || message.contains('VIP'));
     return ColoredBox(
       color: Colors.black54,
@@ -1013,8 +1017,8 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              retry ? Icons.error_outline : Icons.lock_outline,
-              color: retry ? Colors.white70 : const Color(0xFFFFC24B),
+              isLock ? Icons.lock_outline : Icons.error_outline,
+              color: isLock ? const Color(0xFFFFC24B) : Colors.white70,
               size: 34,
             ),
             const SizedBox(height: 10),
@@ -1026,7 +1030,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
                 style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
             ),
-            if (showUpgrade) ...[
+            if (isLock) ...[
               const SizedBox(height: 12),
               ElevatedButton(
                 onPressed: widget.onUpgrade,
