@@ -12,11 +12,9 @@ Future<void> shareText(
   if (box != null && box.hasSize) {
     origin = box.localToGlobal(Offset.zero) & box.size;
   }
-  await SharePlus.instance.share(
-    ShareParams(
-      text: text,
-      subject: subject,
-      sharePositionOrigin: origin,
-    ),
+  await Share.share(
+    text,
+    subject: subject,
+    sharePositionOrigin: origin,
   );
 }
