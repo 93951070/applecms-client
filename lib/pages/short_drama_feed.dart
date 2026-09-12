@@ -1004,6 +1004,8 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
   }
 
   Widget _buildMessage(String message, {bool retry = false}) {
+    final showUpgrade = !retry &&
+        (widget.locked || message.contains('会员') || message.contains('VIP'));
     return ColoredBox(
       color: Colors.black54,
       child: Center(
@@ -1024,7 +1026,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
                 style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
             ),
-            if (widget.locked) ...[
+            if (showUpgrade) ...[
               const SizedBox(height: 12),
               ElevatedButton(
                 onPressed: widget.onUpgrade,
