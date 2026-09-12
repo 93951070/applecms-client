@@ -704,23 +704,23 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
                               : const Color(0xFF2A2A2E),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Stack(
-                          alignment: Alignment.center,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text(
-                              _entries[idx].episodeLabel,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: 12),
-                            ),
-                            if (locked)
-                              const Positioned(
-                                top: 3,
-                                right: 3,
-                                child: Icon(Icons.lock,
-                                    color: Color(0xFFFFC24B), size: 11),
+                            if (locked) ...[
+                              const Icon(Icons.lock,
+                                  color: Color(0xFFFFC24B), size: 10),
+                              const SizedBox(width: 2),
+                            ],
+                            Flexible(
+                              child: Text(
+                                _entries[idx].episodeLabel,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    color: Colors.white, fontSize: 12),
                               ),
+                            ),
                           ],
                         ),
                       ),

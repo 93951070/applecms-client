@@ -513,9 +513,14 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
                                   : Colors.white24,
                             ),
                           ),
-                          child: Stack(
-                            alignment: Alignment.center,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
+                              if (locked) ...[
+                                const Icon(Icons.lock,
+                                    color: Color(0xFFFFC24B), size: 10),
+                                const SizedBox(width: 2),
+                              ],
                               Text(
                                 '${index + 1}',
                                 style: TextStyle(
@@ -528,13 +533,6 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
                                       : FontWeight.normal,
                                 ),
                               ),
-                              if (locked)
-                                const Positioned(
-                                  top: 2,
-                                  right: 2,
-                                  child: Icon(Icons.lock,
-                                      color: Color(0xFFFFC24B), size: 11),
-                                ),
                             ],
                           ),
                         ),
