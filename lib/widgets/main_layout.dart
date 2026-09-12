@@ -23,6 +23,7 @@ class MainLayout extends StatelessWidget {
       body: child,
       bottomNavigationBar: AppTabBar(
         current: _currentIndex,
+        immersive: currentPath == '/shortdrama',
         onTap: (i) => context.go(_paths[i]),
       ),
     );

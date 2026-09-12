@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:screen_brightness/screen_brightness.dart';
 import '../models/site.dart';
 import 'zen_ui.dart';
 import 'bili_loading.dart';
@@ -126,7 +127,20 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
   }
 
   void _initBrightness() {
-    // Mobile brightness is tracked locally for the UI hint only.
+    unawaited(_loadBrightness());
+  }
+
+  Future<void> _loadBrightness() async {
+    try {
+      final value = await ScreenBrightness.instance.application;
+      if (mounted) setState(() => _brightness = value.clamp(0.0, 1.0));
+    } catch (_) {}
+  }
+
+  void _applyScreenBrightness(double value) {
+    unawaited(
+      ScreenBrightness.instance.setApplicationScreenBrightness(value.clamp(0.0, 1.0)),
+    );
   }
 
   @override
@@ -163,6 +177,7 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
     _danmakuFallbackNotifier.dispose();
     _danmakuInputFallbackNotifier.dispose();
     _keyboardFocus.dispose();
+    ScreenBrightness.instance.resetApplicationScreenBrightness().ignore();
     super.dispose();
   }
 
@@ -299,6 +314,13 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
               _cancelAndRestartTimer();
             }
           },
+          onVerticalDragStart: (details) {
+            _dragStartOffset = details.localPosition;
+            _dragStartVolume = _videoPlayerController?.value.volume ?? 0.0;
+            _dragStartBrightness = _brightness;
+          },
+          onVerticalDragUpdate: _handleVerticalDragUpdate,
+          onVerticalDragEnd: _handleDragEnd,
           child: AbsorbPointer(
             absorbing: !_displayToggles && !_showSettings && !_showEpisodePanel,
             child: Stack(
@@ -979,25 +1001,26 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
   }
 
   void _handleVerticalDragUpdate(DragUpdateDetails details) {
-    if (_videoPlayerController == null || _isLocked) return;
-    
+    if (_videoPlayerController == null) return;
+
     final width = MediaQuery.of(context).size.width;
     final delta = -details.primaryDelta! / 200; // 灵敏度调节
-    
+
     _isDragging = true;
     if (_dragStartOffset.dx < width * 0.35) { // 增加判定范围
-      // 左侧：亮度
-      _dragHintType = 'brightness';
-      _dragStartBrightness = (_dragStartBrightness + delta).clamp(0.0, 1.0);
-      _brightness = _dragStartBrightness;
-      _showActionHint('亮度: ${(_brightness * 100).toInt()}%', LucideIcons.sun, autoHide: false);
-    } else if (_dragStartOffset.dx > width * 0.65) {
-      // 右侧：音量
+      // 左侧：音量
       _dragHintType = 'volume';
       _dragStartVolume = (_dragStartVolume + delta).clamp(0.0, 1.0);
       _videoPlayerController!.setVolume(_dragStartVolume);
       if (_dragStartVolume > 0) _lastVolume = _dragStartVolume;
       _showActionHint('音量: ${(_dragStartVolume * 100).toInt()}%', _dragStartVolume == 0 ? LucideIcons.volumeX : (_dragStartVolume < 0.5 ? LucideIcons.volume1 : LucideIcons.volume2), autoHide: false);
+    } else if (_dragStartOffset.dx > width * 0.65) {
+      // 右侧：亮度
+      _dragHintType = 'brightness';
+      _dragStartBrightness = (_dragStartBrightness + delta).clamp(0.0, 1.0);
+      _brightness = _dragStartBrightness;
+      _applyScreenBrightness(_brightness);
+      _showActionHint('亮度: ${(_brightness * 100).toInt()}%', LucideIcons.sun, autoHide: false);
     }
   }
 
@@ -1025,7 +1048,7 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
   }
 
   void _handleDragEnd(DragEndDetails details) {
-    if (!_isDragging || _isLocked) return;
+    if (!_isDragging) return;
     
     if (_dragHintType == 'seek' && _videoPlayerController != null) {
       _videoPlayerController!.seekTo(_dragStartPosition);
@@ -1069,14 +1092,6 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
         }
         _cancelAndRestartTimer();
       },
-      onVerticalDragStart: (details) {
-        if (_isLocked) return;
-        _dragStartOffset = details.localPosition;
-        _dragStartVolume = _videoPlayerController?.value.volume ?? 0.0;
-        _dragStartBrightness = _brightness;
-      },
-      onVerticalDragUpdate: _handleVerticalDragUpdate,
-      onVerticalDragEnd: _handleDragEnd,
       onHorizontalDragStart: (details) {
         if (_isLocked) return;
         _dragStartPosition = _videoPlayerController?.value.position ?? Duration.zero;

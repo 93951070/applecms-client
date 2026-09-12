@@ -21,10 +21,16 @@ Color _text3(BuildContext context) => _isDark(context)
 
 /// 底部导航（扁平全宽，3 Tab：首页 / 排行榜 / 我的）
 class AppTabBar extends StatelessWidget {
-  const AppTabBar({super.key, required this.current, required this.onTap});
+  const AppTabBar({
+    super.key,
+    required this.current,
+    required this.onTap,
+    this.immersive = false,
+  });
 
   final int current;
   final ValueChanged<int> onTap;
+  final bool immersive;
 
   static const _items = [
     (Icons.home_outlined, Icons.home_rounded, '首页'),
@@ -35,14 +41,20 @@ class AppTabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = _isDark(context);
-    final inactive = isDark ? AppColors.darkText3 : const Color(0xFF9B9BA1);
+    final isDark = immersive || _isDark(context);
+    final inactive = immersive
+        ? const Color(0xFF8E8E93)
+        : (isDark ? AppColors.darkText3 : const Color(0xFF9B9BA1));
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1C171B) : Colors.white,
+        color: immersive
+            ? Colors.black
+            : (isDark ? const Color(0xFF1C171B) : Colors.white),
         border: Border(
           top: BorderSide(
-            color: isDark ? const Color(0xFF2C262B) : const Color(0xFFEFEFF2),
+            color: immersive
+                ? Colors.transparent
+                : (isDark ? const Color(0xFF2C262B) : const Color(0xFFEFEFF2)),
             width: 1,
           ),
         ),
