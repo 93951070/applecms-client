@@ -727,13 +727,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     );
   }
 
-  void _comingSoon(String name) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('$name 敬请期待'),
-      duration: const Duration(seconds: 1),
-    ));
-  }
-
   // ==================== 视频 Tab ====================
 
   Widget _buildVideoTab(ThemeData theme) {
@@ -1127,9 +1120,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           const SizedBox(width: 20),
           _buildActionIcon(Icons.share_rounded, const Color(0xFF3B82F6),
               _shareVideo),
-          const SizedBox(width: 20),
-          _buildActionIcon(Icons.edit_rounded, AppColors.pink,
-              () => _comingSoon('编辑')),
         ],
       ),
     );

@@ -669,8 +669,6 @@ class ProfilePage extends ConsumerWidget {
       case '分享好友':
         _shareApp(context, ref);
         break;
-      default:
-        _comingSoon(context, label);
     }
   }
 
@@ -719,15 +717,6 @@ class ProfilePage extends ConsumerWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  void _comingSoon(BuildContext context, String name) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$name 敬请期待'),
-        duration: const Duration(seconds: 1),
       ),
     );
   }

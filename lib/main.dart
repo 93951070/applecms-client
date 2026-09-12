@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import 'core/theme.dart';
 import 'core/navigation.dart';
 import 'pages/home.dart';
-import 'pages/explore.dart';
 import 'pages/category_list.dart';
 import 'pages/play.dart';
 import 'pages/settings.dart';
@@ -236,34 +235,6 @@ final _router = GoRouter(
       ],
     ),
     // 子页面：全屏，不显示底部导航
-    GoRoute(
-      path: '/movies',
-      pageBuilder: (context, state) => _buildPageWithPlatformTransition(
-        state,
-        const ExplorePage(title: '电影', type: 'movie'),
-      ),
-    ),
-    GoRoute(
-      path: '/series',
-      pageBuilder: (context, state) => _buildPageWithPlatformTransition(
-        state,
-        const ExplorePage(title: '剧集', type: 'tv'),
-      ),
-    ),
-    GoRoute(
-      path: '/anime',
-      pageBuilder: (context, state) => _buildPageWithPlatformTransition(
-        state,
-        const ExplorePage(title: '动漫', type: 'anime'),
-      ),
-    ),
-    GoRoute(
-      path: '/variety',
-      pageBuilder: (context, state) => _buildPageWithPlatformTransition(
-        state,
-        const ExplorePage(title: '综艺', type: 'show'),
-      ),
-    ),
     GoRoute(
       path: '/search',
       pageBuilder: (context, state) => _buildPageWithPlatformTransition(

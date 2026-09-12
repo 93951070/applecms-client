@@ -77,6 +77,7 @@ class CmsService {
     int typeId, {
     int page = 1,
     int pageSize = 20,
+    String? sort,
   }) async {
     try {
       final data = await _api.listVideos(
@@ -84,6 +85,7 @@ class CmsService {
         page: page,
         limit: pageSize,
         typeId: '$typeId',
+        sort: sort,
       );
       return _listFromItems(data['items'], site);
     } catch (_) {

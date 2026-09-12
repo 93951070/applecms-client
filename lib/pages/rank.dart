@@ -4,10 +4,27 @@ import '../core/theme.dart';
 import '../models/movie.dart';
 import '../models/site.dart';
 import '../services/cms_service.dart';
+import '../services/config_service.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
 import 'home.dart';
 import 'video_detail.dart';
+
+/// 排行榜数据：按每日热度（vod_hits_day）由服务端真实排序。
+final _rankProvider =
+    FutureProvider.family<List<VideoDetail>, int>((ref, typeId) async {
+  final config = ref.read(configServiceProvider);
+  final cms = ref.read(cmsServiceProvider);
+  final site = await config.getPrimarySite();
+  if (site.disabled) return [];
+  return cms.getCategoryList(
+    site,
+    typeId,
+    page: 1,
+    pageSize: 50,
+    sort: 'day',
+  );
+});
 
 /// 排行榜：分类 Tab + Top 榜单列表（数据来自 CMS）
 class RankPage extends ConsumerStatefulWidget {
@@ -48,7 +65,7 @@ class _RankPageState extends ConsumerState<RankPage> {
 
     final tabs = groups.map((g) => g.category.typeName).toList();
 
-    final asyncList = ref.watch(cmsCategoryProvider(typeId));
+    final asyncList = ref.watch(_rankProvider(typeId));
 
     return ZenScaffold(
       body: SafeArea(
@@ -91,7 +108,7 @@ class _RankPageState extends ConsumerState<RankPage> {
                     : RefreshIndicator(
                         color: AppColors.pink,
                         onRefresh: () async {
-                          ref.invalidate(cmsCategoryProvider(typeId));
+                          ref.invalidate(_rankProvider(typeId));
                         },
                         child: ListView.builder(
                           padding: const EdgeInsets.only(bottom: 24),
