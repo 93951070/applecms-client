@@ -26,6 +26,10 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
   final bool danmakuEnabled;
   final VoidCallback? onDanmakuToggle;
   final List<String> episodeTitles;
+  /// 与 [episodeTitles] 逐集对应的会员要求：0 免费，非 0 需会员。
+  final List<int> episodeNeedVip;
+  /// 当前用户是否已开通会员。
+  final bool isVip;
   final int currentEpisodeIndex;
   final void Function(int index, bool wasFullScreen)? onSelectEpisode;
   final bool autoEnterFullScreen;
@@ -54,6 +58,8 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
     this.danmakuEnabled = true,
     this.onDanmakuToggle,
     this.episodeTitles = const [],
+    this.episodeNeedVip = const [],
+    this.isVip = false,
     this.currentEpisodeIndex = 0,
     this.onSelectEpisode,
     this.autoEnterFullScreen = false,
@@ -273,6 +279,8 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
           danmakuListenable: _danmakuEnabledNotifier,
           onDanmakuToggle: widget.onDanmakuToggle,
           episodeTitles: widget.episodeTitles,
+          episodeNeedVip: widget.episodeNeedVip,
+          isVip: widget.isVip,
           currentEpisodeIndex: widget.currentEpisodeIndex,
           onSelectEpisode: (index, wasFullScreen) {
             // 切集前先退出全屏，避免旧的 Chewie 全屏路由持有已被释放的控制器；

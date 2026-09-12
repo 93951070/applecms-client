@@ -598,6 +598,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       danmakuEnabled: _danmakuEnabled,
       onDanmakuToggle: _toggleDanmaku,
       episodeTitles: group.titles,
+      episodeNeedVip: group.needVip,
+      isVip: ref.watch(authProvider).user?.isVip ?? false,
       currentEpisodeIndex: _currentEpisodeIndex,
       onSelectEpisode: (index, wasFullScreen) {
         _restoreFullScreen = wasFullScreen;

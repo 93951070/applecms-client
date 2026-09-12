@@ -22,6 +22,10 @@ class ZenVideoControls extends StatefulWidget {
   final ValueListenable<bool>? danmakuInputListenable;
   final VoidCallback? onDanmakuToggle;
   final List<String> episodeTitles;
+  /// 与 [episodeTitles] 逐集对应的会员要求：0 免费，非 0 需会员。
+  final List<int> episodeNeedVip;
+  /// 当前用户是否已开通会员，用于决定是否在选集上显示锁。
+  final bool isVip;
   final int currentEpisodeIndex;
   final void Function(int index, bool wasFullScreen)? onSelectEpisode;
   final bool danmakuInputActive;
@@ -44,6 +48,8 @@ class ZenVideoControls extends StatefulWidget {
     this.danmakuInputListenable,
     this.onDanmakuToggle,
     this.episodeTitles = const [],
+    this.episodeNeedVip = const [],
+    this.isVip = false,
     this.currentEpisodeIndex = 0,
     this.onSelectEpisode,
     this.danmakuInputActive = false,
@@ -484,6 +490,9 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
                     itemCount: total,
                     itemBuilder: (context, index) {
                       final selected = index == widget.currentEpisodeIndex;
+                      final locked = !widget.isVip &&
+                          index < widget.episodeNeedVip.length &&
+                          widget.episodeNeedVip[index] > 0;
                       return GestureDetector(
                         onTap: () {
                           setState(() => _showEpisodePanel = false);
@@ -504,15 +513,29 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
                                   : Colors.white24,
                             ),
                           ),
-                          child: Text(
-                            '${index + 1}',
-                            style: TextStyle(
-                              color: selected ? Colors.white : Colors.white70,
-                              fontSize: 12,
-                              fontWeight: selected
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                            ),
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              Text(
+                                '${index + 1}',
+                                style: TextStyle(
+                                  color: selected
+                                      ? Colors.white
+                                      : Colors.white70,
+                                  fontSize: 12,
+                                  fontWeight: selected
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                ),
+                              ),
+                              if (locked)
+                                const Positioned(
+                                  top: 2,
+                                  right: 2,
+                                  child: Icon(Icons.lock,
+                                      color: Color(0xFFFFC24B), size: 11),
+                                ),
+                            ],
                           ),
                         ),
                       );
