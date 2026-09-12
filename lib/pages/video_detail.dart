@@ -16,6 +16,7 @@ import '../services/download_service.dart';
 import '../core/theme.dart';
 import '../core/navigation.dart';
 import '../core/share_utils.dart';
+import '../core/video_router.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
@@ -1343,18 +1344,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
                   imageUrl: list[i].poster,
                   year: list[i].year,
                   episode: list[i].typeName,
-                  onTap: () => Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
-                    builder: (context) => VideoDetailPage(
-                      subject: DoubanSubject(
-                        id: list[i].id,
-                        title: list[i].title,
-                        rate: '0.0',
-                        cover: list[i].poster,
-                        year: list[i].year,
-                        description: list[i].desc,
-                      ),
-                    ),
-                  )),
+                  // 用 pushReplacement 打开，避免同类推荐层层压栈导致返回时旧页面无法回收
+                  onTap: () => VideoRouter.open(context, list[i], replace: true),
                 ),
                 if (i != list.length - 1) const SizedBox(width: 10),
               ],

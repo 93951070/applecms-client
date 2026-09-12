@@ -7,15 +7,12 @@ import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../providers/history_provider.dart';
 import '../providers/auth_provider.dart';
-import '../models/movie.dart';
 import '../models/site.dart';
-import '../core/content_kind.dart';
+import '../core/video_router.dart';
 import '../core/theme.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
 import '../widgets/cover_image.dart';
-import 'short_drama_feed.dart';
-import 'video_detail.dart';
 
 /// 按分类拉取 CMS 列表（1电影 / 2电视剧 / 3动漫 / 4综艺）
 final cmsCategoryProvider =
@@ -39,18 +36,6 @@ final categoryTreeProvider =
 
 /// 无法取得分类树时的兜底分类（与后端默认数据一致）
 const _fallbackGroups = defaultCategoryGroups;
-
-/// 将 CMS 的 VideoDetail 桥接为展示用的 DoubanSubject
-DoubanSubject _toSubject(VideoDetail d) {
-  return DoubanSubject(
-    id: d.id,
-    title: d.title,
-    rate: '0.0',
-    cover: d.poster,
-    year: d.year,
-    description: d.desc,
-  );
-}
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
@@ -80,19 +65,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   void _openDetail(VideoDetail video) {
-    if (isFeedCategory(typeId: video.typeId, typeName: video.typeName)) {
-      Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
-        builder: (context) => ShortDramaFeedPage(
-          typeId: video.typeId,
-          categoryTitle: video.typeName ?? '短剧',
-          initial: video,
-        ),
-      ));
-      return;
-    }
-    Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
-      builder: (context) => VideoDetailPage(subject: _toSubject(video)),
-    ));
+    VideoRouter.open(context, video);
   }
 
   /// 观看记录首次出现时，底部浮出「继续观看」条，3 秒不点自动消失
@@ -268,16 +241,14 @@ class _HomePageState extends ConsumerState<HomePage> {
     return ContinueBar(
       text: '继续观看：${record.title} 第 ${record.index + 1} 集',
       onTap: () {
-        final subject = DoubanSubject(
-          id: record.doubanId ?? '',
+        VideoRouter.openByTitle(
+          context,
+          ref,
           title: record.searchTitle,
-          rate: '0.0',
           cover: record.cover,
           year: record.year,
+          subjectId: record.doubanId,
         );
-        Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
-          builder: (context) => VideoDetailPage(subject: subject),
-        ));
       },
       onClose: () {
         _continueTimer?.cancel();

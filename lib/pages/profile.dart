@@ -7,8 +7,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/share_utils.dart';
 import '../core/theme.dart';
+import '../core/video_router.dart';
 import '../models/site.dart';
-import '../models/movie.dart';
 import '../providers/auth_provider.dart';
 import '../providers/history_provider.dart';
 import '../services/cms_service.dart';
@@ -16,7 +16,6 @@ import '../services/config_service.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
 import '../widgets/cover_image.dart';
-import 'video_detail.dart';
 import 'messages_page.dart';
 import 'favorites_page.dart';
 import 'feedback_page.dart';
@@ -555,18 +554,16 @@ class ProfilePage extends ConsumerWidget {
           final record = history[i];
           return _HistoryCard(
             record: record,
-            onTap: () {
-              final subject = DoubanSubject(
-                id: record.doubanId ?? '',
-                title: record.searchTitle,
-                rate: '0.0',
-                cover: record.cover,
-                year: record.year,
-              );
-              Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
-                builder: (context) => VideoDetailPage(subject: subject),
-              ));
-            },
+            onTap: () => VideoRouter.openByTitle(
+              context,
+              ref,
+              title: record.searchTitle.isNotEmpty
+                  ? record.searchTitle
+                  : record.title,
+              cover: record.cover,
+              year: record.year,
+              subjectId: record.doubanId,
+            ),
             onLongPress: () =>
                 ref.read(historyProvider.notifier).removeRecord(record.searchTitle),
           );

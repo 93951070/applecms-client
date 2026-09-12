@@ -5,10 +5,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../core/theme.dart';
+import '../core/video_router.dart';
 import '../models/site.dart';
 import '../models/movie.dart';
 import '../widgets/zen_ui.dart';
-import 'video_detail.dart';
 
 class SearchPage extends ConsumerStatefulWidget {
   const SearchPage({super.key});
@@ -346,12 +346,11 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   }
 
   Widget _buildMovieCard(VideoDetail item, {String? badge}) {
-    // ID 传空，让详情页自动匹配豆瓣 ID，避免 CMS ID 误导导致获取不到详情和评分
-    final subject = DoubanSubject(id: '', title: item.title, rate: '0.0', cover: item.poster, year: item.year);
+    // 详情页需要留空 ID 以触发豆瓣自动匹配；短剧则进入竖屏 Feed。
     return MovieCard(
-      movie: subject, 
+      movie: DoubanSubject(id: '', title: item.title, rate: '0.0', cover: item.poster, year: item.year),
       badge: badge,
-      onTap: () => Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(builder: (context) => VideoDetailPage(subject: subject)))
+      onTap: () => VideoRouter.open(context, item, subjectId: ''),
     );
   }
 

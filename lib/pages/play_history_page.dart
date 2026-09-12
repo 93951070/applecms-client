@@ -2,12 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme.dart';
-import '../models/movie.dart';
+import '../core/video_router.dart';
 import '../models/site.dart';
 import '../providers/history_provider.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/zen_ui.dart';
-import 'video_detail.dart';
 
 /// 播放记录页：展示账号/本机的观看历史，支持续看、删除单条与清空。
 class PlayHistoryPage extends ConsumerWidget {
@@ -59,7 +58,7 @@ class PlayHistoryPage extends ConsumerWidget {
                 delegate: SliverChildBuilderDelegate(
                   (context, index) => _HistoryTile(
                     record: items[index],
-                    onTap: () => _open(context, items[index]),
+                    onTap: () => _open(context, ref, items[index]),
                     onRemove: () => _confirmRemove(context, ref, items[index]),
                   ),
                   childCount: items.length,
@@ -71,16 +70,14 @@ class PlayHistoryPage extends ConsumerWidget {
     );
   }
 
-  void _open(BuildContext context, PlayRecord record) {
-    final subject = DoubanSubject(
-      id: record.doubanId ?? '',
-      title: record.searchTitle,
-      rate: '0.0',
+  void _open(BuildContext context, WidgetRef ref, PlayRecord record) {
+    VideoRouter.openByTitle(
+      context,
+      ref,
+      title: record.searchTitle.isNotEmpty ? record.searchTitle : record.title,
       cover: record.cover,
       year: record.year,
-    );
-    Navigator.of(context, rootNavigator: true).push(
-      MaterialPageRoute(builder: (_) => VideoDetailPage(subject: subject)),
+      subjectId: record.doubanId,
     );
   }
 

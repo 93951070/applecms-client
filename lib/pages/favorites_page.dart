@@ -2,12 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme.dart';
-import '../models/movie.dart';
+import '../core/video_router.dart';
 import '../models/site.dart';
 import '../providers/favorites_provider.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/zen_ui.dart';
-import 'video_detail.dart';
 
 /// 我的收藏：来自本地持久化的 [Favorite] 列表。
 class FavoritesPage extends ConsumerWidget {
@@ -39,7 +38,7 @@ class FavoritesPage extends ConsumerWidget {
                 delegate: SliverChildBuilderDelegate(
                   (context, index) => _FavoriteTile(
                     favorite: items[index],
-                    onTap: () => _open(context, items[index]),
+                    onTap: () => _open(context, ref, items[index]),
                     onRemove: () => ref
                         .read(favoritesProvider.notifier)
                         .remove(items[index].subjectId, items[index].searchTitle),
@@ -53,18 +52,17 @@ class FavoritesPage extends ConsumerWidget {
     );
   }
 
-  void _open(BuildContext context, Favorite favorite) {
-    final subject = DoubanSubject(
-      id: favorite.subjectId,
-      title: favorite.searchTitle.isNotEmpty
-          ? favorite.searchTitle
-          : favorite.title,
-      rate: '0.0',
+  void _open(BuildContext context, WidgetRef ref, Favorite favorite) {
+    final title = favorite.searchTitle.isNotEmpty
+        ? favorite.searchTitle
+        : favorite.title;
+    VideoRouter.openByTitle(
+      context,
+      ref,
+      title: title,
       cover: favorite.cover,
       year: favorite.year,
-    );
-    Navigator.of(context, rootNavigator: true).push(
-      MaterialPageRoute(builder: (_) => VideoDetailPage(subject: subject)),
+      subjectId: favorite.subjectId,
     );
   }
 }

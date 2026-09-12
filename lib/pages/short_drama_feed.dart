@@ -822,16 +822,27 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
   }
 
   Widget _buildVideo(VideoPlayerController controller) {
-    final size = controller.value.size;
-    final landscape = size.width >= size.height;
-    if (landscape) {
+    final v = controller.value;
+    // 部分源以竖屏尺寸存储但带 90/270 度旋转信息，需按显示方向换算宽高，
+    // 否则横屏内容会被当成竖屏裁切。
+    final rotated =
+        v.rotationCorrection == 90 || v.rotationCorrection == 270;
+    final width = rotated ? v.size.height : v.size.width;
+    final height = rotated ? v.size.width : v.size.height;
+    if (width <= 0 || height <= 0) {
+      return const ColoredBox(color: Colors.black);
+    }
+    final aspect = width / height;
+    // 横屏源等比完整显示（模糊海报补边）；竖屏源铺满裁切。两者都按真实比例
+    // 缩放，不做拉伸。
+    if (aspect >= 1) {
       return Stack(
         fit: StackFit.expand,
         children: [
           _buildBlurredPoster(),
           Center(
             child: AspectRatio(
-              aspectRatio: size.width / size.height,
+              aspectRatio: aspect,
               child: VideoPlayer(controller),
             ),
           ),
@@ -842,8 +853,8 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
       child: FittedBox(
         fit: BoxFit.cover,
         child: SizedBox(
-          width: size.width,
-          height: size.height,
+          width: width,
+          height: height,
           child: VideoPlayer(controller),
         ),
       ),
