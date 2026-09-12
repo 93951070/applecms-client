@@ -9,10 +9,12 @@ import '../providers/history_provider.dart';
 import '../providers/auth_provider.dart';
 import '../models/movie.dart';
 import '../models/site.dart';
+import '../core/content_kind.dart';
 import '../core/theme.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
 import '../widgets/cover_image.dart';
+import 'short_drama_feed.dart';
 import 'video_detail.dart';
 
 /// 按分类拉取 CMS 列表（1电影 / 2电视剧 / 3动漫 / 4综艺）
@@ -78,6 +80,16 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   void _openDetail(VideoDetail video) {
+    if (isFeedCategory(typeId: video.typeId, typeName: video.typeName)) {
+      Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
+        builder: (context) => ShortDramaFeedPage(
+          typeId: video.typeId,
+          categoryTitle: video.typeName ?? '短剧',
+          initial: video,
+        ),
+      ));
+      return;
+    }
     Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
       builder: (context) => VideoDetailPage(subject: _toSubject(video)),
     ));

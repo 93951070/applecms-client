@@ -41,6 +41,7 @@ const defaultCategoryGroups = <CmsCategoryGroup>[
   CmsCategoryGroup(category: CmsCategory(typeId: 2, typeName: '连续剧')),
   CmsCategoryGroup(category: CmsCategory(typeId: 3, typeName: '动漫')),
   CmsCategoryGroup(category: CmsCategory(typeId: 4, typeName: '综艺')),
+  CmsCategoryGroup(category: CmsCategory(typeId: 31, typeName: '短剧')),
 ];
 
 /// 站点数据服务。

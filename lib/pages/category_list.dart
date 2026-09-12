@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/content_kind.dart';
 import '../core/theme.dart';
 import '../models/movie.dart';
 import '../models/site.dart';
@@ -8,6 +9,7 @@ import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../widgets/appad_widgets.dart';
 import '../widgets/zen_ui.dart';
+import 'short_drama_feed.dart';
 import 'video_detail.dart';
 
 /// 分类列表页：按 type_id 展示网格，点击进入详情（二级页，不显示底部导航）
@@ -93,6 +95,16 @@ class _CategoryListPageState extends ConsumerState<CategoryListPage> {
   }
 
   void _openDetail(VideoDetail video) {
+    if (isFeedCategory(typeId: widget.typeId, typeName: widget.title)) {
+      Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
+        builder: (context) => ShortDramaFeedPage(
+          typeId: widget.typeId,
+          categoryTitle: widget.title,
+          initial: video,
+        ),
+      ));
+      return;
+    }
     Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
       builder: (context) => VideoDetailPage(
         subject: DoubanSubject(
