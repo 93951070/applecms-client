@@ -18,6 +18,7 @@ Future<void> showWatchPartyHome(
   required String vodId,
   required int episode,
   required int positionMs,
+  void Function(WatchPlaybackState state)? onRoomExit,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -27,6 +28,7 @@ Future<void> showWatchPartyHome(
       vodId: vodId,
       episode: episode,
       positionMs: positionMs,
+      onRoomExit: onRoomExit,
     ),
   );
 }
@@ -50,11 +52,13 @@ class _WatchPartyHome extends ConsumerStatefulWidget {
   final String vodId;
   final int episode;
   final int positionMs;
+  final void Function(WatchPlaybackState state)? onRoomExit;
 
   const _WatchPartyHome({
     required this.vodId,
     required this.episode,
     required this.positionMs,
+    this.onRoomExit,
   });
 
   @override
@@ -74,7 +78,11 @@ class _WatchPartyHomeState extends ConsumerState<_WatchPartyHome> {
     final nav = Navigator.of(context, rootNavigator: true);
     Navigator.of(context).pop();
     nav.push(MaterialPageRoute<void>(
-      builder: (_) => WatchRoomPage(code: room.code, initialRoom: room),
+      builder: (_) => WatchRoomPage(
+        code: room.code,
+        initialRoom: room,
+        onExit: widget.onRoomExit,
+      ),
     ));
   }
 

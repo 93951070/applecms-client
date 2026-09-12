@@ -7,6 +7,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/movie.dart';
 import '../models/comment.dart';
 import '../models/site.dart';
+import '../models/watch_party.dart';
 import '../services/app_api_service.dart';
 import '../services/cms_service.dart';
 import '../services/config_service.dart';
@@ -58,6 +59,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   int _currentEpisodeIndex = 0;
   double? _initialResumePosition;
   bool _autoPlayNext = true;
+
+  /// 从一起看回到本页时置位：同步进度并保持暂停，直到用户真正开始播放。
+  bool _resumePaused = false;
   SkipConfig _skipConfig = SkipConfig();
 
   // 状态跟踪
@@ -412,7 +416,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   Future<void> _savePlayRecord(Duration position, Duration duration, {bool isFinal = false}) async {
     final video = _video;
     if (video == null || !mounted) return;
-    
+
+    // 播放真正开始后解除「同步后保持暂停」，避免影响后续手动切集。
+    _resumePaused = false;
+
     // 只有在进度有实际变化（大于0）或者为了保存最后进度时才记录
     if (position.inSeconds == 0 && duration.inSeconds == 0) return;
 
@@ -533,7 +540,22 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       vodId: vodId,
       episode: _currentEpisodeIndex,
       positionMs: position,
+      onRoomExit: _applyWatchPlayback,
     );
+  }
+
+  /// 一起看房间退出回调：把房间内最后所在集与进度同步回本页。
+  ///
+  /// 仅当房间播放的是当前影片时才应用；同步后保持暂停，避免突然出声。
+  void _applyWatchPlayback(WatchPlaybackState state) {
+    if (!mounted) return;
+    final video = _video;
+    if (video == null || video.playGroups.isEmpty) return;
+    if (state.vodId.isNotEmpty && state.vodId != video.id) return;
+    final total = video.playGroups.first.urls.length;
+    final index = total <= 0 ? 0 : state.episode.clamp(0, total - 1);
+    _resumePaused = true;
+    _handlePlayAction(index, resumePosition: state.positionMs / 1000.0);
   }
 
   /// 弹幕开关（由播放器控制条上的按钮触发）：与「设置/放大」同尺寸、
@@ -623,6 +645,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       danmaku: _danmaku,
       danmakuEnabled: _danmakuEnabled,
       onDanmakuToggle: _toggleDanmaku,
+      startPaused: _resumePaused,
       episodeTitles: group.titles,
       episodeNeedVip: group.needVip,
       isVip: ref.watch(authProvider).user?.isVip ?? false,

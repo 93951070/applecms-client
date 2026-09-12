@@ -45,6 +45,10 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
   final bool showSettingsControl;
   final bool showFullscreenControl;
 
+  /// 首次初始化完成后保持暂停，不自动播放。
+  /// 用于从一起看回到播放页时同步进度但避免立即出声。
+  final bool startPaused;
+
   const EchoVideoPlayer({
     super.key,
     required this.url,
@@ -77,6 +81,7 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
     this.showDanmakuControl = true,
     this.showSettingsControl = true,
     this.showFullscreenControl = true,
+    this.startPaused = false,
   });
 
   @override
@@ -161,6 +166,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
           ..repeat();
     _danmakuEnabledNotifier.value = widget.danmakuEnabled;
     _danmakuInputNotifier.value = widget.danmakuInputActive;
+    _holdPaused = widget.startPaused;
     _initializePlayer();
   }
 

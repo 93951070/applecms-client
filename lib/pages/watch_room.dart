@@ -9,6 +9,7 @@ import '../core/share_utils.dart';
 import '../core/theme.dart';
 import '../models/watch_party.dart';
 import '../providers/auth_provider.dart';
+import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../services/watch_party_service.dart';
 import '../widgets/video_player.dart';
@@ -55,7 +56,15 @@ class WatchRoomPage extends ConsumerStatefulWidget {
   final String code;
   final WatchRoomInfo? initialRoom;
 
-  const WatchRoomPage({super.key, required this.code, this.initialRoom});
+  /// 退出房间时回传最后所在集与进度（同步回正常播放页）。
+  final void Function(WatchPlaybackState state)? onExit;
+
+  const WatchRoomPage({
+    super.key,
+    required this.code,
+    this.initialRoom,
+    this.onExit,
+  });
 
   @override
   ConsumerState<WatchRoomPage> createState() => _WatchRoomPageState();
@@ -109,6 +118,16 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
   bool _removedHandled = false;
   String _mediaBase = '';
 
+  /// 退出回传只执行一次（显式返回与 dispose 都可能触发）。
+  bool _exitReported = false;
+
+  /// 剧集标题，用于房主选集；加载失败时为空，仅能靠上/下一集切换。
+  List<String> _episodeTitles = const [];
+  bool _loadingEpisodes = false;
+
+  /// 有新成员加入但尚未查看成员列表时，在成员入口上显示红点。
+  bool _hasNewMember = false;
+
   @override
   void initState() {
     super.initState();
@@ -133,9 +152,30 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     _chatInput.dispose();
     _chatScroll.dispose();
     _leaving = true;
+    _reportExit();
     _service.leaveRoom(widget.code).ignore();
     _restoreSystemUi();
     super.dispose();
+  }
+
+  /// 退出前把最后所在集与进度回传给播放页，保证一起看结束能接着看。
+  void _reportExit() {
+    if (_exitReported) return;
+    _exitReported = true;
+    final callback = widget.onExit;
+    if (callback == null) return;
+    final room = _room;
+    final player = _playerKey.currentState;
+    final playerPosition = player?.currentPosition.inMilliseconds ?? 0;
+    final position = playerPosition > 0
+        ? playerPosition
+        : (room?.positionMs ?? _initialPosition.round());
+    callback(WatchPlaybackState(
+      vodId: room?.vodId ?? widget.initialRoom?.vodId ?? '',
+      playSource: _playSource,
+      episode: _episode,
+      positionMs: position,
+    ));
   }
 
   @override
@@ -169,6 +209,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
       _initialPosition = room.positionMs / 1000.0;
       _updateRoom(room);
       if (room.vodId.isNotEmpty) {
+        unawaited(_loadEpisodes());
         await _resolveUrl();
       }
       await _loadMessages();
@@ -214,6 +255,29 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     }
   }
 
+  /// 加载影片剧集标题，供房主选集使用；失败时静默降级为仅上/下一集。
+  Future<void> _loadEpisodes() async {
+    final room = _room;
+    if (room == null || room.vodId.isEmpty || _loadingEpisodes) return;
+    _loadingEpisodes = true;
+    try {
+      final cms = ref.read(cmsServiceProvider);
+      var detail = cms.cachedDetail(room.vodId);
+      if (detail == null) {
+        final site = await ref.read(configServiceProvider).getPrimarySite();
+        detail = await cms.getDetail(site, room.vodId);
+      }
+      if (!mounted) return;
+      final groups = detail?.playGroups ?? const [];
+      final titles = groups.isEmpty ? const <String>[] : groups.first.titles;
+      if (titles.isNotEmpty) setState(() => _episodeTitles = titles);
+    } catch (_) {
+      // 选集不可用不影响一起看正常播放。
+    } finally {
+      _loadingEpisodes = false;
+    }
+  }
+
   void _updateRoom(WatchRoomInfo room) {
     if (!mounted) return;
     setState(() {
@@ -238,6 +302,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     for (final m in room.members) {
       if (!_knownMemberIds.contains(m.userId)) {
         _appendSystem('${names[m.userId]} 加入了房间');
+        if (m.userId != _myId) _hasNewMember = true;
       }
     }
     for (final id in _knownMemberIds) {
@@ -618,12 +683,30 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     });
   }
 
-  Future<void> _changeEpisode(int delta) async {
+  Future<void> _changeEpisode(int delta) => _applyEpisode(_episode + delta);
+
+  Future<void> _selectEpisode(int index) => _applyEpisode(index);
+
+  Future<void> _autoNextEpisode() async {
+    final room = _room;
+    if (room == null || !room.canControl) return;
+    if (_episodeTitles.isNotEmpty && _episode + 1 >= _episodeTitles.length) {
+      return;
+    }
+    await _applyEpisode(_episode + 1, quiet: true);
+  }
+
+  /// 切换/选择剧集：解析新集地址、重置进度并同步给其他成员。
+  ///
+  /// [quiet] 为 true 时不弹出「已到最后一集」之类提示（自动连播场景）。
+  Future<void> _applyEpisode(int target, {bool quiet = false}) async {
     if (_busy) return;
     final room = _room;
     if (room == null || !room.canControl) return;
-    final next = _episode + delta;
-    if (next < 0) return;
+    final total = _episodeTitles.length;
+    final next = total > 0 ? target.clamp(0, total - 1) : target;
+    if (next < 0 || next == _episode) return;
+    setState(() => _busy = true);
     final prevEpisode = _episode;
     final prevSource = _playSource;
     setState(() {
@@ -635,25 +718,100 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
       playSource: _playSource,
       playIndex: _episode,
     );
+    if (!mounted) return;
     if (!result.success ||
         !result.hasAccess ||
         (result.playUrl ?? '').isEmpty) {
-      if (!mounted) return;
       setState(() {
         _episode = prevEpisode;
         _playSource = prevSource;
+        _busy = false;
       });
-      _toast(delta > 0 ? '没有下一集了' : '已经是第一集');
+      if (!quiet) {
+        final msg = result.message.trim();
+        _toast(msg.isNotEmpty
+            ? msg
+            : (next > prevEpisode ? '没有下一集了' : '已经是第一集'));
+      }
       return;
     }
-    if (!mounted) return;
     setState(() {
       _playUrl = result.playUrl;
       _initialPosition = 0;
       _error = null;
+      _busy = false;
     });
     _playerKey.currentState?.resumePlayback();
     _tick();
+  }
+
+  /// 房主选集面板。
+  Future<void> _showEpisodes() async {
+    final room = _room;
+    if (room == null || !room.canControl) return;
+    if (_episodeTitles.isEmpty) {
+      _toast('暂无选集信息');
+      return;
+    }
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: _WatchColors.panel,
+      builder: (ctx) => SafeArea(
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.62,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('选集',
+                  style: TextStyle(
+                      color: _WatchColors.text,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600)),
+              const SizedBox(height: 12),
+              Flexible(
+                child: GridView.builder(
+                  shrinkWrap: true,
+                  itemCount: _episodeTitles.length,
+                  gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 6,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                    childAspectRatio: 1.6,
+                  ),
+                  itemBuilder: (_, i) {
+                    final active = i == _episode;
+                    return InkWell(
+                      onTap: () => Navigator.of(ctx).pop(i),
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: active ? AppColors.pink : _WatchColors.card,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          '${i + 1}',
+                          style: TextStyle(
+                            color: active ? Colors.white : _WatchColors.text2,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected != null && mounted) _selectEpisode(selected);
   }
 
   void _showEmojiPicker() {
@@ -709,6 +867,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
   void _showMembers() {
     final room = _room;
     if (room == null) return;
+    if (_hasNewMember) setState(() => _hasNewMember = false);
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1160,6 +1319,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
       showDanmakuControl: false,
       showSettingsControl: false,
       showFullscreenControl: false,
+      onEnded: room.canControl ? () => _autoNextEpisode() : null,
     );
   }
 
@@ -1255,7 +1415,6 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
             ),
           ),
           _overlayIcon(Icons.ios_share_rounded, () => _shareInvite(room)),
-          _overlayIcon(Icons.people_alt_rounded, _showMembers),
           if (room.isHost)
             _overlayIcon(Icons.tune_rounded, _showSettings),
           if (room.isHost) _overlayIcon(Icons.close_rounded, _closeRoom),
@@ -1280,6 +1439,31 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
             _overlayIcon(Icons.skip_previous_rounded,
                 () => _changeEpisode(-1)),
             _overlayIcon(Icons.skip_next_rounded, () => _changeEpisode(1)),
+            if (_episodeTitles.isNotEmpty)
+              Material(
+                color: Colors.transparent,
+                child: InkResponse(
+                  onTap: _showEpisodes,
+                  radius: 22,
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.grid_view_rounded,
+                            size: 16, color: Colors.white),
+                        const SizedBox(width: 4),
+                        Text(
+                          '第 ${_episode + 1} 集',
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
           ],
           const Spacer(),
           if (!_chatVisible)
@@ -1316,8 +1500,55 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
             _overlayIcon(Icons.keyboard_arrow_right_rounded,
                 () => setState(() => _chatVisible = false)),
           const SizedBox(width: 4),
-          _miniMemberStack(room),
+          _memberEntry(room),
         ],
+      ),
+    );
+  }
+
+  /// 右下角成员入口：头像堆叠 + 在线人数 + 成员图标（有新成员时带红点）。
+  Widget _memberEntry(WatchRoomInfo room) {
+    final online = room.members.where((m) => m.online).length;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _showMembers,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _miniMemberStack(room),
+              const SizedBox(width: 6),
+              Text(
+                '$online 人在线',
+                style: const TextStyle(color: Colors.white, fontSize: 11.5),
+              ),
+              const SizedBox(width: 3),
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  const Icon(Icons.people_alt_rounded,
+                      size: 18, color: Colors.white),
+                  if (_hasNewMember)
+                    Positioned(
+                      right: -1,
+                      top: -1,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: AppColors.pink,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

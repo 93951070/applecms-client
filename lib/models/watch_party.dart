@@ -112,6 +112,24 @@ class WatchRoomInfo {
   }
 }
 
+/// 离开一起看房间时回传给播放页的进度快照。
+///
+/// 一起看结束后，把房间内最后所在集与进度同步回正常播放页，避免用户
+/// 退出后还要手动拖回原来的位置。
+class WatchPlaybackState {
+  final String vodId;
+  final int playSource;
+  final int episode;
+  final int positionMs;
+
+  const WatchPlaybackState({
+    required this.vodId,
+    this.playSource = 0,
+    this.episode = 0,
+    this.positionMs = 0,
+  });
+}
+
 /// 一起看聊天消息。
 class WatchChatMessage {
   final String userId;
