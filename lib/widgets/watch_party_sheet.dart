@@ -12,15 +12,18 @@ import '../services/config_service.dart';
 import '../services/watch_party_service.dart';
 
 /// 从播放页打开「一起看」主页底部弹层。
-Future<void> showWatchPartyHome(
+///
+/// 返回 `true` 表示已进入房间（播放交由房间页接管）；
+/// 返回 `false` 表示用户取消/关闭弹层，调用方可以恢复原播放。
+Future<bool> showWatchPartyHome(
   BuildContext context,
   WidgetRef ref, {
   required String vodId,
   required int episode,
   required int positionMs,
   void Function(WatchPlaybackState state)? onRoomExit,
-}) {
-  return showModalBottomSheet<void>(
+}) async {
+  final entered = await showModalBottomSheet<bool>(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
@@ -31,6 +34,7 @@ Future<void> showWatchPartyHome(
       onRoomExit: onRoomExit,
     ),
   );
+  return entered ?? false;
 }
 
 /// 弹层内统一取色，随明暗主题切换。
@@ -73,10 +77,10 @@ class _WatchPartyHomeState extends ConsumerState<_WatchPartyHome> {
 
   String _err(Object e) => e.toString().replaceFirst('AppApiException: ', '');
 
-  /// 关闭弹层并在根导航打开房间页。
+  /// 关闭弹层并在根导航打开房间页。弹层回传 `true` 表示已进入房间。
   void _openRoom(WatchRoomInfo room) {
     final nav = Navigator.of(context, rootNavigator: true);
-    Navigator.of(context).pop();
+    Navigator.of(context).pop(true);
     nav.push(MaterialPageRoute<void>(
       builder: (_) => WatchRoomPage(
         code: room.code,

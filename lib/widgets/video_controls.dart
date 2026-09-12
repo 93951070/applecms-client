@@ -329,7 +329,7 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
             child: Stack(
               children: [
                 if (_latestValue == null || !_latestValue!.isInitialized || _latestValue!.isBuffering)
-                  const Center(child: BiliLoading(size: 40, color: Colors.white, strokeWidth: 2.5)),
+                  const Center(child: VideoLoadingBar()),
                 
                 _buildHitArea(),
 

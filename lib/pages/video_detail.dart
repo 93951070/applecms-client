@@ -532,9 +532,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     }
     final position =
         _playerKey.currentState?.currentPosition.inMilliseconds ?? 0;
+    final wasPlaying = _playerKey.currentState?.isPlaying ?? false;
     // 强制暂停（含缓冲中/全屏状态），避免进入一起看后主播放器在后台继续播放。
     _playerKey.currentState?.forcePause();
-    await showWatchPartyHome(
+    final entered = await showWatchPartyHome(
       context,
       ref,
       vodId: vodId,
@@ -542,6 +543,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       positionMs: position,
       onRoomExit: _applyWatchPlayback,
     );
+    // 未进入房间（取消/关闭弹层）时恢复此前的播放状态。
+    if (!entered && wasPlaying && mounted) {
+      _playerKey.currentState?.resumePlayback();
+    }
   }
 
   /// 一起看房间退出回调：把房间内最后所在集与进度同步回本页。
@@ -589,7 +594,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (_isSearching) ...[
-                  const BiliLoading(size: 44, color: Colors.white),
+                  const VideoLoadingBar(),
                   const SizedBox(height: 16),
                 ],
                 Padding(
@@ -621,8 +626,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
     final resolved = _resolvedUrl;
     if (resolved == null) {
-      return const Center(
-          child: BiliLoading(size: 44, color: Colors.white));
+      return const Center(child: VideoLoadingBar());
     }
 
     return EchoVideoPlayer(

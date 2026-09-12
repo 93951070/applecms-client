@@ -98,7 +98,6 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   Timer? _bufferingTimer;
   String? _errorMessage;
   bool _wasPlayingBeforePause = false;
-  Duration? _resumeOverride;
   /// 主动暂停标记：缓冲/初始化完成前用户已离开播放（如进入一起看），
   /// 用于抑制 Chewie 的 autoPlay，避免「缓冲完成后在后台继续出声」。
   bool _holdPaused = false;
@@ -274,13 +273,11 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
         await controller.pause();
       }
 
-      // 计算跳转位置：优先使用回前台恢复时的覆盖进度
+      // 计算跳转位置：使用页面传入的初始进度
       Duration? startAt;
-      final resume = _resumeOverride ??
-          ((widget.initialPosition != null && widget.initialPosition! > 0)
-              ? Duration(seconds: widget.initialPosition!.toInt())
-              : null);
-      _resumeOverride = null;
+      final resume = (widget.initialPosition != null && widget.initialPosition! > 0)
+          ? Duration(seconds: widget.initialPosition!.toInt())
+          : null;
       if (resume != null && resume > Duration.zero) {
         final seconds = resume.inSeconds;
         // 只有当进度小于总时长（或者总时长还未获取到）时才跳转
@@ -567,7 +564,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
 
     if (_isInitializing || _chewieController == null || !_videoController!.value.isInitialized) {
       return const Center(
-        child: BiliLoading(size: 44, color: Colors.white),
+        child: VideoLoadingBar(),
       );
     }
 
