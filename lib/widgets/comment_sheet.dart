@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -104,18 +106,28 @@ class _CommentSheetState extends ConsumerState<CommentSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF1C1C1E),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      child: Column(
-        children: [
-          _buildHeader(),
-          const Divider(height: 1, color: Colors.white12),
-          Expanded(child: _buildList()),
-          _buildInput(),
-        ],
+    const radius = BorderRadius.vertical(top: Radius.circular(16));
+    return ClipRRect(
+      borderRadius: radius,
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.42),
+            borderRadius: radius,
+            border: const Border(
+              top: BorderSide(color: Colors.white24),
+            ),
+          ),
+          child: Column(
+            children: [
+              _buildHeader(),
+              const Divider(height: 1, color: Colors.white12),
+              Expanded(child: _buildList()),
+              _buildInput(),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -181,9 +193,9 @@ class _CommentSheetState extends ConsumerState<CommentSheet> {
       top: false,
       child: Container(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-        decoration: const BoxDecoration(
-          color: Color(0xFF2A2A2E),
-          border: Border(top: BorderSide(color: Colors.white12)),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          border: const Border(top: BorderSide(color: Colors.white12)),
         ),
         child: Row(
           children: [
@@ -199,7 +211,7 @@ class _CommentSheetState extends ConsumerState<CommentSheet> {
                   hintText: '说点什么...',
                   hintStyle: const TextStyle(color: Colors.white38, fontSize: 14),
                   filled: true,
-                  fillColor: const Color(0xFF3A3A3E),
+                  fillColor: Colors.white.withValues(alpha: 0.12),
                   isDense: true,
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 10),

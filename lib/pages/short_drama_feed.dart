@@ -304,7 +304,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => setState(() => _commentsOpen = false),
-        child: const ColoredBox(color: Colors.black38),
+        child: const ColoredBox(color: Colors.black26),
       ),
     );
   }
