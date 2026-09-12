@@ -148,6 +148,13 @@ class CmsService {
   /// 内存中的详情缓存，避免页面重建时重复请求。
   static final Map<String, VideoDetail> _detailMemCache = {};
 
+  /// 后台静默刷新完成后的通知流，载荷为 vod_id；
+  /// 页面据此用最新详情重建选集锁等会员状态。
+  final StreamController<String> _detailUpdates =
+      StreamController<String>.broadcast();
+
+  Stream<String> get detailUpdates => _detailUpdates.stream;
+
   /// 读取内存缓存（同步），用于页面首帧立即渲染。
   VideoDetail? cachedDetail(String id) => _detailMemCache[id.trim()];
 
@@ -172,6 +179,7 @@ class CmsService {
       if (detail.playGroups.isEmpty) return null;
       _detailMemCache[key] = detail;
       unawaited(_ref.read(configServiceProvider).cacheVideoDetail(key, data));
+      _detailUpdates.add(key);
       return detail;
     } catch (_) {
       return null;

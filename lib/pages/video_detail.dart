@@ -90,11 +90,16 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   final GlobalKey<EchoVideoPlayerState> _playerKey = GlobalKey<EchoVideoPlayerState>();
 
+  /// 详情后台静默刷新的订阅，用于同步最新选集会员状态。
+  StreamSubscription<String>? _detailSub;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _doubanId = widget.subject.id;
+    _detailSub =
+        ref.read(cmsServiceProvider).detailUpdates.listen(_onDetailUpdated);
     _checkHistoryAndLoadData();
   }
 
@@ -212,6 +217,14 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     _loadSkipConfig();
     _loadComments();
     _handlePlayAction(index, resumePosition: _initialResumePosition);
+  }
+
+  /// 后台刷新拿到最新详情后，仅更新数据与选集锁，不打断正在进行的播放。
+  void _onDetailUpdated(String id) {
+    if (!mounted || id != widget.subject.id.trim()) return;
+    final latest = ref.read(cmsServiceProvider).cachedDetail(id);
+    if (latest == null || latest.playGroups.isEmpty) return;
+    _applyDetail(latest, startPlayback: false);
   }
 
   void _handlePlayAction(int index, {double? resumePosition}) {
@@ -430,6 +443,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   @override
   void dispose() {
     routeObserver.unsubscribe(this);
+    _detailSub?.cancel();
     _commentController.dispose();
     _commentFocus.dispose();
     _danmakuController.dispose();

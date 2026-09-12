@@ -46,9 +46,10 @@ class _FeedEntry {
   final int episodeCount;
 
   /// 服务端下发的会员要求（0 免费，非 0 需会员）。是否已解锁需结合用户会员状态。
-  final bool requiresVip;
+  /// 详情后台刷新后可能更新，故非 final。
+  bool requiresVip;
 
-  const _FeedEntry({
+  _FeedEntry({
     required this.vodId,
     required this.dramaTitle,
     required this.poster,
@@ -72,6 +73,9 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   final Set<String> _queuedDramaIds = {};
   final List<VideoDetail> _pendingDramas = [];
 
+  /// 详情后台静默刷新的订阅，用于同步最新选集会员状态。
+  StreamSubscription<String>? _detailSub;
+
   int _current = 0;
   int _listPage = 0;
   bool _listExhausted = false;
@@ -84,11 +88,14 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   @override
   void initState() {
     super.initState();
+    _detailSub =
+        ref.read(cmsServiceProvider).detailUpdates.listen(_onDetailUpdated);
     _bootstrap();
   }
 
   @override
   void dispose() {
+    _detailSub?.cancel();
     _pageController.dispose();
     super.dispose();
   }
@@ -149,6 +156,27 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
       if (groups[i].urls.length > groups[best].urls.length) best = i;
     }
     return best;
+  }
+
+  /// 详情后台刷新后，用最新的会员标记更新已展开的选集，避免锁图标滞后。
+  void _onDetailUpdated(String id) {
+    if (!mounted) return;
+    final latest = ref.read(cmsServiceProvider).cachedDetail(id);
+    if (latest == null || latest.playGroups.isEmpty) return;
+    _dramaDetails[latest.id] = latest;
+    final srcIndex = _bestGroupIndex(latest.playGroups);
+    final group = latest.playGroups[srcIndex];
+    var changed = false;
+    for (final entry in _entries) {
+      if (entry.vodId != latest.id) continue;
+      final needVip = entry.episodeIndex < group.needVip.length &&
+          group.needVip[entry.episodeIndex] > 0;
+      if (entry.requiresVip != needVip) {
+        entry.requiresVip = needVip;
+        changed = true;
+      }
+    }
+    if (changed) setState(() {});
   }
 
   /// 解析某一集的直连地址并缓存。
