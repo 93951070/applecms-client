@@ -3,11 +3,13 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:video_player/video_player.dart';
 
 import '../core/share_utils.dart';
 import '../core/theme.dart';
 import '../models/site.dart';
+import '../providers/auth_provider.dart';
 import '../services/app_api_service.dart';
 import '../services/cms_service.dart';
 import '../services/config_service.dart';
@@ -43,6 +45,9 @@ class _FeedEntry {
   final int episodeIndex;
   final int episodeCount;
 
+  /// 服务端下发的会员要求（0 免费，非 0 需会员）。是否已解锁需结合用户会员状态。
+  final bool requiresVip;
+
   const _FeedEntry({
     required this.vodId,
     required this.dramaTitle,
@@ -52,6 +57,7 @@ class _FeedEntry {
     required this.playIndex,
     required this.episodeIndex,
     required this.episodeCount,
+    this.requiresVip = false,
   });
 }
 
@@ -119,6 +125,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
     if (count == 0) return false;
 
     for (var i = 0; i < count; i++) {
+      final needsVip = i < group.needVip.length && group.needVip[i] > 0;
       _entries.add(_FeedEntry(
         vodId: detail.id,
         dramaTitle: detail.title,
@@ -130,6 +137,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
         playIndex: i,
         episodeIndex: i,
         episodeCount: count,
+        requiresVip: needsVip,
       ));
     }
     return true;
@@ -253,6 +261,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final sheetHeight = size.height * 0.52;
+    final vipActive = ref.watch(authProvider).user?.isVip ?? false;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -262,11 +271,11 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
           Positioned.fill(
             child: Stack(
               children: [
-                _buildFeed(),
+                _buildFeed(vipActive),
                 if (_commentsOpen) _buildDim(),
                 _buildBackButton(),
                 _buildRightRail(),
-                _buildBottomInfo(),
+                _buildBottomInfo(vipActive),
                 _buildSwipeHint(),
               ],
             ),
@@ -309,7 +318,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
     );
   }
 
-  Widget _buildFeed() {
+  Widget _buildFeed(bool vipActive) {
     if (_initialLoading) {
       return const Center(
         child: CircularProgressIndicator(color: AppColors.pink),
@@ -327,12 +336,15 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
       itemCount: _entries.length,
       onPageChanged: _onPageChanged,
       itemBuilder: (context, i) {
+        final entry = _entries[i];
         return _DramaVideoPage(
-          key: ValueKey('${_entries[i].vodId}_${_entries[i].playIndex}'),
-          entry: _entries[i],
+          key: ValueKey('${entry.vodId}_${entry.playIndex}'),
+          entry: entry,
           url: _urlCache[i],
           isActive: i == _current,
           accessMessage: _msgCache[i],
+          locked: entry.requiresVip && !vipActive,
+          onUpgrade: _openUpgrade,
           onCompleted: _goNext,
           onRetry: () {
             _urlCache.remove(i);
@@ -342,6 +354,12 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
         );
       },
     );
+  }
+
+  /// 未登录先去登录，已登录引导到"我的"开通/续费会员。
+  void _openUpgrade() {
+    final loggedIn = ref.read(authProvider).isLoggedIn;
+    context.push(loggedIn ? '/profile' : '/login');
   }
 
   Widget _buildBackButton() {
@@ -422,11 +440,12 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
     );
   }
 
-  Widget _buildBottomInfo() {
+  Widget _buildBottomInfo(bool vipActive) {
     if (_entries.isEmpty) return const SizedBox.shrink();
     final e = _entries[_current];
     final detail = _dramaDetails[e.vodId];
     final desc = detail?.desc?.trim() ?? '';
+    final locked = e.requiresVip && !vipActive;
     return Positioned(
       left: 14,
       right: 76,
@@ -464,6 +483,31 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
                     style: const TextStyle(color: Colors.white, fontSize: 11),
                   ),
                 ),
+                if (locked) ...[
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: _openUpgrade,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                            colors: [Color(0xFFFFC24B), Color(0xFFFF8A00)]),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.lock, color: Colors.white, size: 11),
+                          SizedBox(width: 3),
+                          Text('开通会员观看',
+                              style: TextStyle(
+                                  color: Colors.white, fontSize: 11)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
                 if (desc.isNotEmpty) ...[
                   const SizedBox(width: 8),
                   const Icon(Icons.info_outline,
@@ -564,6 +608,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   void _showEpisodes() {
     if (_entries.isEmpty) return;
     final e = _entries[_current];
+    final vipActive = ref.read(authProvider).user?.isVip ?? false;
     final indices = <int>[];
     for (var i = 0; i < _entries.length; i++) {
       if (_entries[i].vodId == e.vodId) indices.add(i);
@@ -617,6 +662,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
                   itemBuilder: (ctx, k) {
                     final idx = indices[k];
                     final active = idx == _current;
+                    final locked = _entries[idx].requiresVip && !vipActive;
                     return GestureDetector(
                       onTap: () {
                         Navigator.of(ctx).pop();
@@ -630,12 +676,24 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
                               : const Color(0xFF2A2A2E),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text(
-                          _entries[idx].episodeLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 12),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Text(
+                              _entries[idx].episodeLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 12),
+                            ),
+                            if (locked)
+                              const Positioned(
+                                top: 3,
+                                right: 3,
+                                child: Icon(Icons.lock,
+                                    color: Color(0xFFFFC24B), size: 11),
+                              ),
+                          ],
                         ),
                       ),
                     );
@@ -657,6 +715,10 @@ class _DramaVideoPage extends StatefulWidget {
   final String? url;
   final bool isActive;
   final String? accessMessage;
+
+  /// 当前集需会员且用户未开通。
+  final bool locked;
+  final VoidCallback onUpgrade;
   final VoidCallback onCompleted;
   final VoidCallback onRetry;
 
@@ -666,6 +728,8 @@ class _DramaVideoPage extends StatefulWidget {
     required this.url,
     required this.isActive,
     required this.accessMessage,
+    required this.locked,
+    required this.onUpgrade,
     required this.onCompleted,
     required this.onRetry,
   });
@@ -948,7 +1012,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
           children: [
             Icon(
               retry ? Icons.error_outline : Icons.lock_outline,
-              color: Colors.white70,
+              color: retry ? Colors.white70 : const Color(0xFFFFC24B),
               size: 34,
             ),
             const SizedBox(height: 10),
@@ -960,6 +1024,17 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
                 style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
             ),
+            if (widget.locked) ...[
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: widget.onUpgrade,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF8A00),
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('开通会员观看'),
+              ),
+            ],
             if (retry) ...[
               const SizedBox(height: 12),
               OutlinedButton(

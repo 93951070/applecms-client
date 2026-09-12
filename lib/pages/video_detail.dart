@@ -12,6 +12,7 @@ import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../providers/history_provider.dart';
 import '../providers/favorites_provider.dart';
+import '../providers/auth_provider.dart';
 import '../services/download_service.dart';
 import '../core/theme.dart';
 import '../core/navigation.dart';
@@ -626,12 +627,17 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
             mainAxisSize: MainAxisSize.min,
             children: [
               OutlinedButton(
-                onPressed: () => context.push('/login'),
+                onPressed: () {
+                  final loggedIn = ref.read(authProvider).isLoggedIn;
+                  context.push(loggedIn ? '/profile' : '/login');
+                },
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.white,
                   side: const BorderSide(color: Colors.white54),
                 ),
-                child: const Text('登录 / 开通会员'),
+                child: Text(
+                  ref.read(authProvider).isLoggedIn ? '开通会员' : '登录 / 开通会员',
+                ),
               ),
               const SizedBox(width: 10),
               TextButton(
@@ -1263,6 +1269,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     final video = _video;
     if (video == null) return const SizedBox.shrink();
     final group = video.playGroups.first;
+    final vipActive = ref.watch(authProvider).user?.isVip ?? false;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
       child: SizedBox(
@@ -1274,6 +1281,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           itemBuilder: (context, i) {
             final index = _descending ? (group.urls.length - 1 - i) : i;
             final active = _currentEpisodeIndex == index;
+            final locked = !vipActive &&
+                index < group.needVip.length &&
+                group.needVip[index] > 0;
             return GestureDetector(
               onTap: () => _handlePlayAction(index),
               child: Container(
@@ -1292,6 +1302,11 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (locked) ...[
+                      const Icon(Icons.lock,
+                          size: 11, color: Color(0xFFFF8A00)),
+                      const SizedBox(width: 3),
+                    ],
                     Text(group.titles[index],
                         style: TextStyle(
                             fontSize: 12,

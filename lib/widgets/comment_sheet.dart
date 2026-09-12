@@ -2,10 +2,13 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../core/theme.dart';
 import '../models/comment.dart';
+import '../services/app_api_service.dart';
 import '../services/cms_service.dart';
+import '../services/config_service.dart';
 
 /// 评论面板：底部半屏、可滚动加载，视频播放不中断。
 ///
@@ -79,6 +82,14 @@ class _CommentSheetState extends ConsumerState<CommentSheet> {
     final text = _input.text.trim();
     if (text.isEmpty || _sending) return;
     FocusScope.of(context).unfocus();
+
+    final token = await ref.read(configServiceProvider).getAuthToken();
+    if (!mounted) return;
+    if (token == null || token.isEmpty) {
+      _goLogin();
+      return;
+    }
+
     setState(() => _sending = true);
     try {
       final cms = ref.read(cmsServiceProvider);
@@ -91,11 +102,24 @@ class _CommentSheetState extends ConsumerState<CommentSheet> {
         _sending = false;
       });
       _toast(res.pending ? '评论已提交，等待审核' : '评论成功');
+    } on AppApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      if (e.statusCode == 401) {
+        _goLogin();
+      } else {
+        _toast(e.message.isNotEmpty ? e.message : '发送失败，请稍后重试');
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() => _sending = false);
-      _toast('发送失败，请先登录');
+      _toast('发送失败，请稍后重试');
     }
+  }
+
+  /// 未登录时跳转登录页，登录成功后由用户返回继续评论。
+  void _goLogin() {
+    context.push('/login');
   }
 
   void _toast(String message) {

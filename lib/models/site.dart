@@ -41,23 +41,38 @@ class PlayGroup {
   final List<String> urls;
   final List<String> titles;
 
-  PlayGroup({required this.name, required this.urls, required this.titles});
+  /// 与 [titles] 逐集对应的会员要求：0 免费，1 需 VIP，2 需 SVIP。
+  final List<int> needVip;
+
+  PlayGroup({
+    required this.name,
+    required this.urls,
+    required this.titles,
+    this.needVip = const [],
+  });
 
   Map<String, dynamic> toJson() => {
         'name': name,
         'urls': urls,
         'titles': titles,
+        'need_vip': needVip,
       };
 
   factory PlayGroup.fromJson(Map<String, dynamic> json) {
     final titles = List<String>.from((json['titles'] as List?) ?? const []);
     final urls = List<String>.from((json['urls'] as List?) ?? const []);
+    final needVip = ((json['need_vip'] as List?) ?? const [])
+        .map((e) => e is int ? e : int.tryParse(e.toString()) ?? 0)
+        .toList();
     return PlayGroup(
       name: (json['name'] ?? '').toString(),
       urls: urls.length == titles.length
           ? urls
           : List<String>.filled(titles.length, ''),
       titles: titles,
+      needVip: needVip.length == titles.length
+          ? needVip
+          : List<int>.filled(titles.length, 0),
     );
   }
 }
@@ -74,6 +89,12 @@ class VideoDetail {
   final String? typeName;
   final int typeId;
 
+  /// 会员观看模式：0 免费，1 会员。
+  final int vipMode;
+
+  /// 会员模式下每部作品免费的前 N 集。
+  final int freeEpisodes;
+
   VideoDetail({
     required this.id,
     required this.title,
@@ -85,6 +106,8 @@ class VideoDetail {
     this.desc,
     this.typeName,
     this.typeId = 0,
+    this.vipMode = 0,
+    this.freeEpisodes = 0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -98,6 +121,8 @@ class VideoDetail {
         'type_name': typeName,
         'type_id': typeId,
         'play_groups': playGroups.map((g) => g.toJson()).toList(),
+        'vip_mode': vipMode,
+        'free_episodes': freeEpisodes,
       };
 
   factory VideoDetail.fromJson(Map<String, dynamic> json) {
@@ -117,6 +142,12 @@ class VideoDetail {
       typeId: (json['type_id'] is int)
           ? json['type_id'] as int
           : int.tryParse(json['type_id']?.toString() ?? '') ?? 0,
+      vipMode: (json['vip_mode'] is int)
+          ? json['vip_mode'] as int
+          : int.tryParse(json['vip_mode']?.toString() ?? '') ?? 0,
+      freeEpisodes: (json['free_episodes'] is int)
+          ? json['free_episodes'] as int
+          : int.tryParse(json['free_episodes']?.toString() ?? '') ?? 0,
     );
   }
 

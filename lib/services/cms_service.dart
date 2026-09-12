@@ -210,10 +210,14 @@ class CmsService {
       for (final s in sources) {
         if (s is! Map) continue;
         final titles = <String>[];
+        final needVip = <int>[];
         final eps = s['episodes'];
         if (eps is List) {
           for (final e in eps) {
-            if (e is Map) titles.add((e['name'] ?? '').toString());
+            if (e is Map) {
+              titles.add((e['name'] ?? '').toString());
+              needVip.add(_asInt(e['need_vip']));
+            }
           }
         }
         if (titles.isEmpty) continue;
@@ -222,6 +226,7 @@ class CmsService {
           // 直连地址由网关在取流时逐集下发，此处仅占位保持集数索引
           urls: List<String>.filled(titles.length, ''),
           titles: titles,
+          needVip: needVip,
         ));
       }
     }
@@ -239,6 +244,8 @@ class CmsService {
           .trim(),
       typeName: data['type_name']?.toString(),
       typeId: _asInt(data['type_id']),
+      vipMode: _asInt(data['vip_mode']),
+      freeEpisodes: _asInt(data['free_episodes']),
     );
   }
 
