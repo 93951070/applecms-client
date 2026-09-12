@@ -326,6 +326,159 @@ class AppApiService {
     );
   }
 
+  /// 我参与的一起看房间列表，需登录令牌。
+  Future<Map<String, dynamic>> watchMyRooms(String base, {String? token}) async {
+    return _request(
+      base,
+      method: 'GET',
+      path: '$_apiPrefix/watch/rooms',
+      token: token,
+    );
+  }
+
+  /// 创建一起看房间，需登录令牌。
+  Future<Map<String, dynamic>> watchCreateRoom(
+    String base, {
+    required String vodId,
+    int playSource = 0,
+    int episode = 0,
+    int positionMs = 0,
+    bool isPublic = false,
+    int memberLimit = 0,
+    bool allowMemberControl = false,
+    String? token,
+  }) async {
+    return _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/watch/rooms',
+      jsonBody: {
+        'vod_id': vodId,
+        'play_source': playSource,
+        'episode': episode,
+        'position_ms': positionMs,
+        'is_public': isPublic,
+        'member_limit': memberLimit,
+        'allow_member_control': allowMemberControl,
+      },
+      token: token,
+    );
+  }
+
+  /// 加入并获取房间详情，需登录令牌。
+  Future<Map<String, dynamic>> watchJoinRoom(
+    String base,
+    String code, {
+    String? token,
+  }) async {
+    return _request(
+      base,
+      method: 'GET',
+      path: '$_apiPrefix/watch/rooms/${Uri.encodeComponent(code)}',
+      token: token,
+    );
+  }
+
+  /// 房主上报权威时间线，需登录令牌。
+  Future<Map<String, dynamic>> watchUpdateTimeline(
+    String base,
+    String code, {
+    required bool paused,
+    required int positionMs,
+    required int episode,
+    required int playSource,
+    String? token,
+  }) async {
+    return _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/watch/rooms/${Uri.encodeComponent(code)}/timeline',
+      jsonBody: {
+        'paused': paused,
+        'position_ms': positionMs,
+        'episode': episode,
+        'play_source': playSource,
+      },
+      token: token,
+    );
+  }
+
+  /// 成员心跳，返回房间最新时间线，需登录令牌。
+  Future<Map<String, dynamic>> watchHeartbeat(
+    String base,
+    String code, {
+    required bool buffering,
+    String? token,
+  }) async {
+    return _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/watch/rooms/${Uri.encodeComponent(code)}/heartbeat',
+      jsonBody: {'buffering': buffering},
+      token: token,
+    );
+  }
+
+  /// 离开房间，需登录令牌。
+  Future<Map<String, dynamic>> watchLeaveRoom(
+    String base,
+    String code, {
+    String? token,
+  }) async {
+    return _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/watch/rooms/${Uri.encodeComponent(code)}/leave',
+      token: token,
+    );
+  }
+
+  /// 解散房间（仅房主），需登录令牌。
+  Future<Map<String, dynamic>> watchCloseRoom(
+    String base,
+    String code, {
+    String? token,
+  }) async {
+    return _request(
+      base,
+      method: 'DELETE',
+      path: '$_apiPrefix/watch/rooms/${Uri.encodeComponent(code)}',
+      token: token,
+    );
+  }
+
+  /// 拉取房间聊天记录，需登录令牌。
+  Future<Map<String, dynamic>> watchFetchMessages(
+    String base,
+    String code, {
+    int since = 0,
+    String? token,
+  }) async {
+    return _request(
+      base,
+      method: 'GET',
+      path: '$_apiPrefix/watch/rooms/${Uri.encodeComponent(code)}/messages',
+      query: since > 0 ? _encodeQuery({'since': '$since'}) : '',
+      token: token,
+    );
+  }
+
+  /// 发送房间聊天消息，需登录令牌。
+  Future<Map<String, dynamic>> watchSendMessage(
+    String base,
+    String code, {
+    required String content,
+    String? token,
+  }) async {
+    return _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/watch/rooms/${Uri.encodeComponent(code)}/messages',
+      jsonBody: {'content': content},
+      token: token,
+    );
+  }
+
   /// 提交意见反馈，登录可选。
   Future<Map<String, dynamic>> postFeedback(
     String base, {

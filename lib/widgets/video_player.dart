@@ -104,6 +104,8 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
 
   Duration get currentPosition => _videoController?.value.position ?? Duration.zero;
 
+  bool get isPlaying => _videoController?.value.isPlaying ?? false;
+
   /// 暂停播放。用于离开当前页面时停止后台继续出声。
   /// 进入 Chewie 全屏同样会触发路由 push，此时不应暂停。
   void pausePlayback() {
@@ -111,6 +113,21 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
     _videoController?.pause();
     _bufferingTimer?.cancel();
     _bufferingTimer = null;
+  }
+
+  /// 强制暂停，全屏时同样生效（一起看同步用）。
+  void forcePause() {
+    _videoController?.pause();
+  }
+
+  /// 继续播放（一起看同步用）。
+  void resumePlayback() {
+    _chewieController?.play();
+  }
+
+  /// 跳转到指定位置（一起看同步用）。
+  void seekToPosition(Duration position) {
+    _videoController?.seekTo(position);
   }
 
   @override

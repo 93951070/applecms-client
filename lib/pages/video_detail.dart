@@ -14,6 +14,7 @@ import '../providers/history_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/download_service.dart';
+import '../services/watch_party_service.dart';
 import '../core/theme.dart';
 import '../core/navigation.dart';
 import '../core/share_utils.dart';
@@ -23,6 +24,7 @@ import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
 import '../widgets/video_player.dart';
 import '../widgets/bili_loading.dart';
+import 'watch_room.dart';
 
 /// 播放页「同类推荐」数据源：按当前视频所属分类拉取同分类内容。
 final _recommendProvider =
@@ -505,9 +507,57 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               ),
             ),
           ),
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Material(
+              color: Colors.transparent,
+              child: IconButton(
+                tooltip: '一起看',
+                icon: const Icon(Icons.group_rounded,
+                    size: 22, color: Colors.white),
+                onPressed: _createWatchRoom,
+              ),
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  /// 以当前影片与集数创建一起看房间，并进入房间页。
+  Future<void> _createWatchRoom() async {
+    if (!ref.read(authProvider).isLoggedIn) {
+      if (mounted) context.push('/login');
+      return;
+    }
+    final vodId = _video?.id ?? _doubanId;
+    if (vodId.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('影片信息未就绪，请稍后再试')));
+      return;
+    }
+    try {
+      final position =
+          _playerKey.currentState?.currentPosition.inMilliseconds ?? 0;
+      final room = await ref.read(watchPartyServiceProvider).createRoom(
+            vodId: vodId,
+            playSource: 0,
+            episode: _currentEpisodeIndex,
+            positionMs: position,
+          );
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => WatchRoomPage(code: room.code, initialRoom: room),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('AppApiException: ', ''))),
+      );
+    }
   }
 
   /// 弹幕开关（由播放器控制条上的按钮触发）：与「设置/放大」同尺寸、
