@@ -693,7 +693,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 value: allowControl,
-                activeColor: AppColors.pink,
+                activeThumbColor: AppColors.pink,
                 title: const Text('允许成员控制播放',
                     style: TextStyle(color: _WatchColors.text, fontSize: 13.5)),
                 subtitle: const Text('开启后成员也可暂停、拖动进度',
@@ -992,7 +992,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
       );
     }
     final panelWidth = _chatVisible
-        ? (size.width * 0.36).clamp(280.0, 380.0)
+        ? (size.width * 0.36).clamp(280.0, 380.0).toDouble()
         : 0.0;
     return Row(
       children: [
