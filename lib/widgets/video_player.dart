@@ -44,6 +44,7 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
   final bool showDanmakuControl;
   final bool showSettingsControl;
   final bool showFullscreenControl;
+  final bool showPlaybackStatus;
 
   /// 首次初始化完成后保持暂停，不自动播放。
   /// 用于从一起看回到播放页时同步进度但避免立即出声。
@@ -81,6 +82,7 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
     this.showDanmakuControl = true,
     this.showSettingsControl = true,
     this.showFullscreenControl = true,
+    this.showPlaybackStatus = true,
     this.startPaused = false,
   });
 
@@ -344,6 +346,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
           showDanmakuControl: widget.showDanmakuControl,
           showSettingsControl: widget.showSettingsControl,
           showFullscreenControl: widget.showFullscreenControl,
+          showPlaybackStatus: widget.showPlaybackStatus,
         ),
         materialProgressColors: ChewieProgressColors(
           playedColor: widget.isLive ? Colors.white : const Color(0xFF0A84FF),
@@ -522,21 +525,16 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
     final shouldResume = _wasPlayingBeforePause;
     _wasPlayingBeforePause = false;
 
-    // 后台期间本地代理/网络连接会被系统挂起，回前台时旧连接已失效，
-    // 直接播放会一直缓冲，需要按当前位置重建播放器。
-    if (controller.value.isBuffering) {
-      final pos = controller.value.position;
-      if (pos > Duration.zero) _resumeOverride = pos;
-      _errorMessage = null;
-      _initializePlayer();
-      return;
-    }
-
     if (_errorMessage != null) {
       _errorMessage = null;
       setState(() {});
     }
     if (shouldResume && !controller.value.isPlaying) {
+      // 回前台时连接可能刚被系统恢复，按当前位置重新起播即可，
+      // 不再整实例重建，避免每次切后台回来都转圈重载。
+      if (controller.value.isBuffering) {
+        unawaited(controller.seekTo(controller.value.position));
+      }
       controller.play();
     }
   }

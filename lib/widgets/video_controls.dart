@@ -41,6 +41,8 @@ class ZenVideoControls extends StatefulWidget {
   final bool showSettingsControl;
   /// 是否显示全屏/放大按钮（一起看页面已是沉浸横屏）。
   final bool showFullscreenControl;
+  /// 是否显示播放/暂停按钮与时间进度文字（一起看由房主同步，无需本地显示）。
+  final bool showPlaybackStatus;
 
   const ZenVideoControls({
     super.key,
@@ -68,6 +70,7 @@ class ZenVideoControls extends StatefulWidget {
     this.showDanmakuControl = true,
     this.showSettingsControl = true,
     this.showFullscreenControl = true,
+    this.showPlaybackStatus = true,
   });
 
   @override
@@ -759,12 +762,15 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
             Row(
               children: [
                 if (!_isLocked) ...[
-                  if (_videoPlayerController != null) _buildPlayPause(_videoPlayerController!),
+                  if (widget.showPlaybackStatus && _videoPlayerController != null)
+                    _buildPlayPause(_videoPlayerController!),
                   if (widget.hasNextEpisode && widget.onNextEpisode != null)
                     _buildIconBtn(LucideIcons.stepForward, widget.onNextEpisode!),
                   if (_videoPlayerController != null) _buildVolumeButton(context),
-                  const SizedBox(width: 8),
-                  _buildPosition(context),
+                  if (widget.showPlaybackStatus) ...[
+                    const SizedBox(width: 8),
+                    _buildPosition(context),
+                  ],
                   
                   const Spacer(),
 

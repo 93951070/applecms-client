@@ -125,9 +125,6 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
   List<String> _episodeTitles = const [];
   bool _loadingEpisodes = false;
 
-  /// 有新成员加入但尚未查看成员列表时，在成员入口上显示红点。
-  bool _hasNewMember = false;
-
   @override
   void initState() {
     super.initState();
@@ -302,7 +299,6 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     for (final m in room.members) {
       if (!_knownMemberIds.contains(m.userId)) {
         _appendSystem('${names[m.userId]} 加入了房间');
-        if (m.userId != _myId) _hasNewMember = true;
       }
     }
     for (final id in _knownMemberIds) {
@@ -867,7 +863,6 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
   void _showMembers() {
     final room = _room;
     if (room == null) return;
-    if (_hasNewMember) setState(() => _hasNewMember = false);
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1319,6 +1314,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
       showDanmakuControl: false,
       showSettingsControl: false,
       showFullscreenControl: false,
+      showPlaybackStatus: false,
       onEnded: room.canControl ? () => _autoNextEpisode() : null,
     );
   }
@@ -1506,45 +1502,41 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     );
   }
 
-  /// 右下角成员入口：头像堆叠 + 在线人数 + 成员图标（有新成员时带红点）。
+  /// 右下角成员入口：成员图标 + 在线人数角标。
   Widget _memberEntry(WatchRoomInfo room) {
     final online = room.members.where((m) => m.online).length;
     return Material(
       color: Colors.transparent,
-      child: InkWell(
+      child: InkResponse(
         onTap: _showMembers,
-        borderRadius: BorderRadius.circular(20),
+        radius: 22,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
+          padding: const EdgeInsets.all(8),
+          child: Stack(
+            clipBehavior: Clip.none,
             children: [
-              _miniMemberStack(room),
-              const SizedBox(width: 6),
-              Text(
-                '$online 人在线',
-                style: const TextStyle(color: Colors.white, fontSize: 11.5),
-              ),
-              const SizedBox(width: 3),
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  const Icon(Icons.people_alt_rounded,
-                      size: 18, color: Colors.white),
-                  if (_hasNewMember)
-                    Positioned(
-                      right: -1,
-                      top: -1,
-                      child: Container(
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(
-                          color: AppColors.pink,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                    ),
-                ],
+              const Icon(Icons.people_alt_rounded,
+                  size: 20, color: Colors.white),
+              Positioned(
+                right: -8,
+                top: -7,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  constraints: const BoxConstraints(minWidth: 16),
+                  decoration: BoxDecoration(
+                    color: AppColors.pink,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    online > 99 ? '99+' : '$online',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700),
+                  ),
+                ),
               ),
             ],
           ),
@@ -1622,37 +1614,6 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
           ),
         ],
       ),
-    );
-  }
-
-  Widget _miniMemberStack(WatchRoomInfo room) {
-    final members = room.members.take(4).toList();
-    if (members.isEmpty) return const SizedBox.shrink();
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 28.0 + (members.length - 1) * 20,
-          height: 28,
-          child: Stack(
-            children: [
-              for (var i = 0; i < members.length; i++)
-                Positioned(
-                  left: i * 20.0,
-                  child: _avatar(members[i], size: 28, bordered: true),
-                ),
-            ],
-          ),
-        ),
-        if (room.members.length > members.length)
-          Padding(
-            padding: const EdgeInsets.only(left: 4),
-            child: Text(
-              '+${room.members.length - members.length}',
-              style: const TextStyle(color: Colors.white, fontSize: 11),
-            ),
-          ),
-      ],
     );
   }
 

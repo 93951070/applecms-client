@@ -95,6 +95,7 @@ class AppApiService {
   final Hkdf _hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
 
   final Map<String, _Session> _sessions = {};
+  final Map<String, Future<_Session>> _pendingSessions = {};
 
   AppApiService({Dio? dio})
       : _dio = dio ??
@@ -665,14 +666,48 @@ class AppApiService {
   void clearSession([String? base]) {
     if (base == null) {
       _sessions.clear();
+      _pendingSessions.clear();
     } else {
       _sessions.remove(base);
+      _pendingSessions.remove(base);
     }
   }
 
   // ==================== 请求与签名 ====================
 
   Future<Map<String, dynamic>> _request(
+    String base, {
+    required String method,
+    required String path,
+    String query = '',
+    Map<String, dynamic>? jsonBody,
+    String? token,
+  }) async {
+    try {
+      return await _requestOnce(
+        base,
+        method: method,
+        path: path,
+        query: query,
+        jsonBody: jsonBody,
+        token: token,
+      );
+    } on AppApiException catch (e) {
+      if (e.statusCode != null || method.toUpperCase() != 'GET') rethrow;
+      // 首次启动/回前台时网络可能尚未就绪，失败后短暂等待再试一次。
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      return _requestOnce(
+        base,
+        method: method,
+        path: path,
+        query: query,
+        jsonBody: jsonBody,
+        token: token,
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> _requestOnce(
     String base, {
     required String method,
     required String path,
@@ -807,14 +842,26 @@ class AppApiService {
 
   // ==================== 会话与解密 ====================
 
-  Future<_Session> _ensureSession(String base, {bool force = false}) async {
+  Future<_Session> _ensureSession(String base, {bool force = false}) {
     final cached = _sessions[base];
     if (!force && cached != null && !cached.isExpired) {
-      return cached;
+      return Future.value(cached);
     }
-    final session = await _handshake(base);
-    _sessions[base] = session;
-    return session;
+    if (!force) {
+      final pending = _pendingSessions[base];
+      if (pending != null) return pending;
+    }
+    late final Future<_Session> future;
+    future = _handshake(base).then<_Session>((session) {
+      _sessions[base] = session;
+      return session;
+    }).whenComplete(() {
+      if (identical(_pendingSessions[base], future)) {
+        _pendingSessions.remove(base);
+      }
+    });
+    _pendingSessions[base] = future;
+    return future;
   }
 
   Future<_Session> _handshake(String base) async {
