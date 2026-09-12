@@ -252,23 +252,18 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    final videoHeight = _commentsOpen ? size.height * 0.48 : size.height;
+    final sheetHeight = size.height * 0.52;
 
     return Scaffold(
       backgroundColor: Colors.black,
-      resizeToAvoidBottomInset: false,
+      resizeToAvoidBottomInset: true,
       body: Stack(
         children: [
-          AnimatedPositioned(
-            duration: const Duration(milliseconds: 240),
-            curve: Curves.easeOut,
-            top: 0,
-            left: 0,
-            right: 0,
-            height: videoHeight,
+          Positioned.fill(
             child: Stack(
               children: [
                 _buildFeed(),
+                if (_commentsOpen) _buildDim(),
                 _buildBackButton(),
                 _buildRightRail(),
                 _buildBottomInfo(),
@@ -281,15 +276,35 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
               left: 0,
               right: 0,
               bottom: 0,
-              height: size.height * 0.52,
-              child: CommentSheet(
-                key: ValueKey(
-                    _entries.isEmpty ? 'empty' : _entries[_current].vodId),
-                vodId: _entries.isEmpty ? '' : _entries[_current].vodId,
-                onClose: () => setState(() => _commentsOpen = false),
+              height: sheetHeight,
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 1, end: 0),
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOut,
+                builder: (context, t, child) => FractionalTranslation(
+                  translation: Offset(0, t),
+                  child: child,
+                ),
+                child: CommentSheet(
+                  key: ValueKey(
+                      _entries.isEmpty ? 'empty' : _entries[_current].vodId),
+                  vodId: _entries.isEmpty ? '' : _entries[_current].vodId,
+                  onClose: () => setState(() => _commentsOpen = false),
+                ),
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  /// 评论面板浮出时给视频压一层暗色，突出面板（视频本身不位移）。
+  Widget _buildDim() {
+    return Positioned.fill(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => setState(() => _commentsOpen = false),
+        child: const ColoredBox(color: Colors.black38),
       ),
     );
   }
@@ -347,7 +362,9 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   }
 
   Widget _buildSwipeHint() {
-    if (_hinted || _entries.length <= 1) return const SizedBox.shrink();
+    if (_hinted || _commentsOpen || _entries.length <= 1) {
+      return const SizedBox.shrink();
+    }
     return Positioned(
       left: 0,
       right: 0,
@@ -366,9 +383,10 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   }
 
   Widget _buildRightRail() {
+    final sheetHeight = MediaQuery.of(context).size.height * 0.52;
     return Positioned(
       right: 8,
-      bottom: 96,
+      bottom: _commentsOpen ? sheetHeight + 8 : 96,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -410,10 +428,11 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
     final e = _entries[_current];
     final detail = _dramaDetails[e.vodId];
     final desc = detail?.desc?.trim() ?? '';
+    final sheetHeight = MediaQuery.of(context).size.height * 0.52;
     return Positioned(
       left: 14,
       right: 76,
-      bottom: 44,
+      bottom: _commentsOpen ? sheetHeight + 8 : 44,
       child: GestureDetector(
         onTap: _showDramaInfo,
         behavior: HitTestBehavior.opaque,
