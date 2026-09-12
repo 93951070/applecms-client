@@ -507,19 +507,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               ),
             ),
           ),
-          Positioned(
-            top: 4,
-            right: 4,
-            child: Material(
-              color: Colors.transparent,
-              child: IconButton(
-                tooltip: '一起看',
-                icon: const Icon(Icons.group_rounded,
-                    size: 22, color: Colors.white),
-                onPressed: _createWatchRoom,
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -1187,6 +1174,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           const Spacer(),
           _buildActionIcon(Icons.favorite_rounded, const Color(0xFFFF6B9D),
               () => _toggleFavorite(favorited)),
+          const SizedBox(width: 20),
+          _buildActionIcon(Icons.group_rounded, const Color(0xFF8B5CF6),
+              _createWatchRoom),
           const SizedBox(width: 20),
           _buildActionIcon(Icons.download_rounded, const Color(0xFFFF9F43),
               _cacheCurrentEpisode),
