@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
@@ -23,11 +24,19 @@ class ShortDramaFeedPage extends ConsumerStatefulWidget {
   final String categoryTitle;
   final VideoDetail initial;
 
+  /// 随机模式：续集时随机挑选剧集与分页，形成无限随机上下滑。
+  final bool random;
+
+  /// 是否显示左上返回按钮（作为 Tab 时不显示）。
+  final bool showBack;
+
   const ShortDramaFeedPage({
     super.key,
     required this.typeId,
     required this.categoryTitle,
     required this.initial,
+    this.random = false,
+    this.showBack = true,
   });
 
   @override
@@ -67,6 +76,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   final List<_FeedEntry> _entries = [];
   final Map<int, String?> _urlCache = {};
   final Map<int, String?> _msgCache = {};
+  final Random _rng = Random();
 
   /// 每部剧的详情（简介、年份、演员等），用于底部信息与详情面板。
   final Map<String, VideoDetail> _dramaDetails = {};
@@ -224,10 +234,12 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
       while (_pendingDramas.isNotEmpty && _entries.length - _current <= 3) {
         await _expandDrama(_pendingDramas.removeAt(0));
       }
+      var attempts = 0;
       while (!_listExhausted && _entries.length - _current <= 3) {
+        if (widget.random && ++attempts > 12) break;
         final cms = ref.read(cmsServiceProvider);
         final site = await ref.read(configServiceProvider).getPrimarySite();
-        final page = _listPage + 1;
+        final page = widget.random ? 1 + _rng.nextInt(10) : _listPage + 1;
         final list = await cms.getCategoryList(
           site,
           widget.typeId,
@@ -235,13 +247,15 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
           pageSize: 12,
           sort: 'day',
         );
-        _listPage = page;
+        if (!widget.random) _listPage = page;
         if (list.isEmpty) {
+          if (widget.random) continue;
           _listExhausted = true;
           break;
         }
+        final pool = widget.random ? (List.of(list)..shuffle(_rng)) : list;
         _pendingDramas.addAll(
-          list.where((v) => !_queuedDramaIds.contains(v.id)),
+          pool.where((v) => !_queuedDramaIds.contains(v.id)),
         );
         while (_pendingDramas.isNotEmpty && _entries.length - _current <= 3) {
           await _expandDrama(_pendingDramas.removeAt(0));
@@ -301,7 +315,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
               children: [
                 _buildFeed(vipActive),
                 if (_commentsOpen) _buildDim(),
-                _buildBackButton(),
+                if (widget.showBack) _buildBackButton(),
                 _buildRightRail(),
                 _buildBottomInfo(vipActive),
                 _buildSwipeHint(),

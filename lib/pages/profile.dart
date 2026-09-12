@@ -15,6 +15,7 @@ import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
+import '../widgets/edit_dialog.dart';
 import '../widgets/cover_image.dart';
 import 'messages_page.dart';
 import 'favorites_page.dart';
@@ -138,12 +139,25 @@ class ProfilePage extends ConsumerWidget {
                   Row(
                     children: [
                       Flexible(
-                        child: Text(name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                fontSize: 19, fontWeight: FontWeight.w800)),
+                        child: GestureDetector(
+                          onTap: loggedIn
+                              ? () => _editNickname(context, ref, name)
+                              : onTapHeader,
+                          child: Text(name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 19, fontWeight: FontWeight.w800)),
+                        ),
                       ),
+                      if (loggedIn) ...[
+                        const SizedBox(width: 4),
+                        GestureDetector(
+                          onTap: () => _editNickname(context, ref, name),
+                          child: Icon(Icons.edit_outlined,
+                              size: 15, color: theme.colorScheme.secondary),
+                        ),
+                      ],
                       if (loggedIn) ...[
                         const SizedBox(width: 6),
                         Icon(
@@ -483,6 +497,52 @@ class ProfilePage extends ConsumerWidget {
     if (lower.endsWith('.gif')) return 'image/gif';
     if (lower.endsWith('.webp')) return 'image/webp';
     return 'image/jpeg';
+  }
+
+  Future<void> _editNickname(
+      BuildContext context, WidgetRef ref, String current) async {
+    final controller = TextEditingController(text: current);
+    final value = await showDialog<String>(
+      context: context,
+      builder: (ctx) => EditDialog(
+        title: const Text('修改昵称'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 24,
+          decoration: const InputDecoration(hintText: '请输入新的昵称'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final v = controller.text.trim();
+              if (v.isEmpty) return;
+              Navigator.of(ctx).pop(v);
+            },
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (value == null || value.isEmpty || value == current) return;
+    try {
+      await ref.read(cmsServiceProvider).updateProfile(nickname: value);
+      await ref.read(authProvider.notifier).refresh();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('昵称已更新')));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('昵称更新失败：$e')));
+      }
+    }
   }
 
   Future<void> _pickAndUploadAvatar(BuildContext context, WidgetRef ref) async {

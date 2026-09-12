@@ -41,6 +41,7 @@ class WatchPartyService {
     int episode = 0,
     int positionMs = 0,
     bool isPublic = false,
+    String password = '',
     int memberLimit = 0,
     bool allowMemberControl = false,
   }) async {
@@ -55,6 +56,7 @@ class WatchPartyService {
       episode: episode,
       positionMs: positionMs,
       isPublic: isPublic,
+      password: password,
       memberLimit: memberLimit,
       allowMemberControl: allowMemberControl,
       token: token,
@@ -62,12 +64,34 @@ class WatchPartyService {
     return _roomFrom(data);
   }
 
-  Future<WatchRoomInfo> joinRoom(String code) async {
+  /// 大厅进行中房间列表。
+  Future<List<WatchHallRoom>> hall() async {
+    final token = await _token();
+    if (token == null || token.isEmpty) return const [];
+    final data = await _api.watchHall(await _base(), token: token);
+    final raw = data['items'];
+    final items = <WatchHallRoom>[];
+    if (raw is List) {
+      for (final e in raw) {
+        if (e is Map) {
+          items.add(WatchHallRoom.fromJson(Map<String, dynamic>.from(e)));
+        }
+      }
+    }
+    return items;
+  }
+
+  Future<WatchRoomInfo> joinRoom(String code, {String password = ''}) async {
     final token = await _token();
     if (token == null || token.isEmpty) {
       throw const AppApiException('请先登录');
     }
-    final data = await _api.watchJoinRoom(await _base(), code, token: token);
+    final data = await _api.watchJoinRoom(
+      await _base(),
+      code,
+      password: password,
+      token: token,
+    );
     return _roomFrom(data);
   }
 

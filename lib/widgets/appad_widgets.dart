@@ -29,6 +29,7 @@ class AppTabBar extends StatelessWidget {
   static const _items = [
     (Icons.home_outlined, Icons.home_rounded, '首页'),
     (Icons.leaderboard_outlined, Icons.leaderboard_rounded, '排行榜'),
+    (Icons.slow_motion_video_outlined, Icons.slow_motion_video_rounded, '短剧'),
     (Icons.person_outline_rounded, Icons.person_rounded, '我的'),
   ];
 

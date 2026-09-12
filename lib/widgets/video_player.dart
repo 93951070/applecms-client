@@ -40,6 +40,10 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
   final VoidCallback? onDanmakuInputActivate;
   final VoidCallback? onDanmakuInputClose;
   final VoidCallback? onDanmakuSubmit;
+  /// 控制条展示开关（一起看房间按需精简）。
+  final bool showDanmakuControl;
+  final bool showSettingsControl;
+  final bool showFullscreenControl;
 
   const EchoVideoPlayer({
     super.key,
@@ -70,6 +74,9 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
     this.onDanmakuInputActivate,
     this.onDanmakuInputClose,
     this.onDanmakuSubmit,
+    this.showDanmakuControl = true,
+    this.showSettingsControl = true,
+    this.showFullscreenControl = true,
   });
 
   @override
@@ -85,6 +92,9 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   String? _errorMessage;
   bool _wasPlayingBeforePause = false;
   Duration? _resumeOverride;
+  /// 主动暂停标记：缓冲/初始化完成前用户已离开播放（如进入一起看），
+  /// 用于抑制 Chewie 的 autoPlay，避免「缓冲完成后在后台继续出声」。
+  bool _holdPaused = false;
 
   /// 初始化代次号：切集/重试/离场时自增，使任何在途的旧初始化立即作废，
   /// 并强制释放它创建的控制器，避免出现「上一集还在后台出声」。
@@ -113,6 +123,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   /// 进入 Chewie 全屏同样会触发路由 push，此时不应暂停。
   void pausePlayback() {
     if (_chewieController?.isFullScreen ?? false) return;
+    _holdPaused = true;
     _videoController?.pause();
     _bufferingTimer?.cancel();
     _bufferingTimer = null;
@@ -120,11 +131,15 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
 
   /// 强制暂停，全屏时同样生效（一起看同步用）。
   void forcePause() {
+    _holdPaused = true;
     _videoController?.pause();
+    _bufferingTimer?.cancel();
+    _bufferingTimer = null;
   }
 
   /// 继续播放（一起看同步用）。
   void resumePlayback() {
+    _holdPaused = false;
     _chewieController?.play();
   }
 
@@ -246,6 +261,11 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
 
       _videoController = controller;
 
+      // 若用户已主动离开播放（进入一起看等），初始化完成后保持暂停。
+      if (_holdPaused) {
+        await controller.pause();
+      }
+
       // 计算跳转位置：优先使用回前台恢复时的覆盖进度
       Duration? startAt;
       final resume = _resumeOverride ??
@@ -280,7 +300,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
 
       _chewieController = ChewieController(
         videoPlayerController: controller,
-        autoPlay: true,
+        autoPlay: !_holdPaused,
         looping: false,
         startAt: startAt,
         aspectRatio: controller.value.aspectRatio,
@@ -315,6 +335,9 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
           onDanmakuInputActivate: widget.onDanmakuInputActivate,
           onDanmakuInputClose: widget.onDanmakuInputClose,
           onDanmakuSubmit: widget.onDanmakuSubmit,
+          showDanmakuControl: widget.showDanmakuControl,
+          showSettingsControl: widget.showSettingsControl,
+          showFullscreenControl: widget.showFullscreenControl,
         ),
         materialProgressColors: ChewieProgressColors(
           playedColor: widget.isLive ? Colors.white : const Color(0xFF0A84FF),
@@ -378,6 +401,9 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
     if (_videoController == null || _isDisposed) return;
     
     final value = _videoController!.value;
+
+    // 用户已开始播放（如点击播放键），解除主动暂停标记，恢复正常自动播放。
+    if (value.isPlaying) _holdPaused = false;
 
     if (value.isInitialized) {
       _updateDanmaku(value.position);

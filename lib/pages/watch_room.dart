@@ -9,6 +9,7 @@ import '../core/share_utils.dart';
 import '../core/theme.dart';
 import '../models/watch_party.dart';
 import '../providers/auth_provider.dart';
+import '../services/config_service.dart';
 import '../services/watch_party_service.dart';
 import '../widgets/video_player.dart';
 
@@ -31,6 +32,7 @@ class _ChatLine {
   final bool system;
   final String userId;
   final String name;
+  final String portrait;
   final String content;
   final int createdAt;
 
@@ -38,6 +40,7 @@ class _ChatLine {
     this.system = false,
     this.userId = '',
     this.name = '',
+    this.portrait = '',
     required this.content,
     required this.createdAt,
   });
@@ -102,12 +105,16 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
   bool _reconnecting = false;
   bool _ended = false;
   bool _busy = false;
+  String? _endReason;
+  bool _removedHandled = false;
+  String _mediaBase = '';
 
   @override
   void initState() {
     super.initState();
     _service = ref.read(watchPartyServiceProvider);
     _myId = ref.read(authProvider).user?.id ?? '';
+    _loadMediaBase();
     _room = widget.initialRoom;
     if (_room != null) {
       _episode = _room!.episode;
@@ -253,8 +260,10 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
 
   void _addMessage(WatchChatMessage m) {
     final line = _ChatLine(
+      system: m.system,
       userId: m.userId,
       name: m.nickName.isEmpty ? '观众' : m.nickName,
+      portrait: m.portrait,
       content: m.content,
       createdAt: m.createdAt,
     );
@@ -311,8 +320,10 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     final older = <_ChatLine>[];
     for (final m in msgs) {
       final line = _ChatLine(
+        system: m.system,
         userId: m.userId,
         name: m.nickName.isEmpty ? '观众' : m.nickName,
+        portrait: m.portrait,
         content: m.content,
         createdAt: m.createdAt,
       );
@@ -378,8 +389,15 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
   }
 
   void _onTickError(String raw) {
-    if (raw.contains('房间不存在') || raw.contains('已结束')) {
-      _handleEnded();
+    final text = raw.replaceFirst('AppApiException: ', '');
+    if (text.contains('已被移出')) {
+      _handleRemoved(text);
+      return;
+    }
+    if (text.contains('已被关闭') ||
+        text.contains('房间不存在') ||
+        text.contains('已结束')) {
+      _handleEnded(reason: _extractReason(text));
       return;
     }
     _tickFails++;
@@ -388,11 +406,48 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     }
   }
 
-  void _handleEnded() {
+  /// 从服务端错误文案中取出「：」之后的具体原因。
+  static String? _extractReason(String text) {
+    final idx = text.indexOf('：');
+    if (idx < 0 || idx + 1 >= text.length) return null;
+    final reason = text.substring(idx + 1).trim();
+    return reason.isEmpty ? null : reason;
+  }
+
+  void _handleEnded({String? reason}) {
     if (_ended || !mounted) return;
     _ended = true;
+    _endReason = reason;
     _timer?.cancel();
     setState(() {});
+  }
+
+  /// 被管理员/房主移出：弹窗说明原因，确认后退出房间。
+  void _handleRemoved(String text) {
+    if (_removedHandled || !mounted) return;
+    _removedHandled = true;
+    _timer?.cancel();
+    final reason = _extractReason(text) ?? '违反房间规定';
+    final navigator = Navigator.of(context);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _WatchColors.panel2,
+        title: const Text('你已被移出房间',
+            style: TextStyle(color: _WatchColors.text, fontSize: 16)),
+        content: Text('原因：$reason',
+            style: const TextStyle(color: _WatchColors.text2, fontSize: 13.5)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('返回', style: TextStyle(color: AppColors.pink)),
+          ),
+        ],
+      ),
+    ).then((_) {
+      if (mounted) navigator.pop();
+    });
   }
 
   /// 成员侧按服务器时间线纠偏，偏差超过 1.5 秒才 seek。
@@ -942,7 +997,10 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
               size: 42, color: _WatchColors.text3),
           const SizedBox(height: 12),
           Text(
-            ended ? '房间已结束' : (_error ?? '房间不存在或已结束'),
+            ended
+                ? (_endReason == null ? '房间已结束' : '房间已结束：${_endReason!}')
+                : (_error ?? '房间不存在或已结束'),
+            textAlign: TextAlign.center,
             style: const TextStyle(color: _WatchColors.text2, fontSize: 14),
           ),
           const SizedBox(height: 18),
@@ -996,7 +1054,17 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
         : 0.0;
     return Row(
       children: [
-        Expanded(flex: 1, child: stage),
+        Expanded(
+          flex: 1,
+          // 点击视频区域自动收起右侧消息面板；用 Listener 不拦截播放器手势。
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (_) {
+              if (_chatVisible) setState(() => _chatVisible = false);
+            },
+            child: stage,
+          ),
+        ),
         AnimatedContainer(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeOut,
@@ -1024,6 +1092,16 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
                     color: Colors.white,
                     fontSize: 15,
                     fontWeight: FontWeight.w600)),
+            if (_endReason != null) ...[
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Text('原因：${_endReason!}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        color: _WatchColors.text2, fontSize: 12.5)),
+              ),
+            ],
             const SizedBox(height: 16),
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
@@ -1079,6 +1157,9 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
       initialPosition: _initialPosition,
       danmaku: const [],
       danmakuEnabled: false,
+      showDanmakuControl: false,
+      showSettingsControl: false,
+      showFullscreenControl: false,
     );
   }
 
@@ -1165,6 +1246,8 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
                       Text('$online 人在线',
                           style: const TextStyle(
                               color: Colors.white70, fontSize: 11)),
+                      const SizedBox(width: 10),
+                      Flexible(child: _statusPill(room)),
                     ],
                   ),
                 ),
@@ -1193,8 +1276,6 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
       ),
       child: Row(
         children: [
-          _statusPill(room),
-          const SizedBox(width: 8),
           if (room.canControl) ...[
             _overlayIcon(Icons.skip_previous_rounded,
                 () => _changeEpisode(-1)),
@@ -1296,12 +1377,16 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
         children: [
           Icon(icon, size: 13, color: color),
           const SizedBox(width: 5),
-          Text(
-            text,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w500,
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ],
@@ -1448,7 +1533,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
             mine ? MainAxisAlignment.end : MainAxisAlignment.start,
         children: [
           if (!mine) ...[
-            _letterAvatar(line.name, size: 28),
+            _letterAvatar(line.name, size: 28, portrait: line.portrait),
             const SizedBox(width: 8),
           ],
           Flexible(
@@ -1555,19 +1640,32 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
 
   Widget _avatar(WatchMemberInfo m, {required double size, bool bordered = true}) {
     final name = _displayName(m);
+    final url = _absoluteMedia(m.portrait);
+    final border = bordered
+        ? Border.all(color: Colors.black.withValues(alpha: 0.5), width: 1.5)
+        : null;
+    if (url.isNotEmpty) {
+      return Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: border,
+          image: DecorationImage(image: NetworkImage(url), fit: BoxFit.cover),
+        ),
+      );
+    }
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: _colorFor(name),
-        border: bordered
-            ? Border.all(color: Colors.black.withValues(alpha: 0.5), width: 1.5)
-            : null,
+        border: border,
       ),
       alignment: Alignment.center,
       child: Text(
-        name.characters.first,
+        name.isEmpty ? '?' : name.characters.first,
         style: TextStyle(
           color: Colors.white,
           fontSize: size * 0.42,
@@ -1577,14 +1675,30 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     );
   }
 
-  Widget _letterAvatar(String name, {required double size}) {
+  Widget _letterAvatar(String name, {required double size, String portrait = ''}) {
+    final url = _absoluteMedia(portrait);
+    if (url.isNotEmpty) {
+      return ClipOval(
+        child: Image.network(
+          url,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _letterAvatarBox(name, size),
+        ),
+      );
+    }
+    return _letterAvatarBox(name, size);
+  }
+
+  Widget _letterAvatarBox(String name, double size) {
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(shape: BoxShape.circle, color: _colorFor(name)),
       alignment: Alignment.center,
       child: Text(
-        name.characters.first,
+        name.isEmpty ? '?' : name.characters.first,
         style: TextStyle(
           color: Colors.white,
           fontSize: size * 0.42,
@@ -1592,6 +1706,21 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
         ),
       ),
     );
+  }
+
+  String _absoluteMedia(String path) {
+    final p = path.trim();
+    if (p.isEmpty) return p;
+    if (p.startsWith('http://') || p.startsWith('https://')) return p;
+    if (p.startsWith('/') && _mediaBase.isNotEmpty) return '$_mediaBase$p';
+    return p;
+  }
+
+  Future<void> _loadMediaBase() async {
+    try {
+      final base = await ref.read(configServiceProvider).getApiBaseUrl();
+      if (mounted) setState(() => _mediaBase = base);
+    } catch (_) {}
   }
 
   Color _colorFor(String name) {

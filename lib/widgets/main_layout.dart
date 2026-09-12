@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'appad_widgets.dart';
 
-/// 手机端主框架：底部扁平 3-Tab 导航（首页 / 排行榜 / 我的）
+/// 手机端主框架：底部扁平 4-Tab 导航（首页 / 排行榜 / 短剧 / 我的）
 class MainLayout extends StatelessWidget {
   final Widget child;
   final String currentPath;
 
   const MainLayout({super.key, required this.child, required this.currentPath});
 
-  static const _paths = ['/', '/rank', '/profile'];
+  static const _paths = ['/', '/rank', '/shortdrama', '/profile'];
 
   int get _currentIndex {
     final i = _paths.indexOf(currentPath);

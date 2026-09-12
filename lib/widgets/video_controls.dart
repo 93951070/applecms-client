@@ -34,6 +34,12 @@ class ZenVideoControls extends StatefulWidget {
   final VoidCallback? onDanmakuInputActivate;
   final VoidCallback? onDanmakuInputClose;
   final VoidCallback? onDanmakuSubmit;
+  /// 是否显示弹幕开关（一起看等无弹幕场景可关闭）。
+  final bool showDanmakuControl;
+  /// 是否显示播放设置入口（一起看跟随房主同步，无需本地设置）。
+  final bool showSettingsControl;
+  /// 是否显示全屏/放大按钮（一起看页面已是沉浸横屏）。
+  final bool showFullscreenControl;
 
   const ZenVideoControls({
     super.key,
@@ -58,6 +64,9 @@ class ZenVideoControls extends StatefulWidget {
     this.onDanmakuInputActivate,
     this.onDanmakuInputClose,
     this.onDanmakuSubmit,
+    this.showDanmakuControl = true,
+    this.showSettingsControl = true,
+    this.showFullscreenControl = true,
   });
 
   @override
@@ -658,6 +667,8 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
   Widget _buildTopBar(BuildContext context) {
     final isFullScreen = _chewieController?.isFullScreen ?? false;
     if (!isFullScreen) return const SizedBox.shrink();
+    // 上锁后隐藏顶部返回按钮，避免误触退出，仅保留左下角解锁按钮。
+    if (_isLocked) return const SizedBox.shrink();
 
     return AnimatedOpacity(
       opacity: _displayToggles ? 1.0 : 0.0,
@@ -736,17 +747,18 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
                   const Spacer(),
 
                   // 弹幕开关：与设置/放大同尺寸，随控制条一起显隐
-                  ValueListenableBuilder<bool>(
-                    valueListenable: widget.danmakuListenable ??
-                        _danmakuFallbackNotifier,
-                    builder: (context, enabled, _) => _buildIconBtn(
-                      enabled ? LucideIcons.captions : LucideIcons.captionsOff,
-                      () {
-                        widget.onDanmakuToggle?.call();
-                        _cancelAndRestartTimer();
-                      },
+                  if (widget.showDanmakuControl)
+                    ValueListenableBuilder<bool>(
+                      valueListenable: widget.danmakuListenable ??
+                          _danmakuFallbackNotifier,
+                      builder: (context, enabled, _) => _buildIconBtn(
+                        enabled ? LucideIcons.captions : LucideIcons.captionsOff,
+                        () {
+                          widget.onDanmakuToggle?.call();
+                          _cancelAndRestartTimer();
+                        },
+                      ),
                     ),
-                  ),
 
                   // 选集：竖屏与全屏均可展开
                   if (widget.episodeTitles.length > 1)
@@ -760,7 +772,7 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
                     }),
 
                   // 右侧组合：[设置] [应用全屏] [桌面全屏]
-                  if (!isLive)
+                  if (!isLive && widget.showSettingsControl)
                     _buildIconBtn(LucideIcons.settings, () {
                       setState(() {
                         _showSettings = true;
@@ -769,20 +781,21 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
                       });
                     }),
 
-                  _buildIconBtn(LucideIcons.expand, () {
-                    if (_chewieController?.isFullScreen ?? false) {
-                      _chewieController?.exitFullScreen();
-                      if (!kIsWeb && (Platform.isIOS || Platform.isAndroid)) {
-                        Future.delayed(const Duration(milliseconds: 100), () {
-                          if (context.mounted && Navigator.of(context).canPop()) {
-                            Navigator.of(context).maybePop();
-                          }
-                        });
+                  if (widget.showFullscreenControl)
+                    _buildIconBtn(LucideIcons.expand, () {
+                      if (_chewieController?.isFullScreen ?? false) {
+                        _chewieController?.exitFullScreen();
+                        if (!kIsWeb && (Platform.isIOS || Platform.isAndroid)) {
+                          Future.delayed(const Duration(milliseconds: 100), () {
+                            if (context.mounted && Navigator.of(context).canPop()) {
+                              Navigator.of(context).maybePop();
+                            }
+                          });
+                        }
+                      } else {
+                        _chewieController?.enterFullScreen();
                       }
-                    } else {
-                      _chewieController?.enterFullScreen();
-                    }
-                  }),
+                    }),
                 ],
               ],
             ),

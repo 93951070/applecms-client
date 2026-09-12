@@ -2,6 +2,7 @@
 class WatchMemberInfo {
   final String userId;
   final String nickName;
+  final String portrait;
   final bool online;
   final bool buffering;
   final bool muted;
@@ -10,6 +11,7 @@ class WatchMemberInfo {
   const WatchMemberInfo({
     required this.userId,
     this.nickName = '',
+    this.portrait = '',
     this.online = false,
     this.buffering = false,
     this.muted = false,
@@ -20,6 +22,7 @@ class WatchMemberInfo {
     return WatchMemberInfo(
       userId: (json['user_id'] ?? '').toString(),
       nickName: (json['nick_name'] ?? '').toString(),
+      portrait: (json['portrait'] ?? '').toString(),
       online: json['online'] == true,
       buffering: json['buffering'] == true,
       muted: json['muted'] == true,
@@ -113,13 +116,17 @@ class WatchRoomInfo {
 class WatchChatMessage {
   final String userId;
   final String nickName;
+  final String portrait;
   final String content;
+  final bool system;
   final int createdAt;
 
   const WatchChatMessage({
     required this.userId,
     this.nickName = '',
+    this.portrait = '',
     required this.content,
+    this.system = false,
     this.createdAt = 0,
   });
 
@@ -127,8 +134,64 @@ class WatchChatMessage {
     return WatchChatMessage(
       userId: (json['user_id'] ?? '').toString(),
       nickName: (json['nick_name'] ?? '').toString(),
+      portrait: (json['portrait'] ?? '').toString(),
       content: (json['content'] ?? '').toString(),
+      system: json['system'] == true,
       createdAt: (json['created_at'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+/// 大厅中的进行中房间。
+class WatchHallRoom {
+  final String code;
+  final String title;
+  final String cover;
+  final String hostId;
+  final String hostName;
+  final String hostPortrait;
+  final bool isPublic;
+  final bool hasPassword;
+  final bool isMember;
+  final bool paused;
+  final int memberCount;
+  final int memberLimit;
+  final int episode;
+  final int lastActiveAt;
+
+  const WatchHallRoom({
+    required this.code,
+    this.title = '',
+    this.cover = '',
+    this.hostId = '',
+    this.hostName = '',
+    this.hostPortrait = '',
+    this.isPublic = true,
+    this.hasPassword = false,
+    this.isMember = false,
+    this.paused = false,
+    this.memberCount = 0,
+    this.memberLimit = 8,
+    this.episode = 0,
+    this.lastActiveAt = 0,
+  });
+
+  factory WatchHallRoom.fromJson(Map<String, dynamic> json) {
+    return WatchHallRoom(
+      code: (json['code'] ?? '').toString(),
+      title: (json['title'] ?? '').toString(),
+      cover: (json['cover'] ?? '').toString(),
+      hostId: (json['host_id'] ?? '').toString(),
+      hostName: (json['host_name'] ?? '').toString(),
+      hostPortrait: (json['host_portrait'] ?? '').toString(),
+      isPublic: json['is_public'] == true,
+      hasPassword: json['has_password'] == true,
+      isMember: json['is_member'] == true,
+      paused: json['paused'] == true,
+      memberCount: (json['member_count'] as num?)?.toInt() ?? 0,
+      memberLimit: (json['member_limit'] as num?)?.toInt() ?? 8,
+      episode: (json['episode'] as num?)?.toInt() ?? 0,
+      lastActiveAt: (json['last_active_at'] as num?)?.toInt() ?? 0,
     );
   }
 }

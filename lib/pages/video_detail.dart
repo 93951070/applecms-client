@@ -14,7 +14,6 @@ import '../providers/history_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/download_service.dart';
-import '../services/watch_party_service.dart';
 import '../core/theme.dart';
 import '../core/navigation.dart';
 import '../core/share_utils.dart';
@@ -24,7 +23,7 @@ import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
 import '../widgets/video_player.dart';
 import '../widgets/bili_loading.dart';
-import 'watch_room.dart';
+import '../widgets/watch_party_sheet.dart';
 
 /// 播放页「同类推荐」数据源：按当前视频所属分类拉取同分类内容。
 final _recommendProvider =
@@ -512,8 +511,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     );
   }
 
-  /// 以当前影片与集数创建一起看房间，并进入房间页。
-  Future<void> _createWatchRoom() async {
+  /// 打开「一起看」主页弹层（大厅 / 创建 / 进入 / 我的房间）。
+  Future<void> _openWatchParty() async {
     if (!ref.read(authProvider).isLoggedIn) {
       if (mounted) context.push('/login');
       return;
@@ -524,27 +523,17 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           .showSnackBar(const SnackBar(content: Text('影片信息未就绪，请稍后再试')));
       return;
     }
-    try {
-      final position =
-          _playerKey.currentState?.currentPosition.inMilliseconds ?? 0;
-      final room = await ref.read(watchPartyServiceProvider).createRoom(
-            vodId: vodId,
-            playSource: 0,
-            episode: _currentEpisodeIndex,
-            positionMs: position,
-          );
-      if (!mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => WatchRoomPage(code: room.code, initialRoom: room),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('AppApiException: ', ''))),
-      );
-    }
+    final position =
+        _playerKey.currentState?.currentPosition.inMilliseconds ?? 0;
+    // 强制暂停（含缓冲中/全屏状态），避免进入一起看后主播放器在后台继续播放。
+    _playerKey.currentState?.forcePause();
+    await showWatchPartyHome(
+      context,
+      ref,
+      vodId: vodId,
+      episode: _currentEpisodeIndex,
+      positionMs: position,
+    );
   }
 
   /// 弹幕开关（由播放器控制条上的按钮触发）：与「设置/放大」同尺寸、
@@ -1176,7 +1165,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               () => _toggleFavorite(favorited)),
           const SizedBox(width: 20),
           _buildActionIcon(Icons.group_rounded, const Color(0xFF8B5CF6),
-              _createWatchRoom),
+              _openWatchParty),
           const SizedBox(width: 20),
           _buildActionIcon(Icons.download_rounded, const Color(0xFFFF9F43),
               _cacheCurrentEpisode),

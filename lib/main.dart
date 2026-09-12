@@ -11,6 +11,7 @@ import 'pages/play.dart';
 import 'pages/settings.dart';
 import 'pages/search.dart';
 import 'pages/rank.dart';
+import 'pages/short_drama_tab.dart';
 import 'pages/profile.dart';
 import 'pages/login_page.dart';
 import 'pages/messages_page.dart';
@@ -215,6 +216,13 @@ final _router = GoRouter(
           pageBuilder: (context, state) => _buildPageWithPlatformTransition(
             state,
             const RankPage(),
+          ),
+        ),
+        GoRoute(
+          path: '/shortdrama',
+          pageBuilder: (context, state) => _buildPageWithPlatformTransition(
+            state,
+            const ShortDramaTabPage(),
           ),
         ),
         GoRoute(

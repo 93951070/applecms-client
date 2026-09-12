@@ -344,6 +344,7 @@ class AppApiService {
     int episode = 0,
     int positionMs = 0,
     bool isPublic = false,
+    String password = '',
     int memberLimit = 0,
     bool allowMemberControl = false,
     String? token,
@@ -358,9 +359,20 @@ class AppApiService {
         'episode': episode,
         'position_ms': positionMs,
         'is_public': isPublic,
+        'password': password,
         'member_limit': memberLimit,
         'allow_member_control': allowMemberControl,
       },
+      token: token,
+    );
+  }
+
+  /// 大厅进行中房间列表，需登录令牌。
+  Future<Map<String, dynamic>> watchHall(String base, {String? token}) async {
+    return _request(
+      base,
+      method: 'GET',
+      path: '$_apiPrefix/watch/rooms/hall',
       token: token,
     );
   }
@@ -369,12 +381,16 @@ class AppApiService {
   Future<Map<String, dynamic>> watchJoinRoom(
     String base,
     String code, {
+    String password = '',
     String? token,
   }) async {
+    final params = <String, String>{};
+    if (password.isNotEmpty) params['password'] = password;
     return _request(
       base,
       method: 'GET',
       path: '$_apiPrefix/watch/rooms/${Uri.encodeComponent(code)}',
+      query: params.isEmpty ? '' : _encodeQuery(params),
       token: token,
     );
   }
