@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/content_kind.dart';
 import '../core/theme.dart';
 import '../models/movie.dart';
 import '../models/site.dart';
@@ -8,6 +9,7 @@ import '../services/config_service.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
 import 'home.dart';
+import 'short_drama_feed.dart';
 import 'video_detail.dart';
 
 /// 排行榜数据：按每日热度（vod_hits_day）由服务端真实排序。
@@ -38,6 +40,16 @@ class _RankPageState extends ConsumerState<RankPage> {
   int _tab = 0;
 
   void _openDetail(VideoDetail video) {
+    if (isFeedCategory(typeId: video.typeId, typeName: video.typeName)) {
+      Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
+        builder: (context) => ShortDramaFeedPage(
+          typeId: video.typeId,
+          categoryTitle: video.typeName ?? '短剧',
+          initial: video,
+        ),
+      ));
+      return;
+    }
     Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
       builder: (context) => VideoDetailPage(
         subject: DoubanSubject(

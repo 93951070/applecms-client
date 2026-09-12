@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,7 +15,7 @@ import '../widgets/comment_sheet.dart';
 
 /// 短剧竖屏 Feed：上下滑切集，滑到末尾自动续下一部剧。
 ///
-/// 入口：[initial] 为分类列表点击项（已含剧集分组），[typeId] 用于续集拉取。
+/// 入口：[initial] 为分类列表点击项（可含剧集分组），[typeId] 用于续集拉取。
 class ShortDramaFeedPage extends ConsumerStatefulWidget {
   final int typeId;
   final String categoryTitle;
@@ -59,6 +60,9 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   final List<_FeedEntry> _entries = [];
   final Map<int, String?> _urlCache = {};
   final Map<int, String?> _msgCache = {};
+
+  /// 每部剧的详情（简介、年份、演员等），用于底部信息与详情面板。
+  final Map<String, VideoDetail> _dramaDetails = {};
   final Set<String> _queuedDramaIds = {};
   final List<VideoDetail> _pendingDramas = [];
 
@@ -69,6 +73,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   bool _loadingMore = false;
   bool _commentsOpen = false;
   bool _liked = false;
+  bool _hinted = false;
 
   @override
   void initState() {
@@ -90,6 +95,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
       setState(() => _msgCache[0] = '短剧加载失败，请稍后重试');
     }
     _prefetchAround(0);
+    unawaited(_ensureAhead());
   }
 
   /// 把一部剧的所有集展开追加到 Feed。
@@ -105,6 +111,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
       if (fetched != null) detail = fetched;
     }
     if (detail.playGroups.isEmpty) return false;
+    _dramaDetails[detail.id] = detail;
 
     final srcIndex = _bestGroupIndex(detail.playGroups);
     final group = detail.playGroups[srcIndex];
@@ -116,10 +123,9 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
         vodId: detail.id,
         dramaTitle: detail.title,
         poster: detail.poster,
-        episodeLabel:
-            i < group.titles.length && group.titles[i].isNotEmpty
-                ? group.titles[i]
-                : '第${i + 1}集',
+        episodeLabel: i < group.titles.length && group.titles[i].isNotEmpty
+            ? group.titles[i]
+            : '第${i + 1}集',
         playSource: srcIndex,
         playIndex: i,
         episodeIndex: i,
@@ -154,17 +160,15 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
         playIndex: entry.playIndex,
         token: token,
       );
-      final url = (res.hasAccess && (res.playUrl ?? '').isNotEmpty)
-          ? res.playUrl
-          : null;
+      final url =
+          (res.hasAccess && (res.playUrl ?? '').isNotEmpty) ? res.playUrl : null;
       _urlCache[index] = url;
       _msgCache[index] = url == null
           ? (res.message.isNotEmpty ? res.message : '该内容需要会员权限')
           : null;
     } catch (_) {
       _urlCache[index] = null;
-      _msgCache[index] =
-          _msgCache[index] ?? '取流失败，请检查网络后重试';
+      _msgCache[index] = _msgCache[index] ?? '取流失败，请检查网络后重试';
     }
     if (mounted) setState(() {});
   }
@@ -216,6 +220,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
     setState(() {
       _current = index;
       _liked = false;
+      _hinted = true;
     });
     _prefetchAround(index);
     unawaited(_ensureAhead());
@@ -237,6 +242,11 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
         }
       }));
     }
+  }
+
+  void _jumpTo(int index) {
+    if (index < 0 || index >= _entries.length) return;
+    _pageController.jumpToPage(index);
   }
 
   @override
@@ -262,6 +272,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
                 _buildBackButton(),
                 _buildRightRail(),
                 _buildBottomInfo(),
+                _buildSwipeHint(),
               ],
             ),
           ),
@@ -272,7 +283,8 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
               bottom: 0,
               height: size.height * 0.52,
               child: CommentSheet(
-                key: ValueKey(_entries.isEmpty ? 'empty' : _entries[_current].vodId),
+                key: ValueKey(
+                    _entries.isEmpty ? 'empty' : _entries[_current].vodId),
                 vodId: _entries.isEmpty ? '' : _entries[_current].vodId,
                 onClose: () => setState(() => _commentsOpen = false),
               ),
@@ -296,6 +308,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
     return PageView.builder(
       controller: _pageController,
       scrollDirection: Axis.vertical,
+      physics: const PageScrollPhysics(),
       itemCount: _entries.length,
       onPageChanged: _onPageChanged,
       itemBuilder: (context, i) {
@@ -333,10 +346,29 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
     );
   }
 
+  Widget _buildSwipeHint() {
+    if (_hinted || _entries.length <= 1) return const SizedBox.shrink();
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 90,
+      child: IgnorePointer(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            Icon(Icons.keyboard_arrow_up, color: Colors.white70, size: 26),
+            Text('上滑看下一集',
+                style: TextStyle(color: Colors.white70, fontSize: 12)),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildRightRail() {
     return Positioned(
       right: 8,
-      bottom: 90,
+      bottom: 96,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -351,6 +383,12 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
             icon: Icons.mode_comment_outlined,
             label: '评论',
             onTap: () => setState(() => _commentsOpen = true),
+          ),
+          const SizedBox(height: 18),
+          _RailButton(
+            icon: Icons.video_library_outlined,
+            label: '选集',
+            onTap: _showEpisodes,
           ),
           const SizedBox(height: 18),
           _RailButton(
@@ -370,39 +408,228 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   Widget _buildBottomInfo() {
     if (_entries.isEmpty) return const SizedBox.shrink();
     final e = _entries[_current];
+    final detail = _dramaDetails[e.vodId];
+    final desc = detail?.desc?.trim() ?? '';
     return Positioned(
       left: 14,
       right: 76,
-      bottom: 24,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            e.dramaTitle,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              shadows: [Shadow(color: Colors.black54, blurRadius: 6)],
+      bottom: 44,
+      child: GestureDetector(
+        onTap: _showDramaInfo,
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              e.dramaTitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                shadows: [Shadow(color: Colors.black54, blurRadius: 6)],
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: AppColors.pink.withValues(alpha: 0.85),
-              borderRadius: BorderRadius.circular(10),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AppColors.pink.withValues(alpha: 0.85),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${e.episodeLabel} / 共${e.episodeCount}集',
+                    style: const TextStyle(color: Colors.white, fontSize: 11),
+                  ),
+                ),
+                if (desc.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  const Icon(Icons.info_outline,
+                      color: Colors.white70, size: 14),
+                  const SizedBox(width: 2),
+                  const Text('详情',
+                      style: TextStyle(color: Colors.white70, fontSize: 11)),
+                ],
+              ],
             ),
-            child: Text(
-              '${e.episodeLabel} / 共${e.episodeCount}集',
-              style: const TextStyle(color: Colors.white, fontSize: 11),
-            ),
-          ),
-        ],
+            if (desc.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                desc,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  height: 1.4,
+                  shadows: [Shadow(color: Colors.black54, blurRadius: 6)],
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
+    );
+  }
+
+  void _showDramaInfo() {
+    if (_entries.isEmpty) return;
+    final e = _entries[_current];
+    final d = _dramaDetails[e.vodId];
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1C1C1E),
+      isScrollControlled: true,
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.5,
+          minChildSize: 0.3,
+          maxChildSize: 0.9,
+          expand: false,
+          builder: (ctx, scroll) {
+            return ListView(
+              controller: scroll,
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
+              children: [
+                Text(
+                  e.dramaTitle,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    if ((d?.year ?? '').isNotEmpty)
+                      _infoChip(d!.year!),
+                    if ((d?.typeName ?? '').isNotEmpty) _infoChip(d!.typeName!),
+                    _infoChip('共${e.episodeCount}集'),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  (d?.desc?.trim().isNotEmpty ?? false) ? d!.desc! : '暂无简介',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 13,
+                    height: 1.6,
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _infoChip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white12,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(text,
+          style: const TextStyle(color: Colors.white70, fontSize: 12)),
+    );
+  }
+
+  void _showEpisodes() {
+    if (_entries.isEmpty) return;
+    final e = _entries[_current];
+    final indices = <int>[];
+    for (var i = 0; i < _entries.length; i++) {
+      if (_entries[i].vodId == e.vodId) indices.add(i);
+    }
+    if (indices.isEmpty) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1C1C1E),
+      isScrollControlled: true,
+      builder: (ctx) {
+        final sheetHeight = MediaQuery.of(ctx).size.height * 0.6;
+        return SafeArea(
+          child: SizedBox(
+            height: sheetHeight,
+            child: Column(
+              children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '选集 · ${e.dramaTitle}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    Text('${indices.length} 集',
+                        style: const TextStyle(
+                            color: Colors.white54, fontSize: 12)),
+                  ],
+                ),
+              ),
+              Flexible(
+                child: GridView.builder(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 5,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                    childAspectRatio: 1.5,
+                  ),
+                  itemCount: indices.length,
+                  itemBuilder: (ctx, k) {
+                    final idx = indices[k];
+                    final active = idx == _current;
+                    return GestureDetector(
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _jumpTo(idx);
+                      },
+                      child: Container(
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: active
+                              ? AppColors.pink
+                              : const Color(0xFF2A2A2E),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          _entries[idx].episodeLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 12),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -500,7 +727,6 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
       c.addListener(_onTick);
       await c.play();
     } catch (_) {
-      c.removeListener(_onTick);
       await c.dispose();
       if (!mounted || token != _syncToken) return;
       setState(() {
@@ -525,9 +751,8 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
     if (c == null) return;
     final v = c.value;
     if (!v.isInitialized) return;
-    final ended = v.duration > Duration.zero &&
-        v.position >= v.duration &&
-        !v.isPlaying;
+    final ended =
+        v.duration > Duration.zero && v.position >= v.duration && !v.isPlaying;
     if (ended && widget.isActive && !_completed) {
       _completed = true;
       widget.onCompleted();
@@ -536,45 +761,154 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
     }
   }
 
+  Future<void> _togglePlay() async {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    if (c.value.isPlaying) {
+      await c.pause();
+    } else {
+      if (c.value.position >= c.value.duration && c.value.duration > Duration.zero) {
+        await c.seekTo(Duration.zero);
+      }
+      await c.play();
+    }
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
-    if (controller != null &&
+    final ready = controller != null &&
         controller.value.isInitialized &&
-        controller.value.size.width > 0) {
-      final size = controller.value.size;
-      return ClipRect(
-        child: FittedBox(
-          fit: BoxFit.cover,
-          child: SizedBox(
-            width: size.width,
-            height: size.height,
-            child: VideoPlayer(controller),
-          ),
-        ),
-      );
-    }
+        controller.value.size.width > 0;
+
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (widget.entry.poster.isNotEmpty)
-          Image.network(
-            widget.entry.poster,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => const ColoredBox(color: Colors.black),
-          )
-        else
-          const ColoredBox(color: Colors.black),
-        if (widget.accessMessage != null)
-          _buildMessage(widget.accessMessage!)
-        else if (_failed)
-          _buildMessage('播放失败', retry: true)
-        else if (_initializing || widget.url == null)
+        if (ready) _buildVideo(controller) else _buildPlaceholder(),
+        if (ready)
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _togglePlay,
+              child: const SizedBox.expand(),
+            ),
+          ),
+        if (ready && !controller.value.isPlaying) _buildPauseIcon(),
+        if (ready) _buildProgress(controller),
+        if (widget.accessMessage != null) _buildMessage(widget.accessMessage!),
+        if (!ready && _failed) _buildMessage('播放失败', retry: true),
+      ],
+    );
+  }
+
+  Widget _buildVideo(VideoPlayerController controller) {
+    final size = controller.value.size;
+    final landscape = size.width >= size.height;
+    if (landscape) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          _buildBlurredPoster(),
+          Center(
+            child: AspectRatio(
+              aspectRatio: size.width / size.height,
+              child: VideoPlayer(controller),
+            ),
+          ),
+        ],
+      );
+    }
+    return ClipRect(
+      child: FittedBox(
+        fit: BoxFit.cover,
+        child: SizedBox(
+          width: size.width,
+          height: size.height,
+          child: VideoPlayer(controller),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBlurredPoster() {
+    final poster = widget.entry.poster;
+    if (poster.isEmpty) return const ColoredBox(color: Colors.black);
+    return ImageFiltered(
+      imageFilter: ImageFilter.blur(sigmaX: 26, sigmaY: 26),
+      child: Image.network(
+        poster,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => const ColoredBox(color: Colors.black),
+      ),
+    );
+  }
+
+  Widget _buildPlaceholder() {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _buildBlurredPoster(),
+        if (_initializing || widget.url == null)
           const Center(
             child: CircularProgressIndicator(color: AppColors.pink),
           ),
       ],
     );
+  }
+
+  Widget _buildPauseIcon() {
+    return const Center(
+      child: Icon(Icons.play_arrow_rounded, color: Colors.white54, size: 68),
+    );
+  }
+
+  Widget _buildProgress(VideoPlayerController c) {
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: ValueListenableBuilder<VideoPlayerValue>(
+        valueListenable: c,
+        builder: (context, v, _) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
+            child: Row(
+              children: [
+                Text(_fmt(v.position), style: _timeStyle),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: VideoProgressIndicator(
+                    c,
+                    allowScrubbing: true,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    colors: const VideoProgressColors(
+                      playedColor: AppColors.pink,
+                      bufferedColor: Colors.white30,
+                      backgroundColor: Colors.white24,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(_fmt(v.duration), style: _timeStyle),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  static const _timeStyle = TextStyle(
+    color: Colors.white,
+    fontSize: 11,
+    shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
+  );
+
+  String _fmt(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$m:$s';
   }
 
   Widget _buildMessage(String message, {bool retry = false}) {
@@ -636,14 +970,14 @@ class _RailButton extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: Column(
         children: [
-          Icon(icon, color: color, size: 32, shadows: const [
-            Shadow(color: Colors.black54, blurRadius: 6),
-          ]),
-          const SizedBox(height: 3),
-          Text(
-            label,
-            style: const TextStyle(color: Colors.white, fontSize: 11),
+          Icon(
+            icon,
+            color: color,
+            size: 32,
+            shadows: const [Shadow(color: Colors.black54, blurRadius: 6)],
           ),
+          const SizedBox(height: 3),
+          Text(label, style: const TextStyle(color: Colors.white, fontSize: 11)),
         ],
       ),
     );
