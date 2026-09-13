@@ -234,7 +234,13 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
 
       // 判定是否为标准的 M3U8 格式（用于 HLS 提示）。
       // 广告过滤已下沉到服务端，客户端直接播放后端下发的地址，不再起本地代理。
-      final isM3u8 = widget.url.toLowerCase().contains('.m3u8');
+      // 后端 HLS 过滤入口可能不带扩展名（如 /api/app/v1/hls?t=），
+      // 仅按扩展名判断会导致 Android ExoPlayer 误当渐进式媒体而播放失败。
+      final lowerUrl = widget.url.toLowerCase();
+      final gatewayPath = Uri.tryParse(widget.url)?.path.toLowerCase() ?? '';
+      final isGatewayHls =
+          gatewayPath == '/api/app/v1/hls' || gatewayPath.startsWith('/api/app/v1/hls/');
+      final isM3u8 = lowerUrl.contains('.m3u8') || isGatewayHls;
       final playUrl = widget.url;
 
       // 判定是否给播放器 HLS 格式提示
