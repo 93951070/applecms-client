@@ -370,9 +370,10 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
 
       // 播放器就绪后开启系统画中画：用户离开 App 时自动进入 PiP 小窗继续播放。
       // iOS 需要 AVPlayerLayer 已挂载到视图层级，稍作延迟再开启。
+      final pipAspectRatio = controller.value.aspectRatio;
       Future.delayed(const Duration(milliseconds: 600), () {
         if (_isDisposed || !mounted || token != _initToken) return;
-        PipService.setEnabled(true, aspectRatio: controller.value.aspectRatio);
+        PipService.setEnabled(true, aspectRatio: pipAspectRatio);
       });
 
       if (widget.autoEnterFullScreen) {
