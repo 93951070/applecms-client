@@ -134,6 +134,9 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
 
   bool get isPlaying => _videoController?.value.isPlaying ?? false;
 
+  /// 视频宽高比（手动画中画时传给系统设置小窗比例）。
+  double get aspectRatio => _videoController?.value.aspectRatio ?? 0;
+
   /// 是否正在缓冲（一起看同步上报用）。
   bool get isBuffering => _videoController?.value.isBuffering ?? false;
 

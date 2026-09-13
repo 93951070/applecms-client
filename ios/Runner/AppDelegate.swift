@@ -18,6 +18,7 @@ import UIKit
   private var pipController: AVPictureInPictureController?
   private var pipChannel: FlutterMethodChannel?
   private var pipEnabled = false
+  private var lastPipError = ""
 
   override func application(
     _ application: UIApplication,
@@ -65,6 +66,16 @@ import UIKit
     }
   }
 
+  override func applicationDidEnterBackground(_ application: UIApplication) {
+    super.applicationDidEnterBackground(application)
+    // 后台化时再兜底一次：部分机型在 willResignActive 阶段仍处于 inactive，
+    // 手动启动会被系统忽略，这里等真正进入后台后再尝试。
+    if pipEnabled {
+      attemptAutoStartPip()
+      broadcastStatus()
+    }
+  }
+
   /// 离开 App 时的兜底：若视频正在播放且系统允许，主动启动画中画。
   ///
   /// 自动进入（canStartPictureInPictureAutomaticallyFromInline）在部分机型/时机下
@@ -84,8 +95,10 @@ import UIKit
       return
     }
     let playing = (controller.playerLayer.player?.rate ?? 0) > 0
-    if controller.isPictureInPicturePossible && playing {
-      NSLog("echotv: 后台前主动启动画中画 attempt=\(attempt)")
+    if controller.isPictureInPicturePossible {
+      // 只要系统允许就启动：进入后台的瞬间播放器可能已被系统/播放器插件暂停，
+      // 若强求 rate>0 会错过启动时机；启动成功后由 Dart 侧恢复播放。
+      NSLog("echotv: 后台前主动启动画中画 attempt=\(attempt) playing=\(playing)")
       controller.startPictureInPicture()
       return
     }
@@ -138,7 +151,8 @@ import UIKit
     // 画中画进行中不重建，避免打断当前小窗。
     if pipController?.isPictureInPictureActive == true { return }
     if let layer = findPlayerLayer() {
-      if !force, let existing = pipController, existing.playerLayer === layer {
+      // 图层没变就复用现有控制器：后台化前重建会丢掉系统已武装的自动进入状态。
+      if let existing = pipController, existing.playerLayer === layer {
         return
       }
       let controller = AVPictureInPictureController(playerLayer: layer)
@@ -200,7 +214,9 @@ import UIKit
       rebindPipController(force: true)
     }
     guard let controller = pipController, controller.isPictureInPicturePossible else {
+      lastPipError = "notPossible"
       NSLog("echotv: enter 失败 controller=\(pipController != nil) possible=\(pipController?.isPictureInPicturePossible ?? false)")
+      broadcastStatus()
       return false
     }
     controller.startPictureInPicture()
@@ -209,21 +225,51 @@ import UIKit
 
   /// 找到当前可用的 AVPlayerLayer。
   ///
-  /// 遍历所有 window（Flutter 平台视图可能不在 key window 上），并优先返回
-  /// 正在播放的图层，避免命中已废弃/暂停的旧图层导致画中画不可用。
+  /// 遍历所有 window（Flutter 平台视图可能不在 key window 上），优先返回屏幕上
+  /// 可见且正在播放的图层：离开 App 时若绑定到已隐藏/离屏的旧图层，系统不会进入画中画。
   private func findPlayerLayer() -> AVPlayerLayer? {
-    var layers: [AVPlayerLayer] = []
+    var hits: [PlayerLayerHit] = []
     for window in allWindows() {
-      collectPlayerLayers(from: window, into: &layers)
+      collectPlayerLayerHits(from: window, into: &hits)
     }
-    if layers.isEmpty { return nil }
-    if let playing = layers.first(where: { ($0.player?.rate ?? 0) > 0 }) {
-      return playing
+    if hits.isEmpty { return nil }
+    let visible = hits.filter { isViewOnScreen($0.view) }
+    let pool = visible.isEmpty ? hits : visible
+    if let playing = pool.first(where: { ($0.layer.player?.rate ?? 0) > 0 }) {
+      return playing.layer
     }
-    if let ready = layers.first(where: { $0.player?.currentItem?.status == .readyToPlay }) {
-      return ready
+    if let ready = pool.first(where: { $0.layer.player?.currentItem?.status == .readyToPlay }) {
+      return ready.layer
     }
-    return layers.first
+    return pool.first?.layer
+  }
+
+  private struct PlayerLayerHit {
+    let layer: AVPlayerLayer
+    let view: UIView
+  }
+
+  /// 图层是否渲染在屏幕上（有 window、非隐藏、非透明、尺寸有效）。
+  private func isViewOnScreen(_ view: UIView) -> Bool {
+    if view.window == nil { return false }
+    if view.isHidden || view.alpha < 0.01 { return false }
+    let frame = view.convert(view.bounds, to: nil)
+    return frame.width >= 1 && frame.height >= 1
+  }
+
+  private func collectPlayerLayerHits(from view: UIView?, into hits: inout [PlayerLayerHit]) {
+    guard let view = view else { return }
+    if let layer = view.layer as? AVPlayerLayer, layer.player != nil {
+      hits.append(PlayerLayerHit(layer: layer, view: view))
+    }
+    for sublayer in view.layer.sublayers ?? [] {
+      if let layer = sublayer as? AVPlayerLayer, layer.player != nil {
+        hits.append(PlayerLayerHit(layer: layer, view: view))
+      }
+    }
+    for subview in view.subviews {
+      collectPlayerLayerHits(from: subview, into: &hits)
+    }
   }
 
   private func allWindows() -> [UIWindow] {
@@ -238,36 +284,24 @@ import UIKit
     return result
   }
 
-  private func collectPlayerLayers(from view: UIView?, into layers: inout [AVPlayerLayer]) {
-    guard let view = view else { return }
-    if let layer = view.layer as? AVPlayerLayer, layer.player != nil {
-      layers.append(layer)
-    }
-    for sublayer in view.layer.sublayers ?? [] {
-      if let layer = sublayer as? AVPlayerLayer, layer.player != nil {
-        layers.append(layer)
-      }
-    }
-    for subview in view.subviews {
-      collectPlayerLayers(from: subview, into: &layers)
-    }
-  }
-
   /// 汇总画中画运行状态，供 App 内展示与问题定位。
   private func statusString() -> String {
     let supported = AVPictureInPictureController.isPictureInPictureSupported()
     var layerCount = 0
     var playingCount = 0
+    var visibleCount = 0
     for window in allWindows() {
-      var layers: [AVPlayerLayer] = []
-      collectPlayerLayers(from: window, into: &layers)
-      layerCount += layers.count
-      playingCount += layers.filter { ($0.player?.rate ?? 0) > 0 }.count
+      var hits: [PlayerLayerHit] = []
+      collectPlayerLayerHits(from: window, into: &hits)
+      layerCount += hits.count
+      playingCount += hits.filter { ($0.layer.player?.rate ?? 0) > 0 }.count
+      visibleCount += hits.filter { isViewOnScreen($0.view) }.count
     }
     let controller = pipController
-    return "supported=\(supported) layers=\(layerCount) playing=\(playingCount) "
+    return "supported=\(supported) layers=\(layerCount) visible=\(visibleCount) playing=\(playingCount) "
       + "controller=\(controller != nil) possible=\(controller?.isPictureInPicturePossible ?? false) "
-      + "active=\(controller?.isPictureInPictureActive ?? false) enabled=\(pipEnabled)"
+      + "active=\(controller?.isPictureInPictureActive ?? false) enabled=\(pipEnabled) "
+      + "err=\(lastPipError.isEmpty ? "-" : lastPipError)"
   }
 
   private func broadcastStatus() {
@@ -290,7 +324,9 @@ extension AppDelegate: AVPictureInPictureControllerDelegate {
   func pictureInPictureControllerDidStartPictureInPicture(
     _ pictureInPictureController: AVPictureInPictureController
   ) {
+    lastPipError = ""
     notifyPip(true)
+    broadcastStatus()
   }
 
   func pictureInPictureControllerDidStopPictureInPicture(
@@ -315,7 +351,9 @@ extension AppDelegate: AVPictureInPictureControllerDelegate {
     _ pictureInPictureController: AVPictureInPictureController,
     failedToStartPictureInPictureWithError error: Error
   ) {
+    lastPipError = error.localizedDescription
     notifyPip(false)
     NSLog("echotv: PiP 启动失败: \(error.localizedDescription)")
+    broadcastStatus()
   }
 }

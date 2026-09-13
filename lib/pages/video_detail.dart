@@ -634,6 +634,22 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               ),
             ),
           ),
+          if (Platform.isIOS)
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Material(
+                color: Colors.transparent,
+                child: IconButton(
+                  icon: const Icon(LucideIcons.pictureInPicture,
+                      size: 22, color: Colors.white),
+                  tooltip: '画中画',
+                  onPressed: () => unawaited(PipService.enter(
+                    aspectRatio: _playerKey.currentState?.aspectRatio,
+                  )),
+                ),
+              ),
+            ),
         ],
       ),
     );
