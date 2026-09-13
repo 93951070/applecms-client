@@ -7,6 +7,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../models/comment.dart';
 import '../models/site.dart';
 import '../providers/settings_provider.dart';
+import '../services/pip_service.dart';
 import 'video_controls.dart';
 import 'bili_loading.dart';
 
@@ -362,6 +363,13 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
         ),
       );
 
+      // 播放器就绪后开启系统画中画：用户离开 App 时自动进入 PiP 小窗继续播放。
+      // iOS 需要 AVPlayerLayer 已挂载到视图层级，稍作延迟再开启。
+      Future.delayed(const Duration(milliseconds: 600), () {
+        if (_isDisposed || !mounted || token != _initToken) return;
+        PipService.setEnabled(true);
+      });
+
       if (widget.autoEnterFullScreen) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!_isDisposed && mounted && _chewieController != null) {
@@ -492,6 +500,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   void dispose() {
     _isDisposed = true;
     _initToken++;
+    PipService.setEnabled(false);
     _bufferingTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     
@@ -516,6 +525,8 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
+      // 系统画中画下窗口仍可见，保持播放，不按退后台处理。
+      if (PipService.inPip.value) return;
       _wasPlayingBeforePause = _videoController?.value.isPlaying ?? false;
       // 后台时取消缓冲误报计时，避免回前台立刻弹错误
       _bufferingTimer?.cancel();

@@ -18,6 +18,7 @@ import 'pages/messages_page.dart';
 import 'pages/play_history_page.dart';
 import 'providers/settings_provider.dart';
 import 'services/config_service.dart';
+import 'services/pip_service.dart';
 import 'widgets/main_layout.dart';
 import 'widgets/edit_dialog.dart';
 import 'widgets/update_gate.dart';
@@ -25,6 +26,7 @@ import 'widgets/zen_ui.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  PipService.init();
 
   final container = ProviderContainer();
 

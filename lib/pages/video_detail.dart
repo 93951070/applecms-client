@@ -27,7 +27,7 @@ import '../widgets/video_player.dart';
 import '../widgets/bili_loading.dart';
 import '../widgets/synopsis_sheet.dart';
 import '../widgets/watch_party_sheet.dart';
-import 'web_sniff_page.dart';
+import '../services/web_sniff_service.dart';
 
 /// 播放页「同类推荐」数据源：按当前视频所属分类拉取同分类内容。
 final _recommendProvider =
@@ -314,10 +314,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       var guard = 0;
       while (mounted && result.isWebSniff && guard < 6) {
         guard++;
-        final sniffed = await WebSniffPage.show(
-          context,
-          sniffUrl: result.sniffUrl!,
-        );
+        final sniffed = await WebSniffService.sniff(result.sniffUrl!);
         if (!mounted) return;
         final reportSource = result.sourceIndex ?? (playSource < 0 ? 0 : playSource);
         result = await api.play(

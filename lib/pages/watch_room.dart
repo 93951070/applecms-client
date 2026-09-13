@@ -1331,11 +1331,12 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
   Widget build(BuildContext context) {
     final room = _room;
     return PopScope(
-      canPop: _chatVisible || _room == null,
+      // 消息面板展开时，返回先收起面板；面板已收起（或房间尚未加载）才真正退出房间。
+      canPop: _room == null || !_chatVisible,
       onPopInvokedWithResult: (didPop, result) {
-        if (!didPop && _chatVisible) {
+        if (!didPop) {
           if (mounted) setState(() => _chatVisible = false);
-        } else if (didPop) {
+        } else {
           _restoreSystemUi();
         }
       },
