@@ -28,6 +28,7 @@ import '../widgets/bili_loading.dart';
 import '../widgets/synopsis_sheet.dart';
 import '../widgets/watch_party_sheet.dart';
 import '../services/web_sniff_service.dart';
+import '../services/pip_service.dart';
 
 /// 播放页「同类推荐」数据源：按当前视频所属分类拉取同分类内容。
 final _recommendProvider =
@@ -76,6 +77,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   bool _resolvingPlay = false;
   String? _accessMessage;
   String? _errorMessage;
+
+  /// 播放失败后自动重新解析的次数（每次进入播放页最多自动重试一次）。
+  int _playRetryCount = 0;
 
   // 评论与弹幕
   final TextEditingController _commentController = TextEditingController();
@@ -267,15 +271,16 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   ///
   /// 直连地址只由服务端按次下发；网关不可用或校验不通过时不会回退到
   /// 客户端侧地址，避免绕过会员校验。
-  Future<void> _resolveCurrentEpisode() async {
+  Future<void> _resolveCurrentEpisode({bool forceRefresh = false}) async {
     final video = _video;
     if (video == null || video.playGroups.isEmpty) return;
     final group = video.playGroups.first;
     if (_currentEpisodeIndex >= group.urls.length) return;
 
     // 命中预取缓存：切集/重进无需再次等待网关解析。
+    // forceRefresh（播放失败重试）时跳过缓存，强制取新鲜地址。
     final cacheKey = '${video.id}:$_currentEpisodeIndex';
-    final prefetched = _episodeUrlCache[cacheKey];
+    final prefetched = forceRefresh ? null : _episodeUrlCache[cacheKey];
     if (prefetched != null && prefetched.isNotEmpty) {
       setState(() {
         _resolvedUrl = prefetched;
@@ -306,6 +311,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         playSource: playSource < 0 ? 0 : playSource,
         playIndex: _currentEpisodeIndex,
         token: token,
+        refresh: forceRefresh,
       );
       if (!mounted) return;
 
@@ -335,6 +341,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           result.playUrl != null &&
           result.playUrl!.isNotEmpty) {
         _episodeUrlCache[cacheKey] = result.playUrl!;
+        _playRetryCount = 0;
         setState(() {
           _resolvedUrl = result.playUrl;
           _resolvingPlay = false;
@@ -361,6 +368,17 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         _resolvingPlay = false;
       });
     }
+  }
+
+  /// 播放器运行期失败（如网页嗅探直链失效导致的缓冲超时）时自动重新解析一次。
+  ///
+  /// 强制跳过缓存重新嗅探，拿到新鲜直链后播放器会随 url 变化重建重试；
+  /// 只重试一次，避免失败源陷入死循环。
+  void _handlePlaybackError(String message) {
+    if (!mounted || _playRetryCount >= 1) return;
+    _playRetryCount++;
+    debugPrint('播放失败，自动重新解析: $message');
+    unawaited(_resolveCurrentEpisode(forceRefresh: true));
   }
 
   /// 并行预取当前集之后最多 3 集的播放地址，减少切集时的缓冲等待。
@@ -502,21 +520,34 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return ZenScaffold(
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            _buildPlayerArea(),
-            _buildContentTabs(theme),
-            Expanded(
-              child: _contentTab == 0
-                  ? _buildVideoTab(theme)
-                  : _buildCommentTab(theme),
+    // 进入系统画中画时整个窗口被缩成小窗，只渲染视频本身，
+    // 否则页面其余 UI（顶栏/选集/列表）会把视频挤得很小。
+    return ValueListenableBuilder<bool>(
+      valueListenable: PipService.inPip,
+      builder: (context, inPip, _) {
+        if (inPip) {
+          return ColoredBox(
+            color: Colors.black,
+            child: SizedBox.expand(child: _buildPlayerContent()),
+          );
+        }
+        return ZenScaffold(
+          body: SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                _buildPlayerArea(),
+                _buildContentTabs(theme),
+                Expanded(
+                  child: _contentTab == 0
+                      ? _buildVideoTab(theme)
+                      : _buildCommentTab(theme),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -666,6 +697,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       title: '${widget.subject.title} - ${group.titles[_currentEpisodeIndex]}',
       referer: '',
       initialPosition: _initialResumePosition,
+      onPlaybackError: _handlePlaybackError,
       skipConfig: _skipConfig,
       onSkipConfigChange: (newConfig) async {
         final key = '${video.source}-${video.id}';

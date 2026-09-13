@@ -51,6 +51,9 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
   /// 用于从一起看回到播放页时同步进度但避免立即出声。
   final bool startPaused;
 
+  /// 运行期播放失败（缓冲超时、解码错误等）时回调，供上层自动重新解析。
+  final void Function(String message)? onPlaybackError;
+
   const EchoVideoPlayer({
     super.key,
     required this.url,
@@ -58,6 +61,7 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
     this.referer,
     this.isLive = false,
     this.initialPosition,
+    this.onPlaybackError,
     this.skipConfig,
     this.onSkipConfigChange,
     this.onNextEpisode,
@@ -165,6 +169,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    PipService.inPip.addListener(_onPipChanged);
     WakelockPlus.enable();
     _danmakuTicker =
         AnimationController(vsync: this, duration: const Duration(seconds: 1))
@@ -367,7 +372,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
       // iOS 需要 AVPlayerLayer 已挂载到视图层级，稍作延迟再开启。
       Future.delayed(const Duration(milliseconds: 600), () {
         if (_isDisposed || !mounted || token != _initToken) return;
-        PipService.setEnabled(true);
+        PipService.setEnabled(true, aspectRatio: controller.value.aspectRatio);
       });
 
       if (widget.autoEnterFullScreen) {
@@ -439,6 +444,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
           setState(() {
             _errorMessage = '网络连接不稳定或资源加载失败';
           });
+          widget.onPlaybackError?.call('网络连接不稳定或资源加载失败');
         }
       });
     } else {
@@ -500,6 +506,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   void dispose() {
     _isDisposed = true;
     _initToken++;
+    PipService.inPip.removeListener(_onPipChanged);
     PipService.setEnabled(false);
     _bufferingTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
@@ -552,6 +559,26 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
       if (controller.value.isBuffering) {
         unawaited(controller.seekTo(controller.value.position));
       }
+      controller.play();
+    }
+  }
+
+  /// 进入系统画中画时确保继续播放。
+  ///
+  /// Android 进入 PiP 的时序可能先收到生命周期 paused（被误暂停、转圈），
+  /// 这里在 PiP 生效后把播放恢复回来。
+  void _onPipChanged() {
+    if (!mounted || _isDisposed) return;
+    if (!PipService.inPip.value) return;
+    final controller = _videoController;
+    if (controller == null || !controller.value.isInitialized) return;
+    _holdPaused = false;
+    _bufferingTimer?.cancel();
+    _bufferingTimer = null;
+    if (_errorMessage != null) {
+      setState(() => _errorMessage = null);
+    }
+    if (!controller.value.isPlaying) {
       controller.play();
     }
   }

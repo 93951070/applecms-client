@@ -21,6 +21,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val channelName = "echotv/pip"
     private var pipEnabled = false
+    private var aspectRatio = Rational(16, 9)
     private var channel: MethodChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -31,18 +32,47 @@ class MainActivity : FlutterActivity() {
                 "isSupported" -> result.success(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 "setEnabled" -> {
                     pipEnabled = call.argument<Boolean>("enabled") ?: false
+                    call.argument<Double>("aspectRatio")?.let { setAspectRatio(it) }
+                    applyPipParams()
                     result.success(true)
                 }
-                "enter" -> result.success(enterPip())
+                "enter" -> {
+                    call.argument<Double>("aspectRatio")?.let { setAspectRatio(it) }
+                    result.success(enterPip())
+                }
                 else -> result.notImplemented()
             }
         }
     }
 
+    /** 视频比例收敛到系统允许的画中画比例区间，避免设置非法值抛异常。 */
+    private fun setAspectRatio(ratio: Double) {
+        val min = 1.0 / 2.39
+        val max = 2.39
+        val clamped = ratio.coerceIn(min, max)
+        aspectRatio = Rational((clamped * 1000).toInt(), 1000)
+    }
+
+    /** 开启后 Android 12+ 交给系统在离开 App 时无缝自动进入画中画。 */
+    private fun applyPipParams() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        try {
+            val builder = PictureInPictureParams.Builder().setAspectRatio(aspectRatio)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                builder.setAutoEnterEnabled(pipEnabled)
+                builder.setSeamlessResizeEnabled(true)
+            }
+            setPictureInPictureParams(builder.build())
+        } catch (_: Exception) {
+        }
+    }
+
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (pipEnabled &&
+        // Android 12+ 由 setAutoEnterEnabled 交给系统自动进入，避免重复触发。
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            pipEnabled &&
             !isInPictureInPictureMode
         ) {
             enterPip()
@@ -61,7 +91,7 @@ class MainActivity : FlutterActivity() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
         return try {
             val params = PictureInPictureParams.Builder()
-                .setAspectRatio(Rational(16, 9))
+                .setAspectRatio(aspectRatio)
                 .build()
             enterPictureInPictureMode(params)
         } catch (_: Exception) {

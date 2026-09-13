@@ -680,12 +680,16 @@ class AppApiService {
     int? reportSourceIndex,
     String? reportOutcome,
     String? reportDirectUrl,
+    bool refresh = false,
   }) async {
     final jsonBody = <String, dynamic>{
       'video_id': videoId,
       'play_source': playSource,
       'play_index': playIndex,
     };
+    if (refresh) {
+      jsonBody['refresh'] = true;
+    }
     if (reportSourceIndex != null && reportOutcome != null) {
       jsonBody['report'] = {
         'source_index': reportSourceIndex,

@@ -42,18 +42,26 @@ class PipService {
   }
 
   /// 播放器就绪后开启，离开 App 时自动进入系统画中画；停止播放时关闭。
-  static Future<void> setEnabled(bool enabled) async {
+  ///
+  /// `aspectRatio` 用于让系统画中画窗口按视频比例显示（Android 用）。
+  static Future<void> setEnabled(bool enabled, {double? aspectRatio}) async {
     if (!_mobile) return;
     try {
-      await _channel.invokeMethod('setEnabled', {'enabled': enabled});
+      await _channel.invokeMethod('setEnabled', {
+        'enabled': enabled,
+        if (aspectRatio != null && aspectRatio > 0) 'aspectRatio': aspectRatio,
+      });
     } catch (_) {}
   }
 
   /// 主动进入系统画中画。
-  static Future<bool> enter() async {
+  static Future<bool> enter({double? aspectRatio}) async {
     if (!_mobile) return false;
     try {
-      return await _channel.invokeMethod<bool>('enter') ?? false;
+      return await _channel.invokeMethod<bool>('enter', {
+        if (aspectRatio != null && aspectRatio > 0) 'aspectRatio': aspectRatio,
+      }) ??
+          false;
     } catch (_) {
       return false;
     }
