@@ -558,12 +558,15 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
-      // 系统画中画下窗口仍可见，保持播放，不按退后台处理。
-      if (PipService.inPip.value) return;
       _wasPlayingBeforePause = _videoController?.value.isPlaying ?? false;
       // 后台时取消缓冲误报计时，避免回前台立刻弹错误
       _bufferingTimer?.cancel();
       _bufferingTimer = null;
+      // 系统画中画下窗口仍可见，保持播放，不按退后台处理。
+      if (PipService.inPip.value) return;
+      // 已启用画中画：必须保持播放，系统才会在离开 App 的瞬间自动进入小窗。
+      // 若在这里暂停，iOS 的自动画中画会因视频暂停而无法启动，小窗内也无法播放。
+      if (PipService.enabled) return;
       _videoController?.pause();
       return;
     }

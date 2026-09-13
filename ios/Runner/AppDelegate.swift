@@ -57,57 +57,22 @@ import UIKit
   override func applicationWillResignActive(_ application: UIApplication) {
     super.applicationWillResignActive(application)
     // 离开 App 前重新绑定到当前可见的 AVPlayerLayer（全屏切换会重建平台视图），
-    // 让系统在进入后台时能自动进入画中画。
+    // 让系统在进入后台时能自动进入画中画。这里只绑定，不主动启动：
+    // 此时 App 已处于 inactive，主动调 startPictureInPicture() 会被系统拒绝
+    // （failedToStart: "Failed to start picture in picture."）。
+    // 自动进入由 canStartPictureInPictureAutomaticallyFromInline 完成。
     if pipEnabled {
-      NSLog("echotv: applicationWillResignActive 重新绑定画中画")
+      configureAudioSession()
       rebindPipController(force: true)
-      attemptAutoStartPip()
       broadcastStatus()
     }
   }
 
   override func applicationDidEnterBackground(_ application: UIApplication) {
     super.applicationDidEnterBackground(application)
-    // 后台化时再兜底一次：部分机型在 willResignActive 阶段仍处于 inactive，
-    // 手动启动会被系统忽略，这里等真正进入后台后再尝试。
+    // 系统已在后台化瞬间自动进入画中画，这里仅上报状态用于诊断。
     if pipEnabled {
-      attemptAutoStartPip()
       broadcastStatus()
-    }
-  }
-
-  /// 离开 App 时的兜底：若视频正在播放且系统允许，主动启动画中画。
-  ///
-  /// 自动进入（canStartPictureInPictureAutomaticallyFromInline）在部分机型/时机下
-  /// 不触发，这里在后台化前短暂重试，确保「上滑回桌面」也能无缝进入小窗。
-  private func attemptAutoStartPip(attempt: Int = 0) {
-    guard pipEnabled else { return }
-    if pipController?.isPictureInPictureActive == true { return }
-    if pipController == nil {
-      rebindPipController(force: true)
-    }
-    guard let controller = pipController else {
-      if attempt < 6 {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-          self?.attemptAutoStartPip(attempt: attempt + 1)
-        }
-      }
-      return
-    }
-    let playing = (controller.playerLayer.player?.rate ?? 0) > 0
-    if controller.isPictureInPicturePossible {
-      // 只要系统允许就启动：进入后台的瞬间播放器可能已被系统/播放器插件暂停，
-      // 若强求 rate>0 会错过启动时机；启动成功后由 Dart 侧恢复播放。
-      NSLog("echotv: 后台前主动启动画中画 attempt=\(attempt) playing=\(playing)")
-      controller.startPictureInPicture()
-      return
-    }
-    if attempt < 8 {
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-        self?.attemptAutoStartPip(attempt: attempt + 1)
-      }
-    } else {
-      NSLog("echotv: 主动启动画中画放弃 possible=\(controller.isPictureInPicturePossible) playing=\(playing)")
     }
   }
 

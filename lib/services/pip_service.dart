@@ -16,6 +16,10 @@ class PipService {
   /// 原生侧上报的画中画运行状态（诊断用）。
   static final ValueNotifier<String?> status = ValueNotifier<String?>(null);
 
+  /// 当前播放器是否启用了画中画（启用后离开 App 应保持播放并进入小窗）。
+  static bool get enabled => _enabled;
+  static bool _enabled = false;
+
   static bool _initialized = false;
 
   /// 注册原生反向回调，App 启动时调用一次。
@@ -51,6 +55,7 @@ class PipService {
   /// `aspectRatio` 用于让系统画中画窗口按视频比例显示（Android 用）。
   static Future<void> setEnabled(bool enabled, {double? aspectRatio}) async {
     if (!_mobile) return;
+    _enabled = enabled;
     try {
       await _channel.invokeMethod('setEnabled', {
         'enabled': enabled,
