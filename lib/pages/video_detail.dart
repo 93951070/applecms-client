@@ -83,6 +83,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   String? _accessMessage;
   String? _errorMessage;
 
+  /// 播放器是否已上锁：上锁后拦截返回，避免误触退出。
+  bool _playerLocked = false;
+
   /// 播放失败后自动重新解析的次数（每次进入播放页最多自动重试一次）。
   int _playRetryCount = 0;
 
@@ -289,6 +292,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       _resolvedReferer = '';
       _accessMessage = null;
       _errorMessage = null;
+      _playerLocked = false;
     });
     _resolveCurrentEpisode();
     _loadDanmaku();
@@ -630,7 +634,18 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               child: IconButton(
                 icon: const Icon(LucideIcons.chevronLeft,
                     size: 24, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
+                onPressed: () {
+                  if (_playerLocked) {
+                    ScaffoldMessenger.of(context)
+                      ..removeCurrentSnackBar()
+                      ..showSnackBar(const SnackBar(
+                        content: Text('播放器已上锁，请先解锁'),
+                        duration: Duration(seconds: 2),
+                      ));
+                    return;
+                  }
+                  Navigator.pop(context);
+                },
               ),
             ),
           ),
@@ -773,6 +788,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       referer: _resolvedReferer,
       initialPosition: _initialResumePosition,
       onPlaybackError: _handlePlaybackError,
+      onLockChanged: (locked) {
+        if (mounted) setState(() => _playerLocked = locked);
+      },
       skipConfig: _skipConfig,
       onSkipConfigChange: (newConfig) async {
         final key = '${video.source}-${video.id}';

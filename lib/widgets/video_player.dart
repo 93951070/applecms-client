@@ -55,6 +55,9 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
   /// 运行期播放失败（缓冲超时、解码错误等）时回调，供上层自动重新解析。
   final void Function(String message)? onPlaybackError;
 
+  /// 播放器上锁状态变化回调，供页面拦截返回/隐藏返回入口。
+  final void Function(bool locked)? onLockChanged;
+
   const EchoVideoPlayer({
     super.key,
     required this.url,
@@ -63,6 +66,7 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
     this.isLive = false,
     this.initialPosition,
     this.onPlaybackError,
+    this.onLockChanged,
     this.skipConfig,
     this.onSkipConfigChange,
     this.onNextEpisode,
@@ -373,6 +377,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
           showSettingsControl: widget.showSettingsControl,
           showFullscreenControl: widget.showFullscreenControl,
           showPlaybackStatus: widget.showPlaybackStatus,
+          onLockChanged: widget.onLockChanged,
         ),
         materialProgressColors: ChewieProgressColors(
           playedColor: widget.isLive ? Colors.white : const Color(0xFF0A84FF),

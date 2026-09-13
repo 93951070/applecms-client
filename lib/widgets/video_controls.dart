@@ -44,6 +44,9 @@ class ZenVideoControls extends StatefulWidget {
   /// 是否显示播放/暂停按钮与时间进度文字（一起看由房主同步，无需本地显示）。
   final bool showPlaybackStatus;
 
+  /// 上锁状态变化回调，供页面同步拦截返回、隐藏返回入口。
+  final void Function(bool locked)? onLockChanged;
+
   const ZenVideoControls({
     super.key,
     this.onNextEpisode,
@@ -71,6 +74,7 @@ class ZenVideoControls extends StatefulWidget {
     this.showSettingsControl = true,
     this.showFullscreenControl = true,
     this.showPlaybackStatus = true,
+    this.onLockChanged,
   });
 
   @override
@@ -268,10 +272,17 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
       _showActionHint('音量: ${(newVol * 100).toInt()}%', newVol == 0 ? LucideIcons.volumeX : (newVol < 0.5 ? LucideIcons.volume1 : LucideIcons.volume2));
       _cancelAndRestartTimer();
     } else if (key == LogicalKeyboardKey.keyL) {
-      setState(() => _isLocked = !_isLocked);
+      _setLocked(!_isLocked);
       _showActionHint(_isLocked ? '已上锁' : '已解锁', _isLocked ? LucideIcons.lock : LucideIcons.unlock);
       _cancelAndRestartTimer();
     }
+  }
+
+  /// 统一切换上锁状态，并同步通知页面拦截返回。
+  void _setLocked(bool value) {
+    if (_isLocked == value) return;
+    setState(() => _isLocked = value);
+    widget.onLockChanged?.call(value);
   }
 
   @override
@@ -293,22 +304,30 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
       );
     }
 
-    return KeyboardListener(
-      focusNode: _keyboardFocus,
-      onKeyEvent: _handleKeyEvent,
-      child: MouseRegion(
-        onHover: (_) => _cancelAndRestartTimer(),
-        child: GestureDetector(
-          onVerticalDragStart: (details) {
-            _dragStartOffset = details.localPosition;
-            _dragStartVolume = _videoPlayerController?.value.volume ?? 0.0;
-            _dragStartBrightness = _brightness;
-          },
-          onVerticalDragUpdate: _handleVerticalDragUpdate,
-          onVerticalDragEnd: _handleDragEnd,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
+    return PopScope(
+      canPop: !_isLocked,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _isLocked) {
+          _showActionHint('已上锁，请先解锁', LucideIcons.lock);
+          _cancelAndRestartTimer();
+        }
+      },
+      child: KeyboardListener(
+        focusNode: _keyboardFocus,
+        onKeyEvent: _handleKeyEvent,
+        child: MouseRegion(
+          onHover: (_) => _cancelAndRestartTimer(),
+          child: GestureDetector(
+            onVerticalDragStart: (details) {
+              _dragStartOffset = details.localPosition;
+              _dragStartVolume = _videoPlayerController?.value.volume ?? 0.0;
+              _dragStartBrightness = _brightness;
+            },
+            onVerticalDragUpdate: _handleVerticalDragUpdate,
+            onVerticalDragEnd: _handleDragEnd,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
               if (_latestValue == null || !_latestValue!.isInitialized || _latestValue!.isBuffering)
                 const Center(child: VideoLoadingBar()),
 
@@ -378,6 +397,7 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
           ),
         ),
       ),
+      ),
     );
   }
 
@@ -392,7 +412,7 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
           child: _buildIconBtn(
             _isLocked ? LucideIcons.lock : LucideIcons.unlock,
             () {
-              setState(() => _isLocked = !_isLocked);
+              _setLocked(!_isLocked);
               _showActionHint(_isLocked ? '已上锁' : '已解锁', _isLocked ? LucideIcons.lock : LucideIcons.unlock);
               _cancelAndRestartTimer();
             },
