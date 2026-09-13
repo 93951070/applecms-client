@@ -10,9 +10,12 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 /// 全程不创建路由、不渲染任何界面，对用户完全无感。
 class WebSniffService {
   /// 打开解析页并嗅探，成功返回直链，失败或超时返回 null。
+  ///
+  /// 超时压到 8 秒：超过后立刻判定失败，由调用方回传让服务端换源，
+  /// 避免用户长时间卡在加载页；多数解析页在 3~5 秒内即可嗅到直链。
   static Future<String?> sniff(
     String url, {
-    Duration timeout = const Duration(seconds: 22),
+    Duration timeout = const Duration(seconds: 8),
   }) async {
     final completer = Completer<String?>();
     HeadlessInAppWebView? webView;

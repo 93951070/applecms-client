@@ -74,6 +74,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   // App 网关取流
   String? _resolvedUrl;
+
+  // 直连地址播放时需要携带的 Referer（防盗链）。web嗅探直链取其自身 origin；
+  // 走服务端 HLS 网关的地址由服务端取流，这里留空。
+  String _resolvedReferer = '';
   bool _resolvingPlay = false;
   String? _accessMessage;
   String? _errorMessage;
@@ -174,6 +178,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   bool _didStartPlayback = false;
   final Map<String, String> _episodeUrlCache = {};
+  final Map<String, String> _episodeRefererCache = {};
   final Set<String> _prefetchingKeys = {};
 
   Future<void> _loadData() async {
@@ -260,6 +265,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       }
       _currentEpisodeIndex = safeIndex;
       _resolvedUrl = null;
+      _resolvedReferer = '';
       _accessMessage = null;
       _errorMessage = null;
     });
@@ -284,6 +290,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     if (prefetched != null && prefetched.isNotEmpty) {
       setState(() {
         _resolvedUrl = prefetched;
+        _resolvedReferer = _episodeRefererCache[cacheKey] ?? '';
         _resolvingPlay = false;
         _accessMessage = null;
         _errorMessage = null;
@@ -315,13 +322,29 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       );
       if (!mounted) return;
 
-      // web嗅探线路：App 端 WebView 解析，成功后回传直链换 HLS 网关地址；
-      // 失败则回传让服务端把该线路短暂冷却，并自动换下一条线路（无感）。
+      // web嗅探线路：App 端 WebView 解析，嗅到直链后直接交给播放器，
+      // 不再回传服务端转 HLS 网关，省去一次回传与二次拉流，首帧更快、更稳。
+      // 只有嗅探失败时才回传，让服务端把该线路短暂冷却并自动换下一条（无感）。
+      // 其他线路（服务端解析、直链）仍走原有逻辑，去广告能力不受影响。
       var guard = 0;
       while (mounted && result.isWebSniff && guard < 6) {
         guard++;
         final sniffed = await WebSniffService.sniff(result.sniffUrl!);
         if (!mounted) return;
+        if (sniffed != null && sniffed.isNotEmpty) {
+          _episodeUrlCache[cacheKey] = sniffed;
+          _episodeRefererCache[cacheKey] = _originOf(sniffed);
+          _playRetryCount = 0;
+          setState(() {
+            _resolvedUrl = sniffed;
+            _resolvedReferer = _originOf(sniffed);
+            _resolvingPlay = false;
+            _accessMessage = null;
+            _errorMessage = null;
+          });
+          _prefetchEpisodes();
+          return;
+        }
         final reportSource = result.sourceIndex ?? (playSource < 0 ? 0 : playSource);
         result = await api.play(
           base,
@@ -330,9 +353,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           playIndex: _currentEpisodeIndex,
           token: token,
           reportSourceIndex: reportSource,
-          reportOutcome:
-              (sniffed != null && sniffed.isNotEmpty) ? 'ok' : 'fail',
-          reportDirectUrl: sniffed,
+          reportOutcome: 'fail',
         );
         if (!mounted) return;
       }
@@ -341,9 +362,11 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           result.playUrl != null &&
           result.playUrl!.isNotEmpty) {
         _episodeUrlCache[cacheKey] = result.playUrl!;
+        _episodeRefererCache[cacheKey] = '';
         _playRetryCount = 0;
         setState(() {
           _resolvedUrl = result.playUrl;
+          _resolvedReferer = '';
           _resolvingPlay = false;
         });
         _prefetchEpisodes();
@@ -367,6 +390,17 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         _errorMessage = '取流失败，请检查网络后重试';
         _resolvingPlay = false;
       });
+    }
+  }
+
+  /// 取直链的 origin 作为播放 Referer，规避多数源的防盗链校验。
+  String _originOf(String url) {
+    try {
+      final uri = Uri.parse(url);
+      if (!uri.hasAuthority || uri.host.isEmpty) return '';
+      return uri.origin;
+    } catch (_) {
+      return '';
     }
   }
 
@@ -433,6 +467,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           result.playUrl != null &&
           result.playUrl!.isNotEmpty) {
         _episodeUrlCache[key] = result.playUrl!;
+        _episodeRefererCache[key] = '';
       }
     } catch (e) {
       debugPrint('预取第 $index 集失败: $e');
@@ -695,7 +730,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       key: _playerKey,
       url: resolved,
       title: '${widget.subject.title} - ${group.titles[_currentEpisodeIndex]}',
-      referer: '',
+      referer: _resolvedReferer,
       initialPosition: _initialResumePosition,
       onPlaybackError: _handlePlaybackError,
       skipConfig: _skipConfig,
