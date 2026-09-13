@@ -4,7 +4,7 @@ class SystemMessage {
   final String id;
   final String title;
   final String content;
-  final String kind; // system | mute | ban
+  final String kind; // system | mute | ban | watch
   final bool read;
   final int createdAt;
 

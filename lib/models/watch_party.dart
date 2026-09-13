@@ -3,6 +3,7 @@ class WatchMemberInfo {
   final String userId;
   final String nickName;
   final String portrait;
+  final bool vip;
   final bool online;
   final bool buffering;
   final bool muted;
@@ -12,6 +13,7 @@ class WatchMemberInfo {
     required this.userId,
     this.nickName = '',
     this.portrait = '',
+    this.vip = false,
     this.online = false,
     this.buffering = false,
     this.muted = false,
@@ -23,6 +25,7 @@ class WatchMemberInfo {
       userId: (json['user_id'] ?? '').toString(),
       nickName: (json['nick_name'] ?? '').toString(),
       portrait: (json['portrait'] ?? '').toString(),
+      vip: json['vip'] == true,
       online: json['online'] == true,
       buffering: json['buffering'] == true,
       muted: json['muted'] == true,
@@ -135,6 +138,7 @@ class WatchChatMessage {
   final String userId;
   final String nickName;
   final String portrait;
+  final bool vip;
   final String content;
   final bool system;
   final int createdAt;
@@ -143,6 +147,7 @@ class WatchChatMessage {
     required this.userId,
     this.nickName = '',
     this.portrait = '',
+    this.vip = false,
     required this.content,
     this.system = false,
     this.createdAt = 0,
@@ -153,6 +158,7 @@ class WatchChatMessage {
       userId: (json['user_id'] ?? '').toString(),
       nickName: (json['nick_name'] ?? '').toString(),
       portrait: (json['portrait'] ?? '').toString(),
+      vip: json['vip'] == true,
       content: (json['content'] ?? '').toString(),
       system: json['system'] == true,
       createdAt: (json['created_at'] as num?)?.toInt() ?? 0,

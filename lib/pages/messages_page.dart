@@ -83,6 +83,38 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
     _load();
   }
 
+  /// 一键清除当前账号的全部系统消息。
+  Future<void> _clearAll() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('清除全部消息'),
+        content: const Text('清除后无法恢复，确定清除全部系统消息吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('清除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ref.read(cmsServiceProvider).clearAllMessages();
+    } catch (_) {}
+    ref.invalidate(unreadMessageCountProvider);
+    if (mounted) setState(() => _items = const []);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已清除全部消息')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ZenScaffold(
@@ -97,6 +129,12 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
                   tooltip: '全部已读',
                   onPressed: _markAllRead,
                   icon: const Icon(Icons.done_all),
+                ),
+              if (_items.isNotEmpty)
+                IconButton(
+                  tooltip: '清除全部',
+                  onPressed: _clearAll,
+                  icon: const Icon(Icons.delete_sweep_outlined),
                 ),
             ],
           ),
@@ -145,12 +183,19 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
     final theme = Theme.of(context);
     final isBan = msg.kind == 'ban';
     final isMute = msg.kind == 'mute';
+    final isWatch = msg.kind == 'watch';
     final accent = isBan
         ? const Color(0xFFFF4D4F)
-        : (isMute ? const Color(0xFFFF8A00) : AppColors.pink);
+        : (isMute
+            ? const Color(0xFFFF8A00)
+            : (isWatch ? const Color(0xFF3B82F6) : AppColors.pink));
     final icon = isBan
         ? Icons.block
-        : (isMute ? Icons.volume_off_rounded : Icons.notifications_none_rounded);
+        : (isMute
+            ? Icons.volume_off_rounded
+            : (isWatch
+                ? Icons.live_tv_rounded
+                : Icons.notifications_none_rounded));
 
     return GestureDetector(
       onTap: () => _markRead(msg),

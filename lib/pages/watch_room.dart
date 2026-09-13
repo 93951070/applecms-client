@@ -34,6 +34,7 @@ class _ChatLine {
   final String userId;
   final String name;
   final String portrait;
+  final bool vip;
   final String content;
   final int createdAt;
 
@@ -42,6 +43,7 @@ class _ChatLine {
     this.userId = '',
     this.name = '',
     this.portrait = '',
+    this.vip = false,
     required this.content,
     required this.createdAt,
   });
@@ -49,6 +51,15 @@ class _ChatLine {
   String get key => system
       ? 'sys|$createdAt|${content.hashCode}'
       : '$userId|$createdAt|$content';
+}
+
+/// 房间内飘过的弹幕：聊天消息 + 头像 + 会员标。
+class _RoomDanmaku {
+  final _ChatLine line;
+  final int lane;
+  final DateTime startedAt;
+
+  _RoomDanmaku(this.line, this.lane) : startedAt = DateTime.now();
 }
 
 /// 一起看房间页：横屏沉浸、服务器权威时间线 + 心跳纠偏。
@@ -71,7 +82,7 @@ class WatchRoomPage extends ConsumerStatefulWidget {
 }
 
 class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   static const _emojiSet = [
     '😀', '😄', '😍', '🤣', '😭', '😱', '👍', '👏',
     '🙌', '❤️', '🔥', '🎉', '🍿', '😂', '🤔', '😴',
@@ -103,6 +114,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
   double _initialPosition = 0;
 
   Timer? _timer;
+  Timer? _clockTimer;
   DateTime _lastSyncAt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _leaving = false;
   late final WatchPartyService _service;
@@ -117,6 +129,13 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
   String? _endReason;
   bool _removedHandled = false;
   String _mediaBase = '';
+
+  /// 房间消息弹幕：新消息带头像与会员标从右向左飘过。
+  final List<_RoomDanmaku> _danmakus = [];
+  int _danmakuLane = 0;
+  static const int _danmakuLifeMs = 7000;
+  static const int _danmakuLanes = 4;
+  late final AnimationController _danmakuTicker;
 
   /// 退出回传只执行一次（显式返回与 dispose 都可能触发）。
   bool _exitReported = false;
@@ -138,6 +157,11 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
       _initialPosition = _room!.positionMs / 1000.0;
     }
     WidgetsBinding.instance.addObserver(this);
+    _danmakuTicker = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: _danmakuLifeMs),
+    )..repeat();
+    _danmakuTicker.addListener(_onDanmakuTick);
     _enterImmersive();
     _bootstrap();
   }
@@ -146,6 +170,9 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
+    _clockTimer?.cancel();
+    _danmakuTicker.removeListener(_onDanmakuTick);
+    _danmakuTicker.dispose();
     _chatInput.dispose();
     _chatScroll.dispose();
     _leaving = true;
@@ -153,6 +180,14 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     _service.leaveRoom(widget.code).ignore();
     _restoreSystemUi();
     super.dispose();
+  }
+
+  void _onDanmakuTick() {
+    if (_danmakus.isEmpty) return;
+    final now = DateTime.now();
+    _danmakus.removeWhere(
+      (d) => now.difference(d.startedAt).inMilliseconds > _danmakuLifeMs,
+    );
   }
 
   /// 退出前把最后所在集与进度回传给播放页，保证一起看结束能接着看。
@@ -212,13 +247,26 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
       await _loadMessages();
       if (!mounted) return;
       setState(() => _loading = false);
+      // 首帧聊天列表才挂载 ScrollController，此处再定位一次到最后一条。
+      _scrollChatToEnd();
       _timer = Timer.periodic(const Duration(seconds: 3), (_) => _tick());
+      _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted && !_ended && !_leaving) setState(() {});
+      });
     } catch (e) {
       if (!mounted) return;
+      final text = e.toString().replaceFirst('AppApiException: ', '');
       setState(() {
         _loading = false;
-        _error = e.toString().replaceFirst('AppApiException: ', '');
+        _error = text;
       });
+      if (text.contains('已被移出')) {
+        _handleRemoved(text);
+      } else if (text.contains('已被关闭') ||
+          text.contains('房间不存在') ||
+          text.contains('已结束')) {
+        _handleEnded(reason: _extractReason(text));
+      }
     }
   }
 
@@ -319,19 +367,31 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     if (_seenKeys.add(line.key)) _lines.add(line);
   }
 
-  void _addMessage(WatchChatMessage m) {
-    final line = _ChatLine(
-      system: m.system,
-      userId: m.userId,
-      name: m.nickName.isEmpty ? '观众' : m.nickName,
-      portrait: m.portrait,
-      content: m.content,
-      createdAt: m.createdAt,
-    );
+  _ChatLine _lineFromMessage(WatchChatMessage m) => _ChatLine(
+        system: m.system,
+        userId: m.userId,
+        name: m.nickName.isEmpty ? '观众' : m.nickName,
+        portrait: m.portrait,
+        vip: m.vip,
+        content: m.content,
+        createdAt: m.createdAt,
+      );
+
+  bool _addMessage(WatchChatMessage m) {
+    final line = _lineFromMessage(m);
     if (_seenKeys.add(line.key)) {
       _lines.add(line);
       if (m.createdAt > _lastMessageAt) _lastMessageAt = m.createdAt;
+      return true;
     }
+    return false;
+  }
+
+  /// 把一条新消息加入房间弹幕队列（调用方负责触发重建）。
+  void _spawnDanmaku(WatchChatMessage m) {
+    if (!mounted || m.system || m.content.trim().isEmpty) return;
+    _danmakus.add(_RoomDanmaku(_lineFromMessage(m), _danmakuLane));
+    _danmakuLane = (_danmakuLane + 1) % _danmakuLanes;
   }
 
   Future<void> _loadMessages() async {
@@ -356,11 +416,11 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     var changed = false;
     var incoming = 0;
     for (final m in msgs) {
-      final before = _lines.length;
-      _addMessage(m);
-      if (_lines.length != before) {
+      final added = _addMessage(m);
+      if (added) {
         changed = true;
         if (m.userId != _myId) incoming++;
+        _spawnDanmaku(m);
       }
     }
     if (changed) {
@@ -385,6 +445,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
         userId: m.userId,
         name: m.nickName.isEmpty ? '观众' : m.nickName,
         portrait: m.portrait,
+        vip: m.vip,
         content: m.content,
         createdAt: m.createdAt,
       );
@@ -397,16 +458,29 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     });
   }
 
-  void _scrollChatToEnd() {
+  /// 滚动到底部显示最新消息；首帧 maxScrollExtent 可能为 0，故连续两帧尝试。
+  void _scrollChatToEnd({bool animate = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_chatScroll.hasClients) {
-        _chatScroll.animateTo(
-          _chatScroll.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
-      }
+      _jumpChatToEnd(animate: false);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _jumpChatToEnd(animate: animate);
+      });
     });
+  }
+
+  void _jumpChatToEnd({bool animate = true}) {
+    if (!mounted || !_chatScroll.hasClients) return;
+    final max = _chatScroll.position.maxScrollExtent;
+    if (max <= 0) return;
+    if (animate) {
+      _chatScroll.animateTo(
+        max,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    } else {
+      _chatScroll.jumpTo(max);
+    }
   }
 
   Future<void> _tick() async {
@@ -480,14 +554,16 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     _ended = true;
     _endReason = reason;
     _timer?.cancel();
+    _clockTimer?.cancel();
     setState(() {});
   }
 
-  /// 被管理员/房主移出：弹窗说明原因，确认后退出房间。
+  /// 被管理员/房主移出：正规弹窗说明原因，确认后退出房间。
   void _handleRemoved(String text) {
     if (_removedHandled || !mounted) return;
     _removedHandled = true;
     _timer?.cancel();
+    _clockTimer?.cancel();
     final reason = _extractReason(text) ?? '违反房间规定';
     final navigator = Navigator.of(context);
     showDialog<void>(
@@ -495,14 +571,63 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         backgroundColor: _WatchColors.panel2,
-        title: const Text('你已被移出房间',
-            style: TextStyle(color: _WatchColors.text, fontSize: 16)),
-        content: Text('原因：$reason',
-            style: const TextStyle(color: _WatchColors.text2, fontSize: 13.5)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+        titlePadding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
+        contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+        title: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF5B5B).withValues(alpha: 0.14),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.person_remove_rounded,
+                  color: Color(0xFFFF5B5B), size: 26),
+            ),
+            const SizedBox(height: 12),
+            const Text('你已被移出房间',
+                style: TextStyle(
+                    color: _WatchColors.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '原因：$reason',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  color: _WatchColors.text2, fontSize: 13.5, height: 1.5),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '该记录同时保留在「我的-系统消息」中，可自行查看',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: _WatchColors.text3, fontSize: 11.5),
+            ),
+          ],
+        ),
+        actionsAlignment: MainAxisAlignment.center,
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('返回', style: TextStyle(color: AppColors.pink)),
+            style: TextButton.styleFrom(
+              backgroundColor: AppColors.pink,
+              padding: const EdgeInsets.symmetric(horizontal: 34, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(22),
+              ),
+            ),
+            child: const Text('知道了',
+                style: TextStyle(color: Colors.white, fontSize: 13.5)),
           ),
         ],
       ),
@@ -559,7 +684,10 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     try {
       final msg = await _service.sendMessage(widget.code, content);
       if (!mounted || msg == null) return;
-      setState(() => _addMessage(msg));
+      setState(() {
+        _addMessage(msg);
+        _spawnDanmaku(msg);
+      });
       _scrollChatToEnd();
     } catch (e) {
       _toast(e.toString().replaceFirst('AppApiException: ', ''));
@@ -570,7 +698,10 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     try {
       final msg = await _service.sendMessage(widget.code, emoji);
       if (!mounted || msg == null) return;
-      setState(() => _addMessage(msg));
+      setState(() {
+        _addMessage(msg);
+        _spawnDanmaku(msg);
+      });
       _scrollChatToEnd();
     } catch (_) {}
   }
@@ -596,11 +727,89 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     final ok = await _confirm('解散房间', '解散后所有成员将退出，确定解散吗？', '解散');
     if (!ok) return;
     _timer?.cancel();
+    _clockTimer?.cancel();
     _leaving = true;
     try {
       await _service.closeRoom(widget.code);
     } catch (_) {}
     if (mounted) Navigator.of(context).pop();
+  }
+
+  /// 主动退出房间（非房主）：确认后离开并返回。
+  Future<void> _leaveRoom() async {
+    final ok = await _confirm('退出房间', '退出后可以重新加入，确定退出吗？', '退出');
+    if (!ok) return;
+    _timer?.cancel();
+    _clockTimer?.cancel();
+    _leaving = true;
+    try {
+      await _service.leaveRoom(widget.code);
+    } catch (_) {}
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  /// 房主播放/暂停，并把权威时间线同步给成员。
+  Future<void> _togglePlay() async {
+    final player = _playerKey.currentState;
+    final room = _room;
+    if (player == null || room == null || !room.canControl) return;
+    final willPause = player.isPlaying;
+    if (willPause) {
+      player.forcePause();
+    } else {
+      player.resumePlayback();
+    }
+    setState(() {});
+    try {
+      final updated = await _service.updateTimeline(
+        widget.code,
+        paused: willPause,
+        positionMs: player.currentPosition.inMilliseconds,
+        episode: _episode,
+        playSource: _playSource,
+        buffering: player.isBuffering,
+      );
+      _onTickSuccess();
+      _updateRoom(updated);
+    } catch (e) {
+      _onTickError(e.toString());
+    }
+  }
+
+  /// 房主相对快退/快进，并同步时间线。
+  Future<void> _seekRelative(int seconds) async {
+    final player = _playerKey.currentState;
+    final room = _room;
+    if (player == null || room == null || !room.canControl) return;
+    final duration = player.duration;
+    var target = player.currentPosition + Duration(seconds: seconds);
+    if (target < Duration.zero) target = Duration.zero;
+    if (duration > Duration.zero && target > duration) target = duration;
+    player.seekToPosition(target);
+    _lastSyncAt = DateTime.now();
+    setState(() {});
+    try {
+      final updated = await _service.updateTimeline(
+        widget.code,
+        paused: !player.isPlaying,
+        positionMs: player.currentPosition.inMilliseconds,
+        episode: _episode,
+        playSource: _playSource,
+        buffering: player.isBuffering,
+      );
+      _updateRoom(updated);
+    } catch (e) {
+      _onTickError(e.toString());
+    }
+  }
+
+  String _formatTime(Duration d) {
+    final total = d.inSeconds.clamp(0, 359999).toInt();
+    final h = total ~/ 3600;
+    final m = (total % 3600) ~/ 60;
+    final s = total % 60;
+    String two(int v) => v.toString().padLeft(2, '0');
+    return h > 0 ? '${two(h)}:${two(m)}:${two(s)}' : '${two(m)}:${two(s)}';
   }
 
   Future<bool> _confirm(String title, String message, String action) async {
@@ -678,8 +887,6 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
       _toast(m.muted ? '已解除禁言' : '已禁言');
     });
   }
-
-  Future<void> _changeEpisode(int delta) => _applyEpisode(_episode + delta);
 
   Future<void> _selectEpisode(int index) => _applyEpisode(index);
 
@@ -1027,6 +1234,12 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
                                   padding: EdgeInsets.only(left: 6),
                                   child: _Badge(text: '房主', color: AppColors.pink),
                                 ),
+                              if (m.vip)
+                                const Padding(
+                                  padding: EdgeInsets.only(left: 4),
+                                  child:
+                                      _Badge(text: 'VIP', color: AppColors.vipGold),
+                                ),
                               if (m.muted)
                                 const Padding(
                                   padding: EdgeInsets.only(left: 4),
@@ -1098,6 +1311,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
 
   Future<void> _openChat() async {
     if (mounted) setState(() => _unread = 0);
+    _scrollChatToEnd();
   }
 
   void _toast(String msg) {
@@ -1185,6 +1399,16 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
       fit: StackFit.expand,
       children: [
         Container(color: Colors.black, child: _buildPlayer(room)),
+        Positioned(
+          top: 52,
+          left: 0,
+          right: 0,
+          height: 160,
+          child: AnimatedBuilder(
+            animation: _danmakuTicker,
+            builder: (_, __) => _buildRoomDanmaku(),
+          ),
+        ),
         Positioned(top: 0, left: 0, right: 0, child: _buildTopBar(room)),
         Positioned(
           left: 0,
@@ -1413,7 +1637,15 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
           _overlayIcon(Icons.ios_share_rounded, () => _shareInvite(room)),
           if (room.isHost)
             _overlayIcon(Icons.tune_rounded, _showSettings),
-          if (room.isHost) _overlayIcon(Icons.close_rounded, _closeRoom),
+          if (room.isHost)
+            _overlayIcon(Icons.close_rounded, _closeRoom)
+          else
+            _overlayIcon(
+              Icons.logout_rounded,
+              _leaveRoom,
+              tip: '退出房间',
+              color: const Color(0xFFFF6B6B),
+            ),
         ],
       ),
     );
@@ -1431,36 +1663,34 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
       ),
       child: Row(
         children: [
-          if (room.canControl) ...[
-            _overlayIcon(Icons.skip_previous_rounded,
-                () => _changeEpisode(-1)),
-            _overlayIcon(Icons.skip_next_rounded, () => _changeEpisode(1)),
-            if (_episodeTitles.isNotEmpty)
-              Material(
-                color: Colors.transparent,
-                child: InkResponse(
-                  onTap: _showEpisodes,
-                  radius: 22,
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.grid_view_rounded,
-                            size: 16, color: Colors.white),
-                        const SizedBox(width: 4),
-                        Text(
-                          '第 ${_episode + 1} 集',
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 12),
-                        ),
-                      ],
-                    ),
+          if (room.canControl && _episodeTitles.isNotEmpty) ...[
+            Material(
+              color: Colors.transparent,
+              child: InkResponse(
+                onTap: _showEpisodes,
+                radius: 26,
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.grid_view_rounded,
+                          size: 20, color: Colors.white),
+                      const SizedBox(width: 5),
+                      Text(
+                        '第 ${_episode + 1} 集',
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 13),
+                      ),
+                    ],
                   ),
                 ),
               ),
+            ),
+            const SizedBox(width: 4),
           ],
+          _transportControls(room),
           const Spacer(),
           if (!_chatVisible)
             Stack(
@@ -1498,6 +1728,76 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
           const SizedBox(width: 4),
           _memberEntry(room),
         ],
+      ),
+    );
+  }
+
+  /// 底部播放控制：快退 / 播放暂停 / 快进 / 时间（仅房主可操作）。
+  Widget _transportControls(WatchRoomInfo room) {
+    final player = _playerKey.currentState;
+    final canControl = room.canControl;
+    final playing = player?.isPlaying ?? !room.paused;
+    final position = player?.currentPosition ?? Duration.zero;
+    final duration = player?.duration ?? Duration.zero;
+    final enabled = canControl && !_busy;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _transportButton(
+          icon: Icons.replay_10_rounded,
+          tip: '快退 10 秒',
+          onTap: enabled ? () => _seekRelative(-10) : null,
+        ),
+        _transportButton(
+          icon: playing
+              ? Icons.pause_circle_filled_rounded
+              : Icons.play_circle_fill_rounded,
+          tip: playing ? '暂停' : '播放',
+          size: 42,
+          onTap: enabled ? _togglePlay : null,
+        ),
+        _transportButton(
+          icon: Icons.forward_10_rounded,
+          tip: '快进 10 秒',
+          onTap: enabled ? () => _seekRelative(10) : null,
+        ),
+        const SizedBox(width: 8),
+        Text(
+          duration > Duration.zero
+              ? '${_formatTime(position)} / ${_formatTime(duration)}'
+              : _formatTime(position),
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: canControl ? 0.92 : 0.55),
+            fontSize: 12,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _transportButton({
+    required IconData icon,
+    required String tip,
+    required VoidCallback? onTap,
+    double size = 28,
+  }) {
+    final active = onTap != null;
+    return Tooltip(
+      message: tip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkResponse(
+          onTap: onTap,
+          radius: 26,
+          child: Padding(
+            padding: const EdgeInsets.all(9),
+            child: Icon(
+              icon,
+              size: size,
+              color: Colors.white.withValues(alpha: active ? 0.95 : 0.35),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1545,18 +1845,24 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     );
   }
 
-  Widget _overlayIcon(IconData icon, VoidCallback onTap) {
-    return Material(
+  Widget _overlayIcon(
+    IconData icon,
+    VoidCallback onTap, {
+    String? tip,
+    Color color = Colors.white,
+  }) {
+    final button = Material(
       color: Colors.transparent,
       child: InkResponse(
         onTap: onTap,
-        radius: 22,
+        radius: 28,
         child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Icon(icon, size: 20, color: Colors.white),
+          padding: const EdgeInsets.all(11),
+          child: Icon(icon, size: 25, color: color),
         ),
       ),
     );
+    return tip == null ? button : Tooltip(message: tip, child: button);
   }
 
   Widget _statusPill(WatchRoomInfo room) {
@@ -1610,6 +1916,90 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
                 fontSize: 11.5,
                 fontWeight: FontWeight.w500,
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== 房间弹幕 ====================
+
+  Widget _buildRoomDanmaku() {
+    if (_danmakus.isEmpty) return const SizedBox.shrink();
+    return IgnorePointer(
+      child: LayoutBuilder(
+        builder: (ctx, c) {
+          final width = c.maxWidth;
+          final laneHeight = 38.0;
+          return ClipRect(
+            child: Stack(
+              children: [
+                for (final d in _danmakus)
+                  Positioned(
+                    left: 0,
+                    top: d.lane * laneHeight,
+                    child: Transform.translate(
+                      offset: Offset(_danmakuOffset(d, width), 0),
+                      child: OverflowBox(
+                        alignment: Alignment.centerLeft,
+                        maxWidth: double.infinity,
+                        child: _danmakuPill(d.line),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  double _danmakuOffset(_RoomDanmaku d, double width) {
+    final elapsed = DateTime.now().difference(d.startedAt).inMilliseconds;
+    final progress = (elapsed / _danmakuLifeMs).clamp(0.0, 1.0);
+    const estimated = 260.0;
+    return width - progress * (width + estimated);
+  }
+
+  Widget _danmakuPill(_ChatLine line) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(5, 3, 10, 3),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.42),
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _letterAvatar(line.name, size: 20, portrait: line.portrait),
+          const SizedBox(width: 6),
+          if (line.vip) ...[
+            const _Badge(text: 'VIP', color: AppColors.vipGold),
+            const SizedBox(width: 4),
+          ],
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 150),
+            child: Text(
+              line.name.isEmpty ? '观众' : line.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 200),
+            child: Text(
+              line.content,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontSize: 12.5),
             ),
           ),
         ],
@@ -1736,10 +2126,19 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
                 if (!mine)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 3),
-                    child: Text(
-                      line.name,
-                      style: const TextStyle(
-                          color: _WatchColors.text3, fontSize: 11),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          line.name,
+                          style: const TextStyle(
+                              color: _WatchColors.text3, fontSize: 11),
+                        ),
+                        if (line.vip) ...[
+                          const SizedBox(width: 4),
+                          const _Badge(text: 'VIP', color: AppColors.vipGold),
+                        ],
+                      ],
                     ),
                   ),
                 Container(

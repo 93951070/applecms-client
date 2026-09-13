@@ -120,6 +120,9 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
 
   Duration get currentPosition => _videoController?.value.position ?? Duration.zero;
 
+  /// 视频总时长（一起看进度显示用）。
+  Duration get duration => _videoController?.value.duration ?? Duration.zero;
+
   bool get isPlaying => _videoController?.value.isPlaying ?? false;
 
   /// 是否正在缓冲（一起看同步上报用）。

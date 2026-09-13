@@ -637,6 +637,16 @@ class AppApiService {
     );
   }
 
+  /// 一键清除全部系统消息。
+  Future<void> clearMessages(String base, {String? token}) async {
+    await _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/messages/clear',
+      token: token,
+    );
+  }
+
   /// 会员校验并解析直连地址。`token` 为账号令牌（未登录可不传）。
   Future<AppPlayResult> play(
     String base, {

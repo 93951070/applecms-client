@@ -424,6 +424,13 @@ class CmsService {
     await _api.markAllMessagesRead(await _base(), token: token);
   }
 
+  /// 一键清除全部系统消息。
+  Future<void> clearAllMessages() async {
+    final token = await _ref.read(configServiceProvider).getAuthToken();
+    if (token == null || token.isEmpty) return;
+    await _api.clearMessages(await _base(), token: token);
+  }
+
   /// 账号播放记录（仅登录后可用）。
   Future<List<PlayRecord>> fetchServerHistory() async {
     final token = await _ref.read(configServiceProvider).getAuthToken();
