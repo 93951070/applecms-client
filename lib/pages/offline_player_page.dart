@@ -1,8 +1,5 @@
-import 'dart:io';
-
-import 'package:chewie/chewie.dart';
+import 'package:better_player_plus/better_player_plus.dart';
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
 
 /// 播放已离线缓存的本地视频文件。
 class OfflinePlayerPage extends StatefulWidget {
@@ -20,8 +17,7 @@ class OfflinePlayerPage extends StatefulWidget {
 }
 
 class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
-  VideoPlayerController? _videoController;
-  ChewieController? _chewieController;
+  BetterPlayerController? _controller;
   String? _error;
 
   @override
@@ -30,20 +26,28 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
     _init();
   }
 
-  Future<void> _init() async {
+  void _init() {
     try {
-      final controller =
-          VideoPlayerController.file(File(widget.filePath));
-      await controller.initialize();
-      if (!mounted) return;
-      _videoController = controller;
-      _chewieController = ChewieController(
-        videoPlayerController: controller,
-        autoPlay: true,
-        looping: false,
-        aspectRatio: controller.value.aspectRatio,
-        allowFullScreen: true,
+      final controller = BetterPlayerController(
+        const BetterPlayerConfiguration(
+          autoPlay: true,
+          fit: BoxFit.contain,
+          allowedScreenSleep: false,
+          handleLifecycle: false,
+          autoDispose: false,
+        ),
+        betterPlayerDataSource: BetterPlayerDataSource(
+          BetterPlayerDataSourceType.file,
+          widget.filePath,
+        ),
       );
+      controller.addEventsListener((event) {
+        if (event.betterPlayerEventType == BetterPlayerEventType.exception &&
+            mounted) {
+          setState(() => _error = '缓存文件已损坏或不存在');
+        }
+      });
+      _controller = controller;
       setState(() {});
     } catch (_) {
       if (mounted) setState(() => _error = '缓存文件已损坏或不存在');
@@ -52,13 +56,13 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
 
   @override
   void dispose() {
-    _chewieController?.dispose();
-    _videoController?.dispose();
+    _controller?.dispose(forceDispose: true);
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final controller = _controller;
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -69,12 +73,9 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
       body: Center(
         child: _error != null
             ? Text(_error!, style: const TextStyle(color: Colors.white70))
-            : (_chewieController == null
+            : (controller == null
                 ? const CircularProgressIndicator(color: Colors.white)
-                : AspectRatio(
-                    aspectRatio: _videoController!.value.aspectRatio,
-                    child: Chewie(controller: _chewieController!),
-                  )),
+                : BetterPlayer(controller: controller)),
       ),
     );
   }

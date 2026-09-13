@@ -2,13 +2,12 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:video_player/video_player.dart';
-import 'package:chewie/chewie.dart';
+import 'package:better_player_plus/better_player_plus.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../models/comment.dart';
 import '../models/site.dart';
 import '../providers/settings_provider.dart';
-import '../services/pip_service.dart';
 import 'video_controls.dart';
 import 'bili_loading.dart';
 
@@ -28,9 +27,7 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
   final bool danmakuEnabled;
   final VoidCallback? onDanmakuToggle;
   final List<String> episodeTitles;
-  /// 与 [episodeTitles] 逐集对应的会员要求：0 免费，非 0 需会员。
   final List<int> episodeNeedVip;
-  /// 当前用户是否已开通会员。
   final bool isVip;
   final int currentEpisodeIndex;
   final void Function(int index, bool wasFullScreen)? onSelectEpisode;
@@ -42,20 +39,12 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
   final VoidCallback? onDanmakuInputActivate;
   final VoidCallback? onDanmakuInputClose;
   final VoidCallback? onDanmakuSubmit;
-  /// 控制条展示开关（一起看房间按需精简）。
   final bool showDanmakuControl;
   final bool showSettingsControl;
   final bool showFullscreenControl;
   final bool showPlaybackStatus;
-
-  /// 首次初始化完成后保持暂停，不自动播放。
-  /// 用于从一起看回到播放页时同步进度但避免立即出声。
   final bool startPaused;
-
-  /// 运行期播放失败（缓冲超时、解码错误等）时回调，供上层自动重新解析。
   final void Function(String message)? onPlaybackError;
-
-  /// 播放器上锁状态变化回调，供页面拦截返回/隐藏返回入口。
   final void Function(bool locked)? onLockChanged;
 
   const EchoVideoPlayer({
@@ -100,77 +89,99 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
   ConsumerState<EchoVideoPlayer> createState() => EchoVideoPlayerState();
 }
 
-class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBindingObserver, AutomaticKeepAliveClientMixin, SingleTickerProviderStateMixin {
-  VideoPlayerController? _videoController;
-  ChewieController? _chewieController;
+class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
+    with
+        WidgetsBindingObserver,
+        AutomaticKeepAliveClientMixin,
+        SingleTickerProviderStateMixin {
+  BetterPlayerController? _controller;
+  final GlobalKey _betterPlayerKey = GlobalKey();
+  StreamSubscription<bool>? _controlsSub;
   bool _isInitializing = false;
   bool _isDisposed = false;
+  bool _controlsVisible = true;
   Timer? _bufferingTimer;
   String? _errorMessage;
   bool _wasPlayingBeforePause = false;
-  /// 主动暂停标记：缓冲/初始化完成前用户已离开播放（如进入一起看），
-  /// 用于抑制 Chewie 的 autoPlay，避免「缓冲完成后在后台继续出声」。
   bool _holdPaused = false;
-
-  /// 记录上一次的全屏状态，用于在全屏切换后重新绑定系统画中画来源。
-  bool _lastFullScreen = false;
-
-  /// 初始化代次号：切集/重试/离场时自增，使任何在途的旧初始化立即作废，
-  /// 并强制释放它创建的控制器，避免出现「上一集还在后台出声」。
+  bool _locked = false;
+  bool _endedHandled = false;
   int _initToken = 0;
+  Duration? _lastProgressSaveTime;
 
-  // 弹幕叠加层
   late final AnimationController _danmakuTicker;
   final Set<int> _spawnedDanmaku = {};
   final List<_ActiveDanmaku> _activeDanmaku = [];
   static const int _danmakuLifetimeMs = 7000;
 
-  // 控制条上的弹幕开关控件只创建一次，用 Listenable 让图标能随状态刷新。
-  final ValueNotifier<bool> _danmakuEnabledNotifier =
-      ValueNotifier<bool>(true);
-  final ValueNotifier<bool> _danmakuInputNotifier =
-      ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _danmakuEnabledNotifier = ValueNotifier<bool>(true);
+  final ValueNotifier<bool> _danmakuInputNotifier = ValueNotifier<bool>(false);
 
-  Duration get currentPosition => _videoController?.value.position ?? Duration.zero;
+  VideoPlayerValue? get _value => _controller?.videoPlayerController?.value;
 
-  /// 视频总时长（一起看进度显示用）。
-  Duration get duration => _videoController?.value.duration ?? Duration.zero;
+  Duration get currentPosition => _value?.position ?? Duration.zero;
 
-  bool get isPlaying => _videoController?.value.isPlaying ?? false;
+  Duration get duration => _value?.duration ?? Duration.zero;
 
-  /// 视频宽高比（手动画中画时传给系统设置小窗比例）。
-  double get aspectRatio => _videoController?.value.aspectRatio ?? 0;
+  bool get isPlaying => _value?.isPlaying ?? false;
 
-  /// 是否正在缓冲（一起看同步上报用）。
-  bool get isBuffering => _videoController?.value.isBuffering ?? false;
+  double get aspectRatio => _value?.aspectRatio ?? 0;
 
-  /// 暂停播放。用于离开当前页面时停止后台继续出声。
-  /// 进入 Chewie 全屏同样会触发路由 push，此时不应暂停。
+  bool get isBuffering => _value?.isBuffering ?? false;
+
+  bool get isLocked => _locked;
+
   void pausePlayback() {
-    if (_chewieController?.isFullScreen ?? false) return;
+    if (_controller?.isFullScreen ?? false) return;
     _holdPaused = true;
-    _videoController?.pause();
-    _bufferingTimer?.cancel();
-    _bufferingTimer = null;
+    _safePause();
   }
 
-  /// 强制暂停，全屏时同样生效（一起看同步用）。
   void forcePause() {
     _holdPaused = true;
-    _videoController?.pause();
-    _bufferingTimer?.cancel();
-    _bufferingTimer = null;
+    _safePause();
   }
 
-  /// 继续播放（一起看同步用）。
   void resumePlayback() {
     _holdPaused = false;
-    _chewieController?.play();
+    try {
+      _controller?.play();
+    } catch (_) {}
   }
 
-  /// 跳转到指定位置（一起看同步用）。
   void seekToPosition(Duration position) {
-    _videoController?.seekTo(position);
+    try {
+      _controller?.seekTo(position);
+    } catch (_) {}
+  }
+
+  Future<bool> isPipSupported() async {
+    final c = _controller;
+    if (c == null) return false;
+    try {
+      return await c.isPictureInPictureSupported();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> enterPip() async {
+    try {
+      await _controller?.enablePictureInPicture(_betterPlayerKey);
+    } catch (_) {}
+  }
+
+  Future<void> exitPip() async {
+    try {
+      await _controller?.disablePictureInPicture();
+    } catch (_) {}
+  }
+
+  void _safePause() {
+    try {
+      _controller?.pause();
+    } catch (_) {}
+    _cancelBufferingTimer();
   }
 
   @override
@@ -180,7 +191,6 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    PipService.inPip.addListener(_onPipChanged);
     WakelockPlus.enable();
     _danmakuTicker =
         AnimationController(vsync: this, duration: const Duration(seconds: 1))
@@ -212,219 +222,311 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
     }
   }
 
-  Future<void> _initializePlayer() async {
+  void _initializePlayer() {
     if (_isDisposed || !mounted) return;
     final token = ++_initToken;
 
-    // 切集瞬间先暂停当前实例，旧音轨立即停止，不等待异步释放完成。
-    _videoController?.pause();
+    _releasePlayer();
+    _endedHandled = false;
 
     setState(() {
       _isInitializing = true;
       _errorMessage = null;
     });
 
-    VideoPlayerController? controller;
-
-    try {
-      final oldVideoController = _videoController;
-      final oldChewieController = _chewieController;
-
-      _videoController = null;
-      _chewieController = null;
-
-      if (oldChewieController != null) {
-        try {
-          oldChewieController.removeListener(_onChewieChanged);
-          oldChewieController.dispose();
-        } catch (e) {
-          debugPrint('EchoVideoPlayer: dispose old chewie failed: $e');
-        }
-      }
-      if (oldVideoController != null) {
-        oldVideoController.removeListener(_videoListener);
-        try {
-          await oldVideoController.dispose();
-        } catch (e) {
-          debugPrint('EchoVideoPlayer: dispose old video failed: $e');
-        }
-        // 释放旧播放器资源后再创建新实例，避免底层解码器抢占。
-        await Future.delayed(const Duration(milliseconds: 200));
-      }
-      if (_isDisposed || !mounted || token != _initToken) return;
-
-      // 判定是否为标准的 M3U8 格式（用于 HLS 提示）。
-      // 广告过滤已下沉到服务端，客户端直接播放后端下发的地址，不再起本地代理。
-      // 后端 HLS 过滤入口可能不带扩展名（如 /api/app/v1/hls?t=），
-      // 仅按扩展名判断会导致 Android ExoPlayer 误当渐进式媒体而播放失败。
-      final lowerUrl = widget.url.toLowerCase();
-      final gatewayPath = Uri.tryParse(widget.url)?.path.toLowerCase() ?? '';
-      final isGatewayHls =
-          gatewayPath == '/api/app/v1/hls' || gatewayPath.startsWith('/api/app/v1/hls/');
-      final isM3u8 = lowerUrl.contains('.m3u8') || isGatewayHls;
-      final playUrl = widget.url;
-
-      // 判定是否给播放器 HLS 格式提示
-      bool useHlsHint = isM3u8;
-      if (widget.isLive && !isM3u8) {
-        final otherExtensions = ['.mp4', '.mov', '.mpd', '.mkv', '.webm'];
-        if (!otherExtensions.any((ext) => widget.url.toLowerCase().contains(ext))) {
-          useHlsHint = true; 
-        }
-      }
-
-      controller = VideoPlayerController.networkUrl(
-        Uri.parse(playUrl),
-        httpHeaders: {
-          'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
-          if (widget.referer != null && widget.referer!.isNotEmpty) 'Referer': widget.referer!,
-        },
-        formatHint: useHlsHint ? VideoFormat.hls : null,
-        // iOS 系统画中画必须以 AVPlayerLayer 为来源；默认的 textureView 走 Flutter
-        // 纹理渲染，视图树里没有 AVPlayerLayer，画中画无法接入。因此 iOS 用平台视图，
-        // Android 仍用纹理视图（平台视图在 Android 上限制较多）。
-        viewType: Platform.isIOS
-            ? VideoViewType.platformView
-            : VideoViewType.textureView,
-      );
-
-      await controller.initialize();
-
-      // 初始化期间若已切集或离场，直接丢弃该控制器，绝不允许它开始播放。
-      if (_isDisposed || !mounted || token != _initToken) {
-        if (_videoController == controller) _videoController = null;
-        try {
-          await controller.dispose();
-        } catch (_) {}
-        return;
-      }
-
-      _videoController = controller;
-
-      // 若用户已主动离开播放（进入一起看等），初始化完成后保持暂停。
-      if (_holdPaused) {
-        await controller.pause();
-      }
-
-      // 计算跳转位置：使用页面传入的初始进度
-      Duration? startAt;
-      final resume = (widget.initialPosition != null && widget.initialPosition! > 0)
-          ? Duration(seconds: widget.initialPosition!.toInt())
-          : null;
-      if (resume != null && resume > Duration.zero) {
-        final seconds = resume.inSeconds;
-        // 只有当进度小于总时长（或者总时长还未获取到）时才跳转
-        if (controller.value.duration == Duration.zero || seconds < controller.value.duration.inSeconds) {
-          startAt = resume;
-          debugPrint('🎬 播放器准备跳转至: ${seconds}s');
-        }
-      }
-
-      // 设置音量
-      final volume = ref.read(playerVolumeProvider);
-      await controller.setVolume(volume);
-
-      // 期间若再次切集/离场，释放本控制器，避免出现「上一集还在后台出声」。
-      if (_isDisposed || !mounted || token != _initToken) {
-        if (_videoController == controller) _videoController = null;
-        try {
-          await controller.dispose();
-        } catch (_) {}
-        return;
-      }
-
-      // 进度监听
-      controller.addListener(_videoListener);
-
-      _chewieController = ChewieController(
-        videoPlayerController: controller,
-        autoPlay: !_holdPaused,
-        looping: false,
-        startAt: startAt,
-        aspectRatio: controller.value.aspectRatio,
-        allowFullScreen: true,
-        isLive: widget.isLive,
-        customControls: ZenVideoControls(
-          skipConfig: widget.skipConfig ?? SkipConfig(),
-          onSkipConfigChange: widget.onSkipConfigChange,
-          initialVolume: volume,
-          onVolumeChanged: (vol) {
-            ref.read(playerVolumeProvider.notifier).setVolume(vol);
-          },
-          hasNextEpisode: widget.hasNextEpisode,
-          onNextEpisode: widget.onNextEpisode,
-          danmakuEnabled: widget.danmakuEnabled,
-          danmakuListenable: _danmakuEnabledNotifier,
-          onDanmakuToggle: widget.onDanmakuToggle,
-          episodeTitles: widget.episodeTitles,
-          episodeNeedVip: widget.episodeNeedVip,
-          isVip: widget.isVip,
-          currentEpisodeIndex: widget.currentEpisodeIndex,
-          onSelectEpisode: (index, wasFullScreen) {
-            // 切集前先退出全屏，避免旧的 Chewie 全屏路由持有已被释放的控制器；
-            // 页面会在新一集就绪后按需重新进入全屏。
-            if (wasFullScreen) _chewieController?.exitFullScreen();
-            widget.onSelectEpisode?.call(index, wasFullScreen);
-          },
-          danmakuInputActive: widget.danmakuInputActive,
-          danmakuInputListenable: _danmakuInputNotifier,
-          danmakuController: widget.danmakuController,
-          danmakuFocus: widget.danmakuFocus,
-          onDanmakuInputActivate: widget.onDanmakuInputActivate,
-          onDanmakuInputClose: widget.onDanmakuInputClose,
-          onDanmakuSubmit: widget.onDanmakuSubmit,
-          showDanmakuControl: widget.showDanmakuControl,
-          showSettingsControl: widget.showSettingsControl,
-          showFullscreenControl: widget.showFullscreenControl,
-          showPlaybackStatus: widget.showPlaybackStatus,
-          onLockChanged: widget.onLockChanged,
-        ),
-        materialProgressColors: ChewieProgressColors(
-          playedColor: widget.isLive ? Colors.white : const Color(0xFF0A84FF),
-          handleColor: widget.isLive ? Colors.white : const Color(0xFF0A84FF),
-          bufferedColor: Colors.white.withOpacity(0.3),
-          backgroundColor: Colors.white.withOpacity(0.1),
-        ),
-      );
-
-      // 全屏切换会让 iOS 平台视图重建，画中画来源 AVPlayerLayer 会随之更换，
-      // 这里监听全屏状态变化后重新绑定，保证离开 App 时仍能进入画中画。
-      _lastFullScreen = _chewieController!.isFullScreen;
-      _chewieController!.addListener(_onChewieChanged);
-
-      // 播放器就绪后开启系统画中画：用户离开 App 时自动进入 PiP 小窗继续播放。
-      // iOS 需要 AVPlayerLayer 已挂载到视图层级，稍作延迟再开启。
-      final pipAspectRatio = controller.value.aspectRatio;
-      Future.delayed(const Duration(milliseconds: 600), () {
-        if (_isDisposed || !mounted || token != _initToken) return;
-        PipService.setEnabled(true, aspectRatio: pipAspectRatio);
-      });
-
-      if (widget.autoEnterFullScreen) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!_isDisposed && mounted && _chewieController != null) {
-            _chewieController!.enterFullScreen();
-          }
-          widget.onAutoFullScreenDone?.call();
-        });
-      }
-    } catch (e) {
-      if (controller != null && _videoController != controller) {
-        try {
-          await controller.dispose();
-        } catch (_) {}
-      }
-      debugPrint('EchoVideoPlayer error: $e');
-      if (mounted && !_isDisposed) {
-        setState(() {
-          _errorMessage = e.toString().contains('404') ? '资源不存在 (404)' : '无法加载视频，请检查网络或更换线路';
-        });
-      }
-    } finally {
-      if (!_isDisposed && mounted && token == _initToken) {
-        setState(() => _isInitializing = false);
+    final lowerUrl = widget.url.toLowerCase();
+    final gatewayPath = Uri.tryParse(widget.url)?.path.toLowerCase() ?? '';
+    final isGatewayHls =
+        gatewayPath == '/api/app/v1/hls' || gatewayPath.startsWith('/api/app/v1/hls/');
+    final isM3u8 = lowerUrl.contains('.m3u8') || isGatewayHls;
+    bool useHlsHint = isM3u8;
+    if (widget.isLive && !isM3u8) {
+      const otherExtensions = ['.mp4', '.mov', '.mpd', '.mkv', '.webm'];
+      if (!otherExtensions.any((ext) => widget.url.toLowerCase().contains(ext))) {
+        useHlsHint = true;
       }
     }
+
+    Duration? startAt;
+    if (!widget.isLive &&
+        widget.initialPosition != null &&
+        widget.initialPosition! > 0) {
+      startAt = Duration(seconds: widget.initialPosition!.toInt());
+    }
+
+    final volume = ref.read(playerVolumeProvider);
+
+    final dataSource = BetterPlayerDataSource(
+      BetterPlayerDataSourceType.network,
+      widget.url,
+      headers: {
+        'User-Agent':
+            'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
+        if (widget.referer != null && widget.referer!.isNotEmpty)
+          'Referer': widget.referer!,
+      },
+      liveStream: widget.isLive,
+      videoFormat: useHlsHint ? BetterPlayerVideoFormat.hls : null,
+    );
+
+    final controller = BetterPlayerController(
+      BetterPlayerConfiguration(
+        autoPlay: !_holdPaused,
+        startAt: startAt,
+        fit: BoxFit.contain,
+        allowedScreenSleep: false,
+        handleLifecycle: false,
+        autoDispose: false,
+        fullScreenByDefault: widget.autoEnterFullScreen,
+        controlsConfiguration: _buildControlsConfiguration(),
+      ),
+      betterPlayerDataSource: dataSource,
+    );
+
+    controller.setBetterPlayerGlobalKey(_betterPlayerKey);
+    controller.addEventsListener(_onPlayerEvent);
+    _controller = controller;
+    _controlsSub = controller.controlsVisibilityStream.listen((visible) {
+      if (_isDisposed || !mounted) return;
+      if (_controlsVisible == visible) return;
+      setState(() => _controlsVisible = visible);
+    });
+
+    if (volume != 1.0) {
+      unawaited(_applyVolume(controller, volume));
+    }
+
+    if (token != _initToken || _isDisposed) return;
+  }
+
+  Future<void> _applyVolume(BetterPlayerController controller, double volume) async {
+    try {
+      await controller.setVolume(volume.clamp(0.0, 1.0).toDouble());
+    } catch (_) {}
+  }
+
+  void _releasePlayer() {
+    _cancelBufferingTimer();
+    _controlsSub?.cancel();
+    _controlsSub = null;
+    final old = _controller;
+    _controller = null;
+    if (old == null) return;
+    try {
+      old.removeEventsListener(_onPlayerEvent);
+    } catch (_) {}
+    try {
+      old.dispose(forceDispose: true);
+    } catch (_) {}
+  }
+
+  BetterPlayerControlsConfiguration _buildControlsConfiguration() {
+    return BetterPlayerControlsConfiguration(
+      playerTheme: BetterPlayerTheme.material,
+      controlBarColor: Colors.black54,
+      iconsColor: Colors.white,
+      progressBarPlayedColor:
+          widget.isLive ? Colors.white : const Color(0xFF0A84FF),
+      progressBarHandleColor:
+          widget.isLive ? Colors.white : const Color(0xFF0A84FF),
+      progressBarBufferedColor: Colors.white30,
+      progressBarBackgroundColor: Colors.white10,
+      loadingColor: const Color(0xFF0A84FF),
+      enablePip: true,
+      enablePlaybackSpeed: true,
+      enableSubtitles: false,
+      enableQualities: false,
+      enableAudioTracks: false,
+      enableRetry: false,
+      enableFullscreen: widget.showFullscreenControl,
+      enableProgressBar: widget.showPlaybackStatus,
+      enableProgressText: widget.showPlaybackStatus,
+      enablePlayPause: widget.showPlaybackStatus,
+      enableOverflowMenu: true,
+      overflowMenuCustomItems: _buildOverflowItems(),
+    );
+  }
+
+  List<BetterPlayerOverflowMenuItem> _buildOverflowItems() {
+    return [
+      if (widget.episodeTitles.isNotEmpty)
+        BetterPlayerOverflowMenuItem(
+            LucideIcons.listVideo, '选集', _openEpisodeSheet),
+      if (widget.showDanmakuControl)
+        BetterPlayerOverflowMenuItem(
+            LucideIcons.messageSquare,
+            widget.danmakuEnabled ? '关闭弹幕' : '开启弹幕',
+            () => widget.onDanmakuToggle?.call()),
+      if (widget.showSettingsControl)
+        BetterPlayerOverflowMenuItem(
+            LucideIcons.settings, '播放设置', _openSkipSheet),
+      if (widget.hasNextEpisode && widget.onNextEpisode != null)
+        BetterPlayerOverflowMenuItem(
+            LucideIcons.skipForward, '下一集', () => widget.onNextEpisode?.call()),
+      BetterPlayerOverflowMenuItem(
+          LucideIcons.lock, '锁定屏幕', () => _setLocked(true)),
+    ];
+  }
+
+  void _openEpisodeSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ZenEpisodeSheet(
+        episodeTitles: widget.episodeTitles,
+        episodeNeedVip: widget.episodeNeedVip,
+        isVip: widget.isVip,
+        currentEpisodeIndex: widget.currentEpisodeIndex,
+        onSelect: (index) {
+          final wasFull = _controller?.isFullScreen ?? false;
+          widget.onSelectEpisode?.call(index, wasFull);
+        },
+      ),
+    );
+  }
+
+  void _openSkipSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ZenSkipSheet(
+        initial: widget.skipConfig ?? const SkipConfig(),
+        currentPosition: currentPosition,
+        duration: duration,
+        onChanged: (config) => widget.onSkipConfigChange?.call(config),
+      ),
+    );
+  }
+
+  void _setLocked(bool value) {
+    if (_locked == value) return;
+    setState(() => _locked = value);
+    widget.onLockChanged?.call(value);
+    try {
+      _controller?.setControlsEnabled(!value);
+      if (value) _controller?.toggleControlsVisibility(false);
+    } catch (_) {}
+  }
+
+  void _onPlayerEvent(BetterPlayerEvent event) {
+    if (_isDisposed || !mounted) return;
+    switch (event.betterPlayerEventType) {
+      case BetterPlayerEventType.initialized:
+        if (mounted) setState(() => _isInitializing = false);
+        if (widget.autoEnterFullScreen) widget.onAutoFullScreenDone?.call();
+        break;
+      case BetterPlayerEventType.progress:
+        final value = _value;
+        if (value != null) _onTick(value.position, value.duration ?? Duration.zero);
+        break;
+      case BetterPlayerEventType.finished:
+        _handleEnded();
+        break;
+      case BetterPlayerEventType.bufferingStart:
+        _startBufferingTimer();
+        break;
+      case BetterPlayerEventType.bufferingEnd:
+        _cancelBufferingTimer();
+        break;
+      case BetterPlayerEventType.pipStart:
+        _holdPaused = false;
+        break;
+      case BetterPlayerEventType.pipStop:
+        _holdPaused = false;
+        break;
+      case BetterPlayerEventType.exception:
+        final message =
+            event.parameters?['exception']?.toString() ?? '无法加载视频，请检查网络或更换线路';
+        _handleError(message);
+        break;
+      default:
+        break;
+    }
+  }
+
+  void _onTick(Duration position, Duration total) {
+    _updateDanmaku(position);
+
+    final value = _value;
+    if (value != null && value.initialized && !_isInitializing) {
+      if (value.isBuffering) {
+        _startBufferingTimer();
+      } else {
+        _cancelBufferingTimer();
+      }
+      if (!value.isBuffering &&
+          value.size != null &&
+          value.size!.width == 0 &&
+          !widget.isLive) {
+        setState(() {
+          _errorMessage = '无法解析视频画面，请尝试切换线路';
+        });
+      }
+    }
+
+    if (widget.onProgress != null && (value?.isPlaying ?? false)) {
+      if (_lastProgressSaveTime == null ||
+          position.inSeconds != _lastProgressSaveTime!.inSeconds) {
+        widget.onProgress!(position, total, isFinal: false);
+        _lastProgressSaveTime = position;
+      }
+    }
+
+    if (widget.skipConfig != null && widget.skipConfig!.enable && isPlaying) {
+      final pos = position.inSeconds;
+      final dur = total.inSeconds;
+      if (widget.skipConfig!.introTime > 0 &&
+          pos < widget.skipConfig!.introTime) {
+        seekToPosition(Duration(seconds: widget.skipConfig!.introTime));
+      }
+      if (widget.skipConfig!.outroTime > 0 &&
+          dur > 0 &&
+          pos > (dur - widget.skipConfig!.outroTime)) {
+        _handleEnded();
+      }
+    }
+
+    if (total > Duration.zero && position >= total && !isPlaying) {
+      _handleEnded();
+    } else if (total == Duration.zero || position < total) {
+      _endedHandled = false;
+    }
+  }
+
+  void _handleEnded() {
+    if (_endedHandled) return;
+    _endedHandled = true;
+    if (widget.onEnded != null) {
+      widget.onEnded!();
+    } else {
+      _safePause();
+    }
+  }
+
+  void _handleError(String message) {
+    if (_isDisposed || !mounted) return;
+    if (_errorMessage != null) return;
+    setState(() {
+      _errorMessage = message.contains('404') ? '资源不存在 (404)' : '无法加载视频，请检查网络或更换线路';
+      _isInitializing = false;
+    });
+    widget.onPlaybackError?.call(message);
+  }
+
+  void _startBufferingTimer() {
+    _bufferingTimer ??= Timer(const Duration(seconds: 15), () {
+      if (!mounted) return;
+      if (_value?.isBuffering ?? false) {
+        _handleError('网络连接不稳定或资源加载失败');
+      }
+    });
+  }
+
+  void _cancelBufferingTimer() {
+    _bufferingTimer?.cancel();
+    _bufferingTimer = null;
   }
 
   void _updateDanmaku(Duration position) {
@@ -443,111 +545,30 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
     }
     if (_activeDanmaku.isNotEmpty) {
       final before = _activeDanmaku.length;
-      _activeDanmaku.removeWhere(
-          (a) => DateTime.now().difference(a.started).inMilliseconds > _danmakuLifetimeMs);
+      _activeDanmaku.removeWhere((a) =>
+          DateTime.now().difference(a.started).inMilliseconds >
+          _danmakuLifetimeMs);
       changed = changed || _activeDanmaku.length != before;
     }
     if (changed) setState(() {});
   }
 
-  void _videoListener() {
-    if (_videoController == null || _isDisposed) return;
-    
-    final value = _videoController!.value;
-
-    // 用户已开始播放（如点击播放键），解除主动暂停标记，恢复正常自动播放。
-    if (value.isPlaying) _holdPaused = false;
-
-    if (value.isInitialized) {
-      _updateDanmaku(value.position);
-    }
-    
-    // 监听缓冲状态（通用逻辑）
-    if (value.isInitialized && value.isBuffering && !_isInitializing) {
-      _bufferingTimer ??= Timer(const Duration(seconds: 15), () { // 点播宽限到 15s
-        if (mounted && _videoController!.value.isBuffering) {
-          setState(() {
-            _errorMessage = '网络连接不稳定或资源加载失败';
-          });
-          widget.onPlaybackError?.call('网络连接不稳定或资源加载失败');
-        }
-      });
-    } else {
-      _bufferingTimer?.cancel();
-      _bufferingTimer = null;
-    }
-
-    // 监听视频尺寸异常（通用逻辑：初始化完成但无有效画面数据）
-    if (value.isInitialized && !value.isBuffering && value.size.width == 0) {
-      // 排除掉纯音频流的情况（如果业务不需要显示纯音频，这里统一视为源异常）
-      setState(() {
-        _errorMessage = '无法解析视频画面，请尝试切换线路';
-      });
-    }
-
-    // 进度回调
-    // 进度回调 (每秒最多回调一次，且在播放时回调)
-    if (widget.onProgress != null && value.isPlaying) {
-      final currentPos = value.position;
-      if (_lastProgressSaveTime == null || (currentPos.inSeconds != _lastProgressSaveTime!.inSeconds)) {
-        widget.onProgress!(currentPos, value.duration, isFinal: false);
-        _lastProgressSaveTime = currentPos;
-      }
-    }
-
-    // --- 新增：跳过片头片尾逻辑 ---
-    if (value.isPlaying && widget.skipConfig != null && widget.skipConfig!.enable) {
-      final position = value.position.inSeconds;
-      final duration = value.duration.inSeconds;
-
-      // 跳过片头
-      if (widget.skipConfig!.introTime > 0 && position < widget.skipConfig!.introTime) {
-        _videoController!.seekTo(Duration(seconds: widget.skipConfig!.introTime));
-        debugPrint('🛡️ 已跳过片头: ${widget.skipConfig!.introTime}s');
-      }
-
-      // 跳过片尾
-      if (widget.skipConfig!.outroTime > 0 && duration > 0 && position > (duration - widget.skipConfig!.outroTime)) {
-        debugPrint('🛡️ 已触碰片尾: ${widget.skipConfig!.outroTime}s');
-        if (widget.onEnded != null) {
-          widget.onEnded!();
-        } else {
-          _videoController!.pause();
-        }
-      }
-    }
-
-    // 结束回调
-    if (value.position >= value.duration && value.duration > Duration.zero && !value.isPlaying) {
-      if (widget.onEnded != null) {
-        widget.onEnded!();
-      }
-    }
-  }
-
-  Duration? _lastProgressSaveTime;
-
   @override
   void dispose() {
     _isDisposed = true;
     _initToken++;
-    PipService.inPip.removeListener(_onPipChanged);
-    PipService.setEnabled(false);
-    _bufferingTimer?.cancel();
+    _cancelBufferingTimer();
     WidgetsBinding.instance.removeObserver(this);
-    
-    // 销毁前保存最后进度
-    if (_videoController != null && widget.onProgress != null) {
-      final value = _videoController!.value;
-      if (value.isInitialized) {
-        widget.onProgress!(value.position, value.duration, isFinal: true);
+
+    if (_controller?.videoPlayerController != null &&
+        widget.onProgress != null) {
+      final value = _controller!.videoPlayerController!.value;
+      if (value.initialized) {
+        widget.onProgress!(value.position, value.duration ?? Duration.zero, isFinal: true);
       }
     }
-    
-    _videoController?.removeListener(_videoListener);
-    _videoController?.dispose();
-    _chewieController?.removeListener(_onChewieChanged);
-    _chewieController?.dispose();
+
+    _releasePlayer();
     _danmakuTicker.dispose();
     _danmakuEnabledNotifier.dispose();
     _danmakuInputNotifier.dispose();
@@ -558,114 +579,100 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
-      _wasPlayingBeforePause = _videoController?.value.isPlaying ?? false;
-      // 后台时取消缓冲误报计时，避免回前台立刻弹错误
-      _bufferingTimer?.cancel();
-      _bufferingTimer = null;
-      // 系统画中画下窗口仍可见，保持播放，不按退后台处理。
-      if (PipService.inPip.value) return;
-      // 已启用画中画：必须保持播放，系统才会在离开 App 的瞬间自动进入小窗。
-      // 若在这里暂停，iOS 的自动画中画会因视频暂停而无法启动，小窗内也无法播放。
-      if (PipService.enabled) return;
-      _videoController?.pause();
+      _wasPlayingBeforePause = isPlaying;
+      _cancelBufferingTimer();
+      // iOS 由 better_player 原生侧自动进入系统画中画，退后台必须保持播放；
+      // Android 不支持自动画中画，退后台按常理暂停。
+      if (Platform.isIOS) return;
+      _safePause();
       return;
     }
     if (state != AppLifecycleState.resumed || _isDisposed) return;
-
-    final controller = _videoController;
-    if (controller == null || !controller.value.isInitialized) return;
-
-    final shouldResume = _wasPlayingBeforePause;
-    _wasPlayingBeforePause = false;
-
-    if (_errorMessage != null) {
-      _errorMessage = null;
-      setState(() {});
-    }
-    if (shouldResume && !controller.value.isPlaying) {
-      // 回前台时连接可能刚被系统恢复，按当前位置重新起播即可，
-      // 不再整实例重建，避免每次切后台回来都转圈重载。
-      if (controller.value.isBuffering) {
-        unawaited(controller.seekTo(controller.value.position));
-      }
-      controller.play();
-    }
-  }
-
-  /// 进入系统画中画时确保继续播放。
-  ///
-  /// Android 进入 PiP 的时序可能先收到生命周期 paused（被误暂停、转圈），
-  /// 这里在 PiP 生效后把播放恢复回来。
-  void _onPipChanged() {
-    if (!mounted || _isDisposed) return;
-    if (!PipService.inPip.value) return;
-    final controller = _videoController;
-    if (controller == null || !controller.value.isInitialized) return;
-    _holdPaused = false;
-    _bufferingTimer?.cancel();
-    _bufferingTimer = null;
+    _cancelBufferingTimer();
     if (_errorMessage != null) {
       setState(() => _errorMessage = null);
     }
-    if (!controller.value.isPlaying) {
-      controller.play();
+    if (_wasPlayingBeforePause && !isPlaying) {
+      resumePlayback();
     }
-  }
-
-  /// 全屏切换后重新绑定画中画来源。
-  ///
-  /// iOS 平台视图在全屏路由重建时会产生新的 AVPlayerLayer，稍等其挂载后
-  /// 再通知原生重新绑定，确保离开 App 时画中画仍可用。
-  void _onChewieChanged() {
-    final chewie = _chewieController;
-    if (chewie == null) return;
-    if (chewie.isFullScreen == _lastFullScreen) return;
-    _lastFullScreen = chewie.isFullScreen;
-    final aspect = _videoController?.value.aspectRatio ?? 0;
-    Future.delayed(const Duration(milliseconds: 400), () {
-      if (_isDisposed || !mounted) return;
-      PipService.setEnabled(true, aspectRatio: aspect);
-    });
+    _wasPlayingBeforePause = false;
   }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    if (_errorMessage != null) {
+      return _buildError();
+    }
+    final controller = _controller;
+    if (controller == null) {
+      return const Center(child: VideoLoadingBar());
+    }
+    return PopScope(
+      canPop: !_locked,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _locked) {
+          _setLocked(false);
+        }
+      },
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          BetterPlayer(controller: controller, key: _betterPlayerKey),
+          _buildDanmakuOverlay(),
+          if (_locked)
+            ZenLockButton(locked: true, onToggle: () => _setLocked(false)),
+          _buildDanmakuInputOverlay(),
+        ],
+      ),
+    );
+  }
 
-    if (_errorMessage != null || (_videoController?.value.hasError ?? false)) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, color: Colors.white54, size: 42),
-            const SizedBox(height: 16),
-            Text(
-              _errorMessage ?? '播放失败: ${widget.title}',
-              style: const TextStyle(color: Colors.white70, fontSize: 13),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: _initializePlayer,
-              child: const Text('重试', style: TextStyle(color: Colors.white)),
-            ),
-          ],
+  Widget _buildError() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.error_outline, color: Colors.white54, size: 42),
+          const SizedBox(height: 16),
+          Text(
+            _errorMessage ?? '播放失败: ${widget.title}',
+            style: const TextStyle(color: Colors.white70, fontSize: 13),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: _initializePlayer,
+            child: const Text('重试', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDanmakuInputOverlay() {
+    if (!widget.showDanmakuControl || !widget.danmakuEnabled) {
+      return const SizedBox.shrink();
+    }
+    if (!_controlsVisible && !widget.danmakuInputActive) {
+      return const SizedBox.shrink();
+    }
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 64,
+      child: ValueListenableBuilder<bool>(
+        valueListenable: _danmakuInputNotifier,
+        builder: (context, active, _) => ZenDanmakuInputBar(
+          active: active,
+          visible: _controlsVisible || active,
+          controller: widget.danmakuController,
+          focusNode: widget.danmakuFocus,
+          onActivate: widget.onDanmakuInputActivate,
+          onClose: widget.onDanmakuInputClose,
+          onSubmit: widget.onDanmakuSubmit,
         ),
-      );
-    }
-
-    if (_isInitializing || _chewieController == null || !_videoController!.value.isInitialized) {
-      return const Center(
-        child: VideoLoadingBar(),
-      );
-    }
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Chewie(controller: _chewieController!),
-        _buildDanmakuOverlay(),
-      ],
+      ),
     );
   }
 

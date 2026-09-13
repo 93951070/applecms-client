@@ -29,7 +29,6 @@ import '../widgets/bili_loading.dart';
 import '../widgets/synopsis_sheet.dart';
 import '../widgets/watch_party_sheet.dart';
 import '../services/web_sniff_service.dart';
-import '../services/pip_service.dart';
 
 /// 播放页「同类推荐」数据源：按当前视频所属分类拉取同分类内容。
 final _recommendProvider =
@@ -62,7 +61,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   VideoDetail? _video;
   int _currentEpisodeIndex = 0;
   double? _initialResumePosition;
-  bool _autoPlayNext = true;
+  final bool _autoPlayNext = true;
 
   /// 从一起看回到本页时置位：同步进度并保持暂停，直到用户真正开始播放。
   bool _resumePaused = false;
@@ -79,7 +78,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   // 直连地址播放时需要携带的 Referer（防盗链）。web嗅探直链取其自身 origin；
   // 走服务端 HLS 网关的地址由服务端取流，这里留空。
   String _resolvedReferer = '';
-  bool _resolvingPlay = false;
   String? _accessMessage;
   String? _errorMessage;
 
@@ -119,27 +117,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     _doubanId = widget.subject.id;
     _detailSub =
         ref.read(cmsServiceProvider).detailUpdates.listen(_onDetailUpdated);
-    if (Platform.isIOS) {
-      PipService.status.addListener(_onPipStatus);
-    }
     _checkHistoryAndLoadData();
-  }
-
-  String _lastPipStatus = '';
-
-  /// iOS 画中画诊断：原生侧上报状态时在页面上提示一次，便于定位唤不出的原因。
-  void _onPipStatus() {
-    final text = PipService.status.value ?? '';
-    if (!mounted || text.isEmpty || text == _lastPipStatus) return;
-    _lastPipStatus = text;
-    ScaffoldMessenger.of(context)
-      ..removeCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text('画中画诊断: $text'),
-          duration: const Duration(seconds: 10),
-        ),
-      );
   }
 
   @override
@@ -316,7 +294,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       setState(() {
         _resolvedUrl = prefetched;
         _resolvedReferer = _episodeRefererCache[cacheKey] ?? '';
-        _resolvingPlay = false;
         _accessMessage = null;
         _errorMessage = null;
       });
@@ -325,7 +302,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     }
 
     setState(() {
-      _resolvingPlay = true;
       _accessMessage = null;
       _errorMessage = null;
     });
@@ -363,7 +339,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           setState(() {
             _resolvedUrl = sniffed;
             _resolvedReferer = _originOf(sniffed);
-            _resolvingPlay = false;
             _accessMessage = null;
             _errorMessage = null;
           });
@@ -392,20 +367,17 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         setState(() {
           _resolvedUrl = result.playUrl;
           _resolvedReferer = '';
-          _resolvingPlay = false;
         });
         _prefetchEpisodes();
       } else if (!result.hasAccess) {
         setState(() {
           _accessMessage =
               result.message.isEmpty ? '该内容需要会员权限' : result.message;
-          _resolvingPlay = false;
         });
       } else {
         setState(() {
           _errorMessage =
               result.message.isEmpty ? '解析失败，请重试' : result.message;
-          _resolvingPlay = false;
         });
       }
     } catch (e) {
@@ -413,7 +385,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       debugPrint('App 网关取流失败: $e');
       setState(() {
         _errorMessage = '取流失败，请检查网络后重试';
-        _resolvingPlay = false;
       });
     }
   }
@@ -561,9 +532,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   void dispose() {
     routeObserver.unsubscribe(this);
     _detailSub?.cancel();
-    if (Platform.isIOS) {
-      PipService.status.removeListener(_onPipStatus);
-    }
     _commentController.dispose();
     _commentFocus.dispose();
     _danmakuController.dispose();
@@ -583,34 +551,21 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // 进入系统画中画时整个窗口被缩成小窗，只渲染视频本身，
-    // 否则页面其余 UI（顶栏/选集/列表）会把视频挤得很小。
-    return ValueListenableBuilder<bool>(
-      valueListenable: PipService.inPip,
-      builder: (context, inPip, _) {
-        if (inPip) {
-          return ColoredBox(
-            color: Colors.black,
-            child: SizedBox.expand(child: _buildPlayerContent()),
-          );
-        }
-        return ZenScaffold(
-          body: SafeArea(
-            bottom: false,
-            child: Column(
-              children: [
-                _buildPlayerArea(),
-                _buildContentTabs(theme),
-                Expanded(
-                  child: _contentTab == 0
-                      ? _buildVideoTab(theme)
-                      : _buildCommentTab(theme),
-                ),
-              ],
+    return ZenScaffold(
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            _buildPlayerArea(),
+            _buildContentTabs(theme),
+            Expanded(
+              child: _contentTab == 0
+                  ? _buildVideoTab(theme)
+                  : _buildCommentTab(theme),
             ),
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
   }
 
@@ -659,9 +614,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
                   icon: const Icon(LucideIcons.pictureInPicture,
                       size: 22, color: Colors.white),
                   tooltip: '画中画',
-                  onPressed: () => unawaited(PipService.enter(
-                    aspectRatio: _playerKey.currentState?.aspectRatio,
-                  )),
+                  onPressed: () =>
+                      unawaited(_playerKey.currentState?.enterPip()),
                 ),
               ),
             ),

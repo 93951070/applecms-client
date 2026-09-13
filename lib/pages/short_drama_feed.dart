@@ -5,7 +5,7 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:video_player/video_player.dart';
+import 'package:better_player_plus/better_player_plus.dart';
 
 import '../core/share_utils.dart';
 import '../core/theme.dart';
@@ -789,7 +789,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   }
 }
 
-/// 单集播放页：自身管理 [VideoPlayerController]，非激活时暂停。
+/// 单集播放页：自身管理 [BetterPlayerController]，非激活时暂停。
 class _DramaVideoPage extends StatefulWidget {
   final _FeedEntry entry;
   final String? url;
@@ -823,12 +823,13 @@ class _DramaVideoPage extends StatefulWidget {
 }
 
 class _DramaVideoPageState extends State<_DramaVideoPage> {
-  VideoPlayerController? _controller;
+  BetterPlayerController? _controller;
   String? _loadedUrl;
   bool _initializing = false;
   bool _failed = false;
   bool _completed = false;
   int _syncToken = 0;
+  double _aspectRatio = 0;
 
   @override
   void initState() {
@@ -849,147 +850,166 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
   @override
   void dispose() {
     _syncToken++;
-    _controller?.removeListener(_onTick);
-    _controller?.dispose();
+    _release();
     super.dispose();
   }
 
-  Future<void> _sync() async {
+  void _sync() {
     final token = ++_syncToken;
     final controller = _controller;
     if (!widget.isActive) {
-      await controller?.pause();
+      _pause();
       return;
     }
     final url = widget.url;
     if (url == null || url.isEmpty) return;
 
     if (controller != null && _loadedUrl == url) {
-      if (!controller.value.isPlaying) await controller.play();
+      controller.play();
       return;
     }
 
-    await _release();
+    _release();
     if (!mounted || token != _syncToken) return;
 
     setState(() {
       _initializing = true;
       _failed = false;
       _completed = false;
+      _aspectRatio = 0;
     });
 
-    final c = VideoPlayerController.networkUrl(
-      Uri.parse(url),
-      httpHeaders: {
-        if (widget.referer != null && widget.referer!.isNotEmpty) ...{
-          'User-Agent':
-              'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
-          'Referer': widget.referer!,
+    final c = BetterPlayerController(
+      BetterPlayerConfiguration(
+        autoPlay: true,
+        fit: BoxFit.contain,
+        allowedScreenSleep: false,
+        handleLifecycle: false,
+        autoDispose: false,
+        controlsConfiguration: BetterPlayerControlsConfiguration(
+          playerTheme: BetterPlayerTheme.material,
+          progressBarPlayedColor: AppColors.pink,
+          progressBarBufferedColor: Colors.white30,
+          progressBarBackgroundColor: Colors.white24,
+          controlBarColor: Colors.transparent,
+          loadingColor: AppColors.pink,
+          enablePip: false,
+          enableFullscreen: false,
+          enableOverflowMenu: false,
+          enablePlaybackSpeed: false,
+          enableSubtitles: false,
+          enableQualities: false,
+          enableAudioTracks: false,
+          enableRetry: false,
+          enableMute: true,
+          showControlsOnInitialize: false,
+          controlsHideTime: const Duration(milliseconds: 600),
+        ),
+      ),
+      betterPlayerDataSource: BetterPlayerDataSource(
+        BetterPlayerDataSourceType.network,
+        url,
+        headers: {
+          if (widget.referer != null && widget.referer!.isNotEmpty) ...{
+            'User-Agent':
+                'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
+            'Referer': widget.referer!,
+          },
         },
-      },
+      ),
     );
-    try {
-      await c.initialize();
-      await c.setVolume(1);
-      if (!mounted || token != _syncToken) {
-        await c.dispose();
-        return;
-      }
-      setState(() {
-        _controller = c;
-        _loadedUrl = url;
-        _initializing = false;
-      });
-      c.addListener(_onTick);
-      await c.play();
-    } catch (_) {
-      await c.dispose();
-      if (!mounted || token != _syncToken) return;
-      setState(() {
-        _initializing = false;
-        _failed = true;
-      });
+    c.addEventsListener((event) => _onPlayerEvent(event, token));
+    if (!mounted || token != _syncToken) {
+      c.dispose(forceDispose: true);
+      return;
     }
+    setState(() {
+      _controller = c;
+      _loadedUrl = url;
+    });
   }
 
-  Future<void> _release() async {
+  void _release() {
     final c = _controller;
     _controller = null;
     _loadedUrl = null;
+    _aspectRatio = 0;
     if (c != null) {
-      c.removeListener(_onTick);
-      await c.dispose();
+      try {
+        c.dispose(forceDispose: true);
+      } catch (_) {}
     }
   }
 
-  void _onTick() {
+  void _pause() {
+    try {
+      _controller?.pause();
+    } catch (_) {}
+  }
+
+  void _onPlayerEvent(BetterPlayerEvent event, int token) {
+    if (!mounted || token != _syncToken) return;
     final c = _controller;
     if (c == null) return;
-    final v = c.value;
-    if (!v.isInitialized) return;
-    final ended =
-        v.duration > Duration.zero && v.position >= v.duration && !v.isPlaying;
-    if (ended && widget.isActive && !_completed) {
-      _completed = true;
-      widget.onCompleted();
-    } else if (!ended) {
-      _completed = false;
+    switch (event.betterPlayerEventType) {
+      case BetterPlayerEventType.initialized:
+        final value = c.videoPlayerController?.value;
+        setState(() {
+          _initializing = false;
+          _aspectRatio = (value != null && (value.size?.width ?? 0) > 0)
+              ? value.aspectRatio
+              : 16 / 9;
+        });
+        break;
+      case BetterPlayerEventType.finished:
+        _notifyCompleted();
+        break;
+      case BetterPlayerEventType.exception:
+        setState(() {
+          _initializing = false;
+          _failed = true;
+        });
+        break;
+      case BetterPlayerEventType.progress:
+        final value = c.videoPlayerController?.value;
+        if (value == null) break;
+        final total = value.duration ?? Duration.zero;
+        final ended =
+            total > Duration.zero && value.position >= total && !value.isPlaying;
+        if (ended) {
+          _notifyCompleted();
+        } else {
+          _completed = false;
+        }
+        break;
+      default:
+        break;
     }
   }
 
-  Future<void> _togglePlay() async {
-    final c = _controller;
-    if (c == null || !c.value.isInitialized) return;
-    if (c.value.isPlaying) {
-      await c.pause();
-    } else {
-      if (c.value.position >= c.value.duration && c.value.duration > Duration.zero) {
-        await c.seekTo(Duration.zero);
-      }
-      await c.play();
-    }
-    if (mounted) setState(() {});
+  void _notifyCompleted() {
+    if (!widget.isActive || _completed) return;
+    _completed = true;
+    widget.onCompleted();
   }
 
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
-    final ready = controller != null &&
-        controller.value.isInitialized &&
-        controller.value.size.width > 0;
+    final ready = controller != null && _aspectRatio > 0 && !_failed;
 
     return Stack(
       fit: StackFit.expand,
       children: [
         if (ready) _buildVideo(controller) else _buildPlaceholder(),
-        if (ready)
-          Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _togglePlay,
-              child: const SizedBox.expand(),
-            ),
-          ),
-        if (ready && !controller.value.isPlaying) _buildPauseIcon(),
-        if (ready) _buildProgress(controller),
         if (widget.accessMessage != null) _buildMessage(widget.accessMessage!),
         if (!ready && _failed) _buildMessage('播放失败', retry: true),
       ],
     );
   }
 
-  Widget _buildVideo(VideoPlayerController controller) {
-    final v = controller.value;
-    // 部分源以竖屏尺寸存储但带 90/270 度旋转信息，需按显示方向换算宽高，
-    // 否则横屏内容会被当成竖屏裁切。
-    final rotated =
-        v.rotationCorrection == 90 || v.rotationCorrection == 270;
-    final width = rotated ? v.size.height : v.size.width;
-    final height = rotated ? v.size.width : v.size.height;
-    if (width <= 0 || height <= 0) {
-      return const ColoredBox(color: Colors.black);
-    }
-    final aspect = width / height;
+  Widget _buildVideo(BetterPlayerController controller) {
+    final aspect = _aspectRatio <= 0 ? 16 / 9 : _aspectRatio;
     // 横屏源等比完整显示（模糊海报补边）；竖屏源铺满裁切。两者都按真实比例
     // 缩放，不做拉伸。
     if (aspect >= 1) {
@@ -1000,7 +1020,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
           Center(
             child: AspectRatio(
               aspectRatio: aspect,
-              child: VideoPlayer(controller),
+              child: BetterPlayer(controller: controller),
             ),
           ),
         ],
@@ -1010,9 +1030,9 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
       child: FittedBox(
         fit: BoxFit.cover,
         child: SizedBox(
-          width: width,
-          height: height,
-          child: VideoPlayer(controller),
+          width: aspect * 1000,
+          height: 1000,
+          child: BetterPlayer(controller: controller),
         ),
       ),
     );
@@ -1042,64 +1062,6 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
           ),
       ],
     );
-  }
-
-  Widget _buildPauseIcon() {
-    // 暂停图标仅作提示，必须忽略指针事件，否则会挡住下方的手势层，
-    // 导致点击图标区域无法恢复播放（只能点到图标旁边的空白）。
-    return const IgnorePointer(
-      child: Center(
-        child: Icon(Icons.play_arrow_rounded, color: Colors.white54, size: 68),
-      ),
-    );
-  }
-
-  Widget _buildProgress(VideoPlayerController c) {
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 0,
-      child: ValueListenableBuilder<VideoPlayerValue>(
-        valueListenable: c,
-        builder: (context, v, _) {
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
-            child: Row(
-              children: [
-                Text(_fmt(v.position), style: _timeStyle),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: VideoProgressIndicator(
-                    c,
-                    allowScrubbing: true,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    colors: const VideoProgressColors(
-                      playedColor: AppColors.pink,
-                      bufferedColor: Colors.white30,
-                      backgroundColor: Colors.white24,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(_fmt(v.duration), style: _timeStyle),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  static const _timeStyle = TextStyle(
-    color: Colors.white,
-    fontSize: 11,
-    shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
-  );
-
-  String _fmt(Duration d) {
-    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$m:$s';
   }
 
   Widget _buildMessage(String message, {bool retry = false}) {

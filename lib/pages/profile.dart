@@ -632,58 +632,6 @@ class ProfilePage extends ConsumerWidget {
     );
   }
 
-  void _showHistoryActions(BuildContext context, WidgetRef ref) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.delete_outline, color: AppColors.pink),
-              title: const Text('清空观看记录'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _confirmClearHistory(context, ref);
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.close,
-                  color: Theme.of(context).colorScheme.secondary),
-              title: const Text('取消'),
-              onTap: () => Navigator.pop(ctx),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _confirmClearHistory(BuildContext context, WidgetRef ref) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('清空观看记录'),
-        content: const Text('确定要清空所有观看记录吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () {
-              ref.read(historyProvider.notifier).clearHistory();
-              Navigator.pop(ctx);
-            },
-            child: const Text('清空',
-                style: TextStyle(color: AppColors.pink)),
-          ),
-        ],
-      ),
-    );
-  }
-
   // ==================== 快捷入口四宫格 ====================
 
   Widget _buildQuickEntries(BuildContext context, WidgetRef ref) {

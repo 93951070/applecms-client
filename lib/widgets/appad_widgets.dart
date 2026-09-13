@@ -15,10 +15,6 @@ Color _text2(BuildContext context) => _isDark(context)
     ? AppColors.darkText2
     : AppColors.lightText2;
 
-Color _text3(BuildContext context) => _isDark(context)
-    ? AppColors.darkText3
-    : AppColors.lightText3;
-
 /// 底部导航（扁平全宽，3 Tab：首页 / 排行榜 / 我的）
 class AppTabBar extends StatelessWidget {
   const AppTabBar({

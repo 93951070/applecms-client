@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/theme.dart';
 import '../models/watch_party.dart';
 import '../pages/watch_room.dart';
-import '../providers/auth_provider.dart';
 import '../services/config_service.dart';
 import '../services/watch_party_service.dart';
 

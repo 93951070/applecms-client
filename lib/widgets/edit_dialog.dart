@@ -15,7 +15,6 @@ class EditDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final screenWidth = MediaQuery.of(context).size.width;
-    final isDesktop = screenWidth > 800;
     
     final minHorizontalMargin = screenWidth <= 360
         ? 12.0
