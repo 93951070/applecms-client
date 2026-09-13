@@ -3,16 +3,16 @@ import AVKit
 import Flutter
 import UIKit
 
-/// 系统画中画（Picture-in-Picture）支持。
+/// 系统画中画（Picture in Picture）支持。
 ///
 /// Flutter 侧通过 `echotv/pip` 通道控制：
 /// - isSupported：系统是否支持 PiP
-/// - setEnabled：播放器就绪后建立控制器并允许离开 App 时自动进入
+/// - setEnabled：播放器就绪后绑定 PiP 来源，允许离开 App 时自动进入
 /// - enter：主动进入 PiP
 ///
-/// 官方 video_player 在 iOS 上基于 AVPlayer + AVPlayerLayer（platform view），
-/// 这里在视图层级中定位正在播放的 AVPlayerLayer 并交给 AVPictureInPictureController。
-/// 进出 PiP 时反向通知 Flutter，使其在 PiP 期间保持播放。
+/// iOS 的 AVPictureInPictureController 必须以 AVPlayerLayer 为来源。App 的播放器
+/// 在 iOS 上使用 `VideoViewType.platformView` 渲染，视图树中存在 AVPlayerLayer，
+/// 这里在播放器就绪、全屏切换、前后台切换时重新定位并绑定它。
 @main
 @objc class AppDelegate: FlutterAppDelegate {
   private var pipController: AVPictureInPictureController?
@@ -51,11 +51,20 @@ import UIKit
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
+  override func applicationWillResignActive(_ application: UIApplication) {
+    super.applicationWillResignActive(application)
+    // 离开 App 前重新绑定到当前可见的 AVPlayerLayer（全屏切换会重建平台视图），
+    // 让系统在进入后台时能自动进入画中画。
+    if pipEnabled {
+      rebindPipController(force: true)
+    }
+  }
+
   override func applicationDidBecomeActive(_ application: UIApplication) {
     super.applicationDidBecomeActive(application)
-    // 回到前台后视图层级可能已重建，重新绑定一次，保证下次离开仍能自动进入。
+    // 回到前台后视图层级可能已重建，重新绑定，保证下次离开仍能自动进入。
     if pipEnabled {
-      setupPipController()
+      rebindPipController(force: true)
     }
   }
 
@@ -63,8 +72,12 @@ import UIKit
     pipEnabled = enabled
     if enabled {
       configureAudioSession()
-      setupPipController()
+      rebindPipController(force: true)
     } else {
+      if pipController?.isPictureInPictureActive == true {
+        pipController?.stopPictureInPicture()
+      }
+      pipController?.delegate = nil
       pipController = nil
     }
   }
@@ -77,11 +90,18 @@ import UIKit
     } catch {}
   }
 
-  /// 视频 platform view 可能晚于调用就绪，未找到 playerLayer 时短暂轮询重试。
-  private func setupPipController(attempt: Int = 0) {
-    guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
-    if let existing = pipController, existing.isPictureInPicturePossible { return }
+  /// 把画中画控制器绑定到当前播放器图层。
+  ///
+  /// 平台视图可能晚于调用挂载，未找到 AVPlayerLayer 时短暂轮询重试；`force`
+  /// 用于全屏切换、回到前台等图层可能已更换的场景。
+  private func rebindPipController(force: Bool = false, attempt: Int = 0) {
+    guard pipEnabled, AVPictureInPictureController.isPictureInPictureSupported() else { return }
+    // 画中画进行中不重建，避免打断当前小窗。
+    if pipController?.isPictureInPictureActive == true { return }
     if let layer = findPlayerLayer(from: window) {
+      if !force, let existing = pipController, existing.playerLayer === layer {
+        return
+      }
       let controller = AVPictureInPictureController(playerLayer: layer)
       controller?.delegate = self
       if #available(iOS 14.2, *) {
@@ -93,15 +113,15 @@ import UIKit
     if attempt < 12 {
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
         guard let self = self, self.pipEnabled else { return }
-        self.setupPipController(attempt: attempt + 1)
+        self.rebindPipController(force: force, attempt: attempt + 1)
       }
     }
   }
 
   private func startPictureInPicture() -> Bool {
     guard AVPictureInPictureController.isPictureInPictureSupported() else { return false }
-    if pipController == nil {
-      setupPipController()
+    if pipController == nil || pipController?.playerLayer == nil {
+      rebindPipController(force: true)
     }
     guard let controller = pipController, controller.isPictureInPicturePossible else {
       return false
@@ -151,6 +171,18 @@ extension AppDelegate: AVPictureInPictureControllerDelegate {
     _ pictureInPictureController: AVPictureInPictureController
   ) {
     notifyPip(false)
+    // 停止后解绑，下次播放或回到前台时重新绑定到最新图层。
+    pipController = nil
+  }
+
+  func pictureInPictureController(
+    _ pictureInPictureController: AVPictureInPictureController,
+    restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler:
+      @escaping (Bool) -> Void
+  ) {
+    // 用户点击画中画的「还原」按钮：通知 Flutter 侧，同时让系统把 App 拉回前台。
+    notifyPip(false)
+    completionHandler(true)
   }
 
   func pictureInPictureController(
@@ -158,5 +190,6 @@ extension AppDelegate: AVPictureInPictureControllerDelegate {
     failedToStartPictureInPictureWithError error: Error
   ) {
     notifyPip(false)
+    NSLog("echotv: PiP 启动失败: \(error.localizedDescription)")
   }
 }

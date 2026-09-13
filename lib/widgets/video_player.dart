@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
@@ -106,6 +107,9 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
   /// 主动暂停标记：缓冲/初始化完成前用户已离开播放（如进入一起看），
   /// 用于抑制 Chewie 的 autoPlay，避免「缓冲完成后在后台继续出声」。
   bool _holdPaused = false;
+
+  /// 记录上一次的全屏状态，用于在全屏切换后重新绑定系统画中画来源。
+  bool _lastFullScreen = false;
 
   /// 初始化代次号：切集/重试/离场时自增，使任何在途的旧初始化立即作废，
   /// 并强制释放它创建的控制器，避免出现「上一集还在后台出声」。
@@ -224,6 +228,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
 
       if (oldChewieController != null) {
         try {
+          oldChewieController.removeListener(_onChewieChanged);
           oldChewieController.dispose();
         } catch (e) {
           debugPrint('EchoVideoPlayer: dispose old chewie failed: $e');
@@ -268,6 +273,12 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
           if (widget.referer != null && widget.referer!.isNotEmpty) 'Referer': widget.referer!,
         },
         formatHint: useHlsHint ? VideoFormat.hls : null,
+        // iOS 系统画中画必须以 AVPlayerLayer 为来源；默认的 textureView 走 Flutter
+        // 纹理渲染，视图树里没有 AVPlayerLayer，画中画无法接入。因此 iOS 用平台视图，
+        // Android 仍用纹理视图（平台视图在 Android 上限制较多）。
+        viewType: Platform.isIOS
+            ? VideoViewType.platformView
+            : VideoViewType.textureView,
       );
 
       await controller.initialize();
@@ -367,6 +378,11 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
           backgroundColor: Colors.white.withOpacity(0.1),
         ),
       );
+
+      // 全屏切换会让 iOS 平台视图重建，画中画来源 AVPlayerLayer 会随之更换，
+      // 这里监听全屏状态变化后重新绑定，保证离开 App 时仍能进入画中画。
+      _lastFullScreen = _chewieController!.isFullScreen;
+      _chewieController!.addListener(_onChewieChanged);
 
       // 播放器就绪后开启系统画中画：用户离开 App 时自动进入 PiP 小窗继续播放。
       // iOS 需要 AVPlayerLayer 已挂载到视图层级，稍作延迟再开启。
@@ -522,6 +538,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
     
     _videoController?.removeListener(_videoListener);
     _videoController?.dispose();
+    _chewieController?.removeListener(_onChewieChanged);
     _chewieController?.dispose();
     _danmakuTicker.dispose();
     _danmakuEnabledNotifier.dispose();
@@ -582,6 +599,22 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer> with WidgetsBi
     if (!controller.value.isPlaying) {
       controller.play();
     }
+  }
+
+  /// 全屏切换后重新绑定画中画来源。
+  ///
+  /// iOS 平台视图在全屏路由重建时会产生新的 AVPlayerLayer，稍等其挂载后
+  /// 再通知原生重新绑定，确保离开 App 时画中画仍可用。
+  void _onChewieChanged() {
+    final chewie = _chewieController;
+    if (chewie == null) return;
+    if (chewie.isFullScreen == _lastFullScreen) return;
+    _lastFullScreen = chewie.isFullScreen;
+    final aspect = _videoController?.value.aspectRatio ?? 0;
+    Future.delayed(const Duration(milliseconds: 400), () {
+      if (_isDisposed || !mounted) return;
+      PipService.setEnabled(true, aspectRatio: aspect);
+    });
   }
 
   @override
