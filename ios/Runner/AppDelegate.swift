@@ -56,7 +56,42 @@ import UIKit
     // 离开 App 前重新绑定到当前可见的 AVPlayerLayer（全屏切换会重建平台视图），
     // 让系统在进入后台时能自动进入画中画。
     if pipEnabled {
+      NSLog("echotv: applicationWillResignActive 重新绑定画中画")
       rebindPipController(force: true)
+      attemptAutoStartPip()
+    }
+  }
+
+  /// 离开 App 时的兜底：若视频正在播放且系统允许，主动启动画中画。
+  ///
+  /// 自动进入（canStartPictureInPictureAutomaticallyFromInline）在部分机型/时机下
+  /// 不触发，这里在后台化前短暂重试，确保「上滑回桌面」也能无缝进入小窗。
+  private func attemptAutoStartPip(attempt: Int = 0) {
+    guard pipEnabled else { return }
+    if pipController?.isPictureInPictureActive == true { return }
+    if pipController == nil {
+      rebindPipController(force: true)
+    }
+    guard let controller = pipController else {
+      if attempt < 6 {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+          self?.attemptAutoStartPip(attempt: attempt + 1)
+        }
+      }
+      return
+    }
+    let playing = (controller.playerLayer?.player?.rate ?? 0) > 0
+    if controller.isPictureInPicturePossible && playing {
+      NSLog("echotv: 后台前主动启动画中画 attempt=\(attempt)")
+      controller.startPictureInPicture()
+      return
+    }
+    if attempt < 8 {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+        self?.attemptAutoStartPip(attempt: attempt + 1)
+      }
+    } else {
+      NSLog("echotv: 主动启动画中画放弃 possible=\(controller.isPictureInPicturePossible) playing=\(playing)")
     }
   }
 
@@ -70,6 +105,7 @@ import UIKit
 
   private func setPipEnabled(_ enabled: Bool) {
     pipEnabled = enabled
+    NSLog("echotv: setPipEnabled(\(enabled)) supported=\(AVPictureInPictureController.isPictureInPictureSupported())")
     if enabled {
       configureAudioSession()
       rebindPipController(force: true)
@@ -108,7 +144,18 @@ import UIKit
         controller?.canStartPictureInPictureAutomaticallyFromInline = true
       }
       pipController = controller
+      NSLog("echotv: rebindPipController 绑定成功 attempt=\(attempt) layer=\(type(of: layer)) controller=\(controller != nil)")
+      // 绑定后短时间内打印可用性，便于确认系统是否允许进入画中画。
+      for delay in [0.3, 1.0, 2.0] {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+          guard let c = self?.pipController else { return }
+          NSLog("echotv: PiP possible=\(c.isPictureInPicturePossible) active=\(c.isPictureInPictureActive) delay=\(delay)")
+        }
+      }
       return
+    }
+    if attempt == 0 || attempt == 12 {
+      NSLog("echotv: rebindPipController 未找到 AVPlayerLayer attempt=\(attempt) 层级=\(describeLayers(from: window))")
     }
     if attempt < 12 {
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -118,12 +165,36 @@ import UIKit
     }
   }
 
+  /// 打印视图树中的图层类名，用于确认平台视图里是否存在 AVPlayerLayer。
+  private func describeLayers(from view: UIView?, depth: Int = 0) -> String {
+    guard let view = view, depth <= 6 else { return "" }
+    var parts: [String] = []
+    for layer in view.layer.sublayers ?? [] {
+      let name = String(describing: type(of: layer))
+      if name.contains("PlayerLayer") {
+        let hasPlayer = (layer as? AVPlayerLayer)?.player != nil
+        parts.append("\(name)(player=\(hasPlayer))")
+      } else if depth < 4 {
+        parts.append(name)
+      }
+    }
+    var result = "depth\(depth)[\(parts.joined(separator: ","))]"
+    for sub in view.subviews where depth < 6 {
+      let nested = describeLayers(from: sub, depth: depth + 1)
+      if !nested.isEmpty {
+        result += " " + nested
+      }
+    }
+    return result
+  }
+
   private func startPictureInPicture() -> Bool {
     guard AVPictureInPictureController.isPictureInPictureSupported() else { return false }
     if pipController == nil || pipController?.playerLayer == nil {
       rebindPipController(force: true)
     }
     guard let controller = pipController, controller.isPictureInPicturePossible else {
+      NSLog("echotv: enter 失败 controller=\(pipController != nil) possible=\(pipController?.isPictureInPicturePossible ?? false)")
       return false
     }
     controller.startPictureInPicture()
