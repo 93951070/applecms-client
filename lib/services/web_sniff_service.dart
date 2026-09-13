@@ -32,7 +32,14 @@ class WebSniffService {
 
     void onHit(Object? raw) {
       final hit = raw?.toString() ?? '';
-      if (hit.isEmpty || !hit.toLowerCase().contains('.m3u8')) return;
+      if (hit.isEmpty) return;
+      // 解析站被 WAF 拦截（返回人机验证页）时，脚本会回传该哨兵值，
+      // 立即判定失败让上层换源，不再干等超时。
+      if (hit == _wafSentinel) {
+        finish(null);
+        return;
+      }
+      if (!hit.toLowerCase().contains('.m3u8')) return;
       finish(hit);
     }
 
@@ -66,6 +73,13 @@ class WebSniffService {
         onHit(request.url.toString());
         return null;
       },
+      // 主文档被 WAF/风控直接拒绝（403/418 等）时快速失败。
+      onReceivedHttpError: (controller, request, errorResponse) {
+        final status = errorResponse.statusCode ?? 0;
+        if (status == 401 || status == 403 || status == 418 || status == 429) {
+          finish(null);
+        }
+      },
       onLoadStop: (controller, _) {
         controller.evaluateJavascript(source: _sniffJs);
       },
@@ -81,6 +95,9 @@ class WebSniffService {
   }
 }
 
+/// WAF 验证页哨兵值：页面脚本识别到人机验证后回传，触发快速失败。
+const String _wafSentinel = '__ECHO_WAF__';
+
 /// 在页面脚本之前挂载嗅探钩子：XHR / fetch / hls.js 的清单请求都会被捕获。
 const String _sniffJs = r'''
 (function () {
@@ -91,6 +108,24 @@ const String _sniffJs = r'''
       if (typeof u !== 'string' || u.length === 0) return;
       if (u.toLowerCase().indexOf('.m3u8') < 0) return;
       window.flutter_inappwebview.callHandler('echoSniff', u);
+    } catch (e) {}
+  }
+  // 识别 WAF 人机验证页：命中后立即回传哨兵，让上层秒速换源。
+  var wafReported = false;
+  function checkWaf() {
+    if (wafReported) return;
+    try {
+      var title = document.title || '';
+      var text = title + ' ' + ((document.body && document.body.innerText) || '').slice(0, 500);
+      var hasWafScript = !!document.querySelector('script[src*="/_waf/"]');
+      if (hasWafScript ||
+          text.indexOf('人机验证') >= 0 ||
+          text.indexOf('Security Check') >= 0 ||
+          text.indexOf('安全验证') >= 0 ||
+          text.indexOf('点击验证') >= 0) {
+        wafReported = true;
+        window.flutter_inappwebview.callHandler('echoSniff', '__ECHO_WAF__');
+      }
     } catch (e) {}
   }
   try {
@@ -135,6 +170,7 @@ const String _sniffJs = r'''
   try {
     setInterval(function () {
       try {
+        checkWaf();
         var v = document.querySelector('video');
         if (v) report(v.currentSrc || v.src || '');
       } catch (e) {}
