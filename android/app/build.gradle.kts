@@ -32,19 +32,22 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-
-        ndk {
-            // 关闭 32 位打包时仅保留 arm64-v8a
-            if (!packArmeabiV7a) {
-                abiFilters += listOf("arm64-v8a")
-            }
-        }
     }
 
     packaging {
         jniLibs {
             // 压缩原生库以缩小 APK，安装时解压（安装后占用空间基本不变）
             useLegacyPackaging = true
+            // 关闭 32 位打包时移除非 arm64-v8a 的原生库。
+            // Flutter 注入的 .so 不受 abiFilters 影响，需在此按路径排除。
+            if (!packArmeabiV7a) {
+                excludes += setOf(
+                    "lib/armeabi-v7a/**",
+                    "lib/armeabi/**",
+                    "lib/x86/**",
+                    "lib/x86_64/**",
+                )
+            }
         }
     }
 
