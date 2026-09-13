@@ -1750,8 +1750,8 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
         ),
         _transportButton(
           icon: playing
-              ? Icons.pause_circle_filled_rounded
-              : Icons.play_circle_fill_rounded,
+              ? Icons.pause_circle_filled
+              : Icons.play_circle_filled,
           tip: playing ? '暂停' : '播放',
           size: 42,
           onTap: enabled ? _togglePlay : null,
@@ -1958,7 +1958,8 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
 
   double _danmakuOffset(_RoomDanmaku d, double width) {
     final elapsed = DateTime.now().difference(d.startedAt).inMilliseconds;
-    final progress = (elapsed / _danmakuLifeMs).clamp(0.0, 1.0);
+    final progress =
+        (elapsed / _danmakuLifeMs).clamp(0.0, 1.0).toDouble();
     const estimated = 260.0;
     return width - progress * (width + estimated);
   }
