@@ -164,6 +164,11 @@ class AppApiService {
     return _request(base, method: 'GET', path: '$_apiPrefix/videos/$vodId');
   }
 
+  /// 豆瓣评分/简介/演职员与横版剧照。未开启或未匹配时 `matched` 为 false。
+  Future<Map<String, dynamic>> doubanMedia(String base, String vodId) async {
+    return _request(base, method: 'GET', path: '$_apiPrefix/videos/$vodId/douban');
+  }
+
   /// 分类树（主分类 + 子分类）。
   Future<List<Map<String, dynamic>>> categories(String base) async {
     final data =

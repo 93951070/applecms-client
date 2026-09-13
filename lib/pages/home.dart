@@ -53,6 +53,13 @@ class _HomePageState extends ConsumerState<HomePage> {
   bool _continueDismissed = false;
   Timer? _continueTimer;
 
+  Timer? _heroTimer;
+  int _heroCount = 0;
+
+  /// 幻灯片横版图缓存（key 为视频 id，值为后端豆瓣图片代理地址）。
+  final Map<String, String> _heroSlides = {};
+  final Set<String> _heroSlideLoading = {};
+
   @override
   void initState() {
     super.initState();
@@ -61,7 +68,51 @@ class _HomePageState extends ConsumerState<HomePage> {
   @override
   void dispose() {
     _continueTimer?.cancel();
+    _heroTimer?.cancel();
     super.dispose();
+  }
+
+  /// 按需拉取当前幻灯片的豆瓣横版剧照，失败时回退竖版海报。
+  Future<void> _loadHeroSlide(VideoDetail item) async {
+    final id = item.id.trim();
+    if (id.isEmpty ||
+        _heroSlides.containsKey(id) ||
+        _heroSlideLoading.contains(id)) {
+      return;
+    }
+    _heroSlideLoading.add(id);
+    try {
+      final base = await ref.read(configServiceProvider).getApiBaseUrl();
+      final media = await ref.read(cmsServiceProvider).fetchDouban(id);
+      final slide = media?.slide.trim() ?? '';
+      if (slide.isNotEmpty && mounted) {
+        setState(() {
+          _heroSlides[id] =
+              '$base/api/douban/image?u=${Uri.encodeQueryComponent(slide)}';
+        });
+      }
+    } catch (_) {
+      // 忽略：保持竖版海报
+    } finally {
+      _heroSlideLoading.remove(id);
+    }
+  }
+
+  /// 幻灯片自动轮播：数据就绪后每 5 秒切到下一张，手动点圆点后会重置节奏
+  void _startHeroAutoPlay(int count) {
+    if (count <= 1) {
+      _heroTimer?.cancel();
+      _heroTimer = null;
+      _heroCount = count;
+      return;
+    }
+    if (_heroTimer != null && _heroCount == count) return;
+    _heroCount = count;
+    _heroTimer?.cancel();
+    _heroTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted || _heroCount <= 1) return;
+      setState(() => _heroPage = (_heroPage + 1) % _heroCount);
+    });
   }
 
   void _openDetail(VideoDetail video) {
@@ -291,7 +342,13 @@ class _HomePageState extends ConsumerState<HomePage> {
       builder: (context, ref, _) {
         final async = ref.watch(cmsCategoryProvider(typeId));
         return async.maybeWhen(
-          data: (list) => _buildHero(list),
+          data: (list) {
+            final count = list.length > 5 ? 5 : list.length;
+            WidgetsBinding.instance.addPostFrameCallback(
+              (_) => _startHeroAutoPlay(count),
+            );
+            return _buildHero(list);
+          },
           orElse: () => const SizedBox.shrink(),
         );
       },
@@ -343,6 +400,8 @@ class _HomePageState extends ConsumerState<HomePage> {
     final items = list.take(5).toList();
     final page = _heroPage.clamp(0, items.length - 1).toInt();
     final item = items[page];
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadHeroSlide(item));
+    final heroImage = _heroSlides[item.id] ?? item.poster;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -365,8 +424,8 @@ class _HomePageState extends ConsumerState<HomePage> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                if (item.poster.isNotEmpty)
-                  CoverImage(imageUrl: item.poster, aspectRatio: 1.9)
+                if (heroImage.isNotEmpty)
+                  CoverImage(imageUrl: heroImage, aspectRatio: 1.9)
                 else
                   const DecoratedBox(
                     decoration: BoxDecoration(

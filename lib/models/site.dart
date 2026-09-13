@@ -89,6 +89,10 @@ class VideoDetail {
   final String? typeName;
   final int typeId;
 
+  /// 演员/导演逗号分隔文本，作为豆瓣不可用时的兜底展示。
+  final String? actors;
+  final String? directors;
+
   /// 会员观看模式：0 免费，1 会员。
   final int vipMode;
 
@@ -106,6 +110,8 @@ class VideoDetail {
     this.desc,
     this.typeName,
     this.typeId = 0,
+    this.actors,
+    this.directors,
     this.vipMode = 0,
     this.freeEpisodes = 0,
   });
@@ -120,6 +126,8 @@ class VideoDetail {
         'desc': desc,
         'type_name': typeName,
         'type_id': typeId,
+        'actors': actors,
+        'directors': directors,
         'play_groups': playGroups.map((g) => g.toJson()).toList(),
         'vip_mode': vipMode,
         'free_episodes': freeEpisodes,
@@ -139,6 +147,8 @@ class VideoDetail {
       year: json['year']?.toString(),
       desc: json['desc']?.toString(),
       typeName: json['type_name']?.toString(),
+      actors: json['actors']?.toString(),
+      directors: json['directors']?.toString(),
       typeId: (json['type_id'] is int)
           ? json['type_id'] as int
           : int.tryParse(json['type_id']?.toString() ?? '') ?? 0,

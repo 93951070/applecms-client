@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/movie.dart';
 import '../models/comment.dart';
+import '../models/douban_media.dart';
 import '../models/site.dart';
 import '../models/watch_party.dart';
 import '../services/app_api_service.dart';
@@ -24,6 +25,7 @@ import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
 import '../widgets/video_player.dart';
 import '../widgets/bili_loading.dart';
+import '../widgets/synopsis_sheet.dart';
 import '../widgets/watch_party_sheet.dart';
 
 /// 播放页「同类推荐」数据源：按当前视频所属分类拉取同分类内容。
@@ -49,7 +51,6 @@ class VideoDetailPage extends ConsumerStatefulWidget {
 class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsBindingObserver, RouteAware {
   late HistoryNotifier _historyNotifier;
 
-  bool _descExpanded = false;
   int _contentTab = 0;
 
   String _doubanId = '';
@@ -810,7 +811,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       padding: const EdgeInsets.only(bottom: 24),
       children: [
         _buildTitleRow(theme),
-        _buildDescRow(theme),
         _buildActionRow(theme),
         Divider(
             height: 26, indent: 14, endIndent: 14, color: theme.dividerColor),
@@ -1157,11 +1157,51 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
             ),
           ),
           GestureDetector(
-            onTap: () => setState(() => _descending = !_descending),
-            child:
-                const Icon(Icons.swap_horiz, size: 20, color: AppColors.pink),
+            onTap: _showSynopsisSheet,
+            child: Row(
+              children: [
+                Text('简介',
+                    style: TextStyle(
+                        fontSize: 13, color: theme.colorScheme.secondary)),
+                Icon(Icons.chevron_right_rounded,
+                    size: 18, color: theme.colorScheme.secondary),
+              ],
+            ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 腾讯风格的「简介」底部弹层：按需拉取豆瓣评分/简介/演职员头像，失败静默降级。
+  Future<void> _showSynopsisSheet() async {
+    final vodId = (_video?.id ?? _doubanId).trim();
+    final base = await ref.read(configServiceProvider).getApiBaseUrl();
+    if (!mounted) return;
+    final localDesc = (widget.subject.description ?? '').trim().isNotEmpty
+        ? widget.subject.description!.trim()
+        : (_video?.desc ?? '').trim();
+    final future = vodId.isEmpty
+        ? Future<DoubanMedia?>.value(null)
+        : ref.read(cmsServiceProvider).fetchDouban(vodId);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (_) => SynopsisSheet(
+        title:
+            (_video?.title ?? '').trim().isNotEmpty ? _video!.title : widget.subject.title,
+        year: _video?.year ?? widget.subject.year,
+        typeName: _video?.typeName,
+        localDesc: localDesc,
+        localActors: _video?.actors ?? '',
+        localDirectors: _video?.directors ?? '',
+        future: future,
+        proxyImageUrl: (raw) =>
+            '$base/api/douban/image?u=${Uri.encodeQueryComponent(raw)}',
       ),
     );
   }
@@ -1271,53 +1311,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     );
   }
 
-  Widget _buildDescRow(ThemeData theme) {
-    final subjectDesc = widget.subject.description;
-    final loadedDesc = _video?.desc;
-    // 列表页传入的 subject.description 常为空串，不能直接压制详情接口返回的简介
-    final desc = (subjectDesc != null && subjectDesc.trim().isNotEmpty)
-        ? subjectDesc
-        : loadedDesc;
-    final hasDesc = desc != null && desc.trim().isNotEmpty;
-    // 详情仍在加载且尚无简介时，不显示占位，避免闪出「暂无简介」。
-    if (!hasDesc && _isSearching) return const SizedBox.shrink();
-    final text = (desc != null && desc.trim().isNotEmpty) ? desc.trim() : '暂无简介';
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => setState(() => _descExpanded = !_descExpanded),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Text(
-                text,
-                maxLines: _descExpanded ? null : 2,
-                overflow: _descExpanded ? null : TextOverflow.ellipsis,
-                style: TextStyle(
-                    fontSize: 12.5,
-                    color: theme.colorScheme.secondary,
-                    height: 1.7),
-              ),
-            ),
-            const SizedBox(width: 4),
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Icon(
-                _descExpanded
-                    ? Icons.keyboard_arrow_up
-                    : Icons.keyboard_arrow_down,
-                size: 18,
-                color: AppColors.pink,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildEpisodeHeader(ThemeData theme) {
     final video = _video;
     if (video == null) return const SizedBox.shrink();
@@ -1332,6 +1325,20 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           Text('共 $n 集',
               style:
                   TextStyle(fontSize: 12, color: theme.colorScheme.secondary)),
+          const SizedBox(width: 12),
+          GestureDetector(
+            onTap: () => setState(() => _descending = !_descending),
+            child: Row(
+              children: [
+                Icon(Icons.swap_vert_rounded,
+                    size: 16, color: theme.colorScheme.secondary),
+                const SizedBox(width: 2),
+                Text(_descending ? '倒序' : '正序',
+                    style: TextStyle(
+                        fontSize: 12, color: theme.colorScheme.secondary)),
+              ],
+            ),
+          ),
         ],
       ),
     );

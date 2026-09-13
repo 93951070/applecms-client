@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/comment.dart';
+import '../models/douban_media.dart';
 import '../models/site.dart';
 import '../models/system_message.dart';
 import '../models/user.dart';
@@ -251,10 +252,25 @@ class CmsService {
           .replaceAll(RegExp(r'<[^>]*>'), '')
           .trim(),
       typeName: data['type_name']?.toString(),
+      actors: (data['vod_actor'] ?? '').toString().trim(),
+      directors: (data['vod_director'] ?? '').toString().trim(),
       typeId: _asInt(data['type_id']),
       vipMode: _asInt(data['vip_mode']),
       freeEpisodes: _asInt(data['free_episodes']),
     );
+  }
+
+  /// 按需拉取豆瓣评分、简介、演职员与横版剧照（后台未开启或未匹配时返回 null）。
+  Future<DoubanMedia?> fetchDouban(String vodId) async {
+    if (vodId.trim().isEmpty) return null;
+    try {
+      final data = await _api.doubanMedia(await _base(), vodId);
+      final media = DoubanMedia.fromJson(data);
+      if (!media.enabled || !media.matched) return null;
+      return media;
+    } catch (_) {
+      return null;
+    }
   }
 
   CmsCategory _categoryFromJson(Map<String, dynamic> json) {
