@@ -19,8 +19,8 @@ jobs:
         include:
           - target: Android
             os: ubuntu-latest
-            build_cmd: flutter build apk --release
-            artifact_path: build/app/outputs/flutter-apk/app-release.apk
+            build_cmd: flutter build apk --release --split-per-abi
+            artifact_path: build/app/outputs/flutter-apk/*.apk
             artifact_ext: apk
 
           - target: iOS
