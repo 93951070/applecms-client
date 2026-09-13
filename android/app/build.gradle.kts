@@ -5,6 +5,10 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// 是否打包 32 位 armeabi-v7a；由 android/gradle.properties 的
+// echotv.packArmeabiV7a 控制，默认关闭以缩小安装包，后期可随时开启。
+val packArmeabiV7a = (project.findProperty("echotv.packArmeabiV7a") as String?)?.toBoolean() ?: false
+
 android {
     namespace = "com.hoowhoami.echotv"
     compileSdk = flutter.compileSdkVersion
@@ -28,6 +32,20 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        ndk {
+            // 关闭 32 位打包时仅保留 arm64-v8a
+            if (!packArmeabiV7a) {
+                abiFilters += listOf("arm64-v8a")
+            }
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // 压缩原生库以缩小 APK，安装时解压（安装后占用空间基本不变）
+            useLegacyPackaging = true
+        }
     }
 
     signingConfigs {

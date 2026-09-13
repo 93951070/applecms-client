@@ -43,7 +43,9 @@ dependencies:
   flutter_riverpod: ^3.2.0
   flutter_hooks: ^0.21.3+1
   go_router: ^17.0.0
-  lucide_icons_flutter: ^3.1.19
+  # 本地精简版：仅打包基础字重字体，去掉未使用的 6 个可变字重（约省 2.7MB）
+  lucide_icons_flutter:
+    path: third_party/lucide_icons_flutter
   google_fonts: ^6.3.2
   flutter_staggered_grid_view: ^0.7.0
   url_launcher: ^6.3.2
