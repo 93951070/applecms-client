@@ -80,7 +80,7 @@ import UIKit
       }
       return
     }
-    let playing = (controller.playerLayer?.player?.rate ?? 0) > 0
+    let playing = (controller.playerLayer.player?.rate ?? 0) > 0
     if controller.isPictureInPicturePossible && playing {
       NSLog("echotv: 后台前主动启动画中画 attempt=\(attempt)")
       controller.startPictureInPicture()
