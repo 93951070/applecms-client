@@ -299,24 +299,6 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
       child: MouseRegion(
         onHover: (_) => _cancelAndRestartTimer(),
         child: GestureDetector(
-          onTap: () {
-            if (_isLocked) {
-              _cancelAndRestartTimer();
-              return;
-            }
-            if (_showSettings || _showEpisodePanel) {
-              setState(() {
-                _showSettings = false;
-                _showSpeedSubMenu = false;
-                _showEpisodePanel = false;
-                _startHideTimer();
-              });
-            } else if (_displayToggles) {
-              setState(() => _displayToggles = false);
-            } else {
-              _cancelAndRestartTimer();
-            }
-          },
           onVerticalDragStart: (details) {
             _dragStartOffset = details.localPosition;
             _dragStartVolume = _videoPlayerController?.value.volume ?? 0.0;
@@ -324,67 +306,75 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
           },
           onVerticalDragUpdate: _handleVerticalDragUpdate,
           onVerticalDragEnd: _handleDragEnd,
-          child: AbsorbPointer(
-            absorbing: !_displayToggles && !_showSettings && !_showEpisodePanel,
-            child: Stack(
-              children: [
-                if (_latestValue == null || !_latestValue!.isInitialized || _latestValue!.isBuffering)
-                  const Center(child: VideoLoadingBar()),
-                
-                _buildHitArea(),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (_latestValue == null || !_latestValue!.isInitialized || _latestValue!.isBuffering)
+                const Center(child: VideoLoadingBar()),
 
-                // 中央提示
-                if (_showHint)
-                  Center(
-                    child: AnimatedOpacity(
-                      opacity: _showHint ? 1.0 : 0.0,
-                      duration: const Duration(milliseconds: 200),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.black54,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(_hintIcon, color: Colors.white, size: 32),
-                            const SizedBox(height: 8),
-                            Text(_hintText, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
+              // 点击 / 双击 / 横向拖动的命中区保持始终可交互，
+              // 避免控制条隐藏时双击暂停、左右滑动快进退失效
+              _buildHitArea(),
+
+              // 中央提示
+              if (_showHint)
+                Center(
+                  child: AnimatedOpacity(
+                    opacity: _showHint ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(_hintIcon, color: Colors.white, size: 32),
+                          const SizedBox(height: 8),
+                          Text(_hintText, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                        ],
                       ),
                     ),
                   ),
-                
-                if (_showSettings && !_isLocked) _buildSettingsOverlay(),
-                if (_showEpisodePanel && !_isLocked) _buildEpisodePanel(),
+                ),
 
-                if (!_showSettings && !_showEpisodePanel) ...[
-                  Column(
-                    children: <Widget>[
-                      _buildTopBar(context),
-                      const Spacer(),
-                      ValueListenableBuilder<bool>(
-                        valueListenable:
-                            widget.danmakuListenable ?? _danmakuFallbackNotifier,
-                        builder: (context, enabled, _) {
-                          if (!enabled) return const SizedBox.shrink();
-                          return ValueListenableBuilder<bool>(
-                            valueListenable: widget.danmakuInputListenable ??
-                                _danmakuInputFallbackNotifier,
-                            builder: (context, active, _) =>
-                                _buildDanmakuInputBar(active),
-                          );
-                        },
+              // 控制层：控制条隐藏时吸收点击，避免误触不可见的按钮
+              AbsorbPointer(
+                absorbing: !_displayToggles && !_showSettings && !_showEpisodePanel,
+                child: Stack(
+                  children: [
+                    if (_showSettings && !_isLocked) _buildSettingsOverlay(),
+                    if (_showEpisodePanel && !_isLocked) _buildEpisodePanel(),
+
+                    if (!_showSettings && !_showEpisodePanel) ...[
+                      Column(
+                        children: <Widget>[
+                          _buildTopBar(context),
+                          const Spacer(),
+                          ValueListenableBuilder<bool>(
+                            valueListenable:
+                                widget.danmakuListenable ?? _danmakuFallbackNotifier,
+                            builder: (context, enabled, _) {
+                              if (!enabled) return const SizedBox.shrink();
+                              return ValueListenableBuilder<bool>(
+                                valueListenable: widget.danmakuInputListenable ??
+                                    _danmakuInputFallbackNotifier,
+                                builder: (context, active, _) =>
+                                    _buildDanmakuInputBar(active),
+                              );
+                            },
+                          ),
+                          _buildBottomBar(context),
+                        ],
                       ),
-                      _buildBottomBar(context),
+                      _buildLockButton(),
                     ],
-                  ),
-                  _buildLockButton(),
-                ],
-              ],
-            ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -1075,6 +1065,10 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
   Widget _buildHitArea() {
     return GestureDetector(
       onTap: () {
+        if (_isLocked) {
+          _cancelAndRestartTimer();
+          return;
+        }
         if (_showSettings || _showEpisodePanel) {
           setState(() {
             _showSettings = false;
