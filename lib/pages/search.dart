@@ -346,11 +346,11 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   }
 
   Widget _buildMovieCard(VideoDetail item, {String? badge}) {
-    // 详情页需要留空 ID 以触发豆瓣自动匹配；短剧则进入竖屏 Feed。
+    // 必须携带 CMS 条目 ID，详情页据此拉取播放源；短剧则进入竖屏 Feed。
     return MovieCard(
-      movie: DoubanSubject(id: '', title: item.title, rate: '0.0', cover: item.poster, year: item.year),
+      movie: DoubanSubject(id: item.id, title: item.title, rate: '0.0', cover: item.poster, year: item.year),
       badge: badge,
-      onTap: () => VideoRouter.open(context, item, subjectId: ''),
+      onTap: () => VideoRouter.open(context, item),
     );
   }
 

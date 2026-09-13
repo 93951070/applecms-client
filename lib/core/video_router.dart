@@ -19,8 +19,8 @@ class VideoRouter {
   /// 打开一个已知的 CMS 条目。
   ///
   /// [replace] 为 true 时用 `pushReplacement`，防止详情页之间层层压栈导致返回时
-  /// 旧页面无法回收。[subjectId] 可覆盖传给详情页的豆瓣 ID（搜索入口需要留空以
-  /// 触发详情页的自动匹配）。[categoryTypeId]/[categoryTitle] 用于分类列表页，
+  /// 旧页面无法回收。[subjectId] 可覆盖传给详情页的条目 ID（留空时取 [video].id，
+  /// 详情页据此拉取播放源）。[categoryTypeId]/[categoryTitle] 用于分类列表页，
   /// 以当前浏览的分类而非条目自身分类来判定是否进入 Feed。
   static void open(
     BuildContext context,
