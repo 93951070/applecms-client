@@ -119,9 +119,16 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     }
   }
 
+  // 简介等非跳转类弹层会压入 ModalRoute，此处用一次性豁免避免误暂停。
+  bool _keepPlayingOnNextRoute = false;
+
   // 跳转到其它视频/页面时，暂停当前播放，避免旧视频在后台继续出声。
   @override
   void didPushNext() {
+    if (_keepPlayingOnNextRoute) {
+      _keepPlayingOnNextRoute = false;
+      return;
+    }
     _playerKey.currentState?.pausePlayback();
     _commentFocus.unfocus();
     _danmakuFocus.unfocus();
@@ -1184,26 +1191,31 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     final future = vodId.isEmpty
         ? Future<DoubanMedia?>.value(null)
         : ref.read(cmsServiceProvider).fetchDouban(vodId);
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Theme.of(context).cardColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (_) => SynopsisSheet(
-        title:
-            (_video?.title ?? '').trim().isNotEmpty ? _video!.title : widget.subject.title,
-        year: _video?.year ?? widget.subject.year,
-        typeName: _video?.typeName,
-        localDesc: localDesc,
-        localActors: _video?.actors ?? '',
-        localDirectors: _video?.directors ?? '',
-        future: future,
-        proxyImageUrl: (raw) =>
-            '$base/api/douban/image?u=${Uri.encodeQueryComponent(raw)}',
-      ),
-    );
+    _keepPlayingOnNextRoute = true;
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Theme.of(context).cardColor,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+        ),
+        builder: (_) => SynopsisSheet(
+          title:
+              (_video?.title ?? '').trim().isNotEmpty ? _video!.title : widget.subject.title,
+          year: _video?.year ?? widget.subject.year,
+          typeName: _video?.typeName,
+          localDesc: localDesc,
+          localActors: _video?.actors ?? '',
+          localDirectors: _video?.directors ?? '',
+          future: future,
+          proxyImageUrl: (raw) =>
+              '$base/api/douban/image?u=${Uri.encodeQueryComponent(raw)}',
+        ),
+      );
+    } finally {
+      _keepPlayingOnNextRoute = false;
+    }
   }
 
   Widget _buildActionRow(ThemeData theme) {
