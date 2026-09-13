@@ -29,6 +29,16 @@ class AppPlayResult {
   final String? playToken;
   final int? expireAt;
 
+  /// `"webview"` 表示该线路需要客户端用 WebView 嗅探解析，此时 [sniffUrl] 为解析页地址。
+  final String? mode;
+  final String? rawUrl;
+
+  /// web嗅探要加载的解析站页面地址（已由服务端拼好原始地址）。
+  final String? sniffUrl;
+
+  /// web嗅探任务对应的线路下标，回传结果时原样带回。
+  final int? sourceIndex;
+
   const AppPlayResult({
     required this.success,
     required this.hasAccess,
@@ -37,7 +47,17 @@ class AppPlayResult {
     this.episodeName,
     this.playToken,
     this.expireAt,
+    this.mode,
+    this.rawUrl,
+    this.sniffUrl,
+    this.sourceIndex,
   });
+
+  /// 是否为 web嗅探任务（需客户端 WebView 解析）。
+  bool get isWebSniff =>
+      mode == 'webview' &&
+      sniffUrl != null &&
+      sniffUrl!.isNotEmpty;
 }
 
 /// `GET /api/app/v1/version` 的解析结果。
@@ -648,22 +668,37 @@ class AppApiService {
   }
 
   /// 会员校验并解析直连地址。`token` 为账号令牌（未登录可不传）。
+  ///
+  /// [reportSourceIndex] + [reportOutcome] 用于 web嗅探线路的结果回传：
+  /// 成功时带 [reportDirectUrl]（服务端缓存后改写成 HLS 过滤入口），失败时只带 `fail`。
   Future<AppPlayResult> play(
     String base, {
     required String videoId,
     required int playSource,
     required int playIndex,
     String? token,
+    int? reportSourceIndex,
+    String? reportOutcome,
+    String? reportDirectUrl,
   }) async {
+    final jsonBody = <String, dynamic>{
+      'video_id': videoId,
+      'play_source': playSource,
+      'play_index': playIndex,
+    };
+    if (reportSourceIndex != null && reportOutcome != null) {
+      jsonBody['report'] = {
+        'source_index': reportSourceIndex,
+        'outcome': reportOutcome,
+        if (reportDirectUrl != null && reportDirectUrl.isNotEmpty)
+          'direct_url': reportDirectUrl,
+      };
+    }
     final data = await _request(
       base,
       method: 'POST',
       path: '$_apiPrefix/play',
-      jsonBody: {
-        'video_id': videoId,
-        'play_source': playSource,
-        'play_index': playIndex,
-      },
+      jsonBody: jsonBody,
       token: token,
     );
     return AppPlayResult(
@@ -674,6 +709,10 @@ class AppApiService {
       episodeName: _nonEmpty(data['episode_name']),
       playToken: _nonEmpty(data['play_token']),
       expireAt: (data['expire_at'] as num?)?.toInt(),
+      mode: _nonEmpty(data['mode']),
+      rawUrl: _nonEmpty(data['raw_url']),
+      sniffUrl: _nonEmpty(data['sniff_url']),
+      sourceIndex: (data['source_index'] as num?)?.toInt(),
     );
   }
 

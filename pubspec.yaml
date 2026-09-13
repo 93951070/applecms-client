@@ -58,6 +58,8 @@ dependencies:
   image_picker: ^1.1.0
   share_plus: ^10.1.4
   path_provider: ^2.1.5
+  # web嗅探：App 端 WebView 打开解析站页面并嗅取 m3u8，绕过服务端 IP 限制
+  flutter_inappwebview: ^6.1.0
 
 dev_dependencies:
   flutter_test:

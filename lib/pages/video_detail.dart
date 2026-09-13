@@ -27,6 +27,7 @@ import '../widgets/video_player.dart';
 import '../widgets/bili_loading.dart';
 import '../widgets/synopsis_sheet.dart';
 import '../widgets/watch_party_sheet.dart';
+import 'web_sniff_page.dart';
 
 /// 播放页「同类推荐」数据源：按当前视频所属分类拉取同分类内容。
 final _recommendProvider =
@@ -299,7 +300,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     final playSource = video.playGroups.indexOf(group);
 
     try {
-      final result = await api.play(
+      var result = await api.play(
         base,
         videoId: video.id,
         playSource: playSource < 0 ? 0 : playSource,
@@ -307,6 +308,31 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         token: token,
       );
       if (!mounted) return;
+
+      // web嗅探线路：App 端 WebView 解析，成功后回传直链换 HLS 网关地址；
+      // 失败则回传让服务端把该线路短暂冷却，并自动换下一条线路（无感）。
+      var guard = 0;
+      while (mounted && result.isWebSniff && guard < 6) {
+        guard++;
+        final sniffed = await WebSniffPage.show(
+          context,
+          sniffUrl: result.sniffUrl!,
+        );
+        if (!mounted) return;
+        final reportSource = result.sourceIndex ?? (playSource < 0 ? 0 : playSource);
+        result = await api.play(
+          base,
+          videoId: video.id,
+          playSource: playSource < 0 ? 0 : playSource,
+          playIndex: _currentEpisodeIndex,
+          token: token,
+          reportSourceIndex: reportSource,
+          reportOutcome:
+              (sniffed != null && sniffed.isNotEmpty) ? 'ok' : 'fail',
+          reportDirectUrl: sniffed,
+        );
+        if (!mounted) return;
+      }
 
       if (result.hasAccess &&
           result.playUrl != null &&
