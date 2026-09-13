@@ -340,9 +340,9 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
                   ),
                 ),
 
-              // 控制层：控制条隐藏时吸收点击，避免误触不可见的按钮
-              AbsorbPointer(
-                absorbing: !_displayToggles && !_showSettings && !_showEpisodePanel,
+              // 控制层：控制条隐藏时忽略点击让事件穿透到命中区，点击任意处即可唤出控制条
+              IgnorePointer(
+                ignoring: !_displayToggles && !_showSettings && !_showEpisodePanel,
                 child: Stack(
                   children: [
                     if (_showSettings && !_isLocked) _buildSettingsOverlay(),
