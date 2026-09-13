@@ -19,7 +19,7 @@ jobs:
         include:
           - target: Android
             os: ubuntu-latest
-            build_cmd: flutter build apk --release
+            build_cmd: flutter build apk --release --target-platform android-arm,android-arm64
             artifact_path: build/app/outputs/flutter-apk/app-release.apk
             artifact_ext: apk
 
