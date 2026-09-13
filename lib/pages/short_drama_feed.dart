@@ -14,6 +14,7 @@ import '../providers/auth_provider.dart';
 import '../services/app_api_service.dart';
 import '../services/cms_service.dart';
 import '../services/config_service.dart';
+import '../services/web_sniff_service.dart';
 import '../widgets/comment_sheet.dart';
 
 /// 短剧竖屏 Feed：上下滑切集，滑到末尾自动续下一部剧。
@@ -76,6 +77,9 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   final List<_FeedEntry> _entries = [];
   final Map<int, String?> _urlCache = {};
   final Map<int, String?> _msgCache = {};
+
+  /// 直连地址播放需要的 Referer（web嗅探直链取自身 origin）。
+  final Map<int, String> _refererCache = {};
   final Random _rng = Random();
 
   /// 每部剧的详情（简介、年份、演员等），用于底部信息与详情面板。
@@ -199,16 +203,41 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
     try {
       final base = await config.getApiBaseUrl();
       final token = await config.getAuthToken();
-      final res = await api.play(
+      var res = await api.play(
         base,
         videoId: entry.vodId,
         playSource: entry.playSource,
         playIndex: entry.playIndex,
         token: token,
       );
+      // web嗅探线路：复用与主播放页一致的客户端 WebView 嗅探，
+      // 嗅到直链直接播放；失败才回传让服务端换源，不再把「请客户端网页解析」当结果展示。
+      var guard = 0;
+      while (mounted && res.isWebSniff && guard < 6) {
+        guard++;
+        final sniffed = await WebSniffService.sniff(res.sniffUrl!);
+        if (sniffed != null && sniffed.isNotEmpty) {
+          _urlCache[index] = sniffed;
+          _refererCache[index] = _originOf(sniffed);
+          _msgCache[index] = null;
+          if (mounted) setState(() {});
+          return;
+        }
+        final reportSource = res.sourceIndex ?? entry.playSource;
+        res = await api.play(
+          base,
+          videoId: entry.vodId,
+          playSource: entry.playSource,
+          playIndex: entry.playIndex,
+          token: token,
+          reportSourceIndex: reportSource,
+          reportOutcome: 'fail',
+        );
+      }
       final url =
           (res.hasAccess && (res.playUrl ?? '').isNotEmpty) ? res.playUrl : null;
       _urlCache[index] = url;
+      _refererCache[index] = '';
       _msgCache[index] = url == null
           ? (res.message.isNotEmpty ? res.message : '该内容需要会员权限')
           : null;
@@ -217,6 +246,13 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
       _msgCache[index] = _msgCache[index] ?? '取流失败，请检查网络后重试';
     }
     if (mounted) setState(() {});
+  }
+
+  /// 从直链地址推出 origin，作为播放防盗链的 Referer。
+  String _originOf(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.scheme.isEmpty || uri.host.isEmpty) return '';
+    return '${uri.scheme}://${uri.host}';
   }
 
   void _prefetchAround(int center) {
@@ -383,6 +419,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
           key: ValueKey('${entry.vodId}_${entry.playIndex}'),
           entry: entry,
           url: _urlCache[i],
+          referer: _refererCache[i],
           isActive: i == _current,
           accessMessage: _msgCache[i],
           locked: entry.requiresVip && !vipActive,
@@ -391,6 +428,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
           onRetry: () {
             _urlCache.remove(i);
             _msgCache.remove(i);
+            _refererCache.remove(i);
             unawaited(_resolve(i));
           },
         );
@@ -755,6 +793,9 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
 class _DramaVideoPage extends StatefulWidget {
   final _FeedEntry entry;
   final String? url;
+
+  /// 直链播放需要的 Referer（web嗅探直链防盗链）。
+  final String? referer;
   final bool isActive;
   final String? accessMessage;
 
@@ -768,6 +809,7 @@ class _DramaVideoPage extends StatefulWidget {
     super.key,
     required this.entry,
     required this.url,
+    this.referer,
     required this.isActive,
     required this.accessMessage,
     required this.locked,
@@ -797,7 +839,9 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
   @override
   void didUpdateWidget(covariant _DramaVideoPage old) {
     super.didUpdateWidget(old);
-    if (widget.url != old.url || widget.isActive != old.isActive) {
+    if (widget.url != old.url ||
+        widget.referer != old.referer ||
+        widget.isActive != old.isActive) {
       _sync();
     }
   }
@@ -834,7 +878,16 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
       _completed = false;
     });
 
-    final c = VideoPlayerController.networkUrl(Uri.parse(url));
+    final c = VideoPlayerController.networkUrl(
+      Uri.parse(url),
+      httpHeaders: {
+        if (widget.referer != null && widget.referer!.isNotEmpty) ...{
+          'User-Agent':
+              'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
+          'Referer': widget.referer!,
+        },
+      },
+    );
     try {
       await c.initialize();
       await c.setVolume(1);

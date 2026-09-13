@@ -196,10 +196,15 @@ class WatchPartyService {
   }
 
   /// 解析房间内某一集的直连播放地址。
+  ///
+  /// [reportSourceIndex]/[reportOutcome] 用于 web嗅探线路嗅探失败时回传，
+  /// 触发服务端把该线路短暂冷却并自动换源。
   Future<AppPlayResult> resolvePlayUrl({
     required String vodId,
     required int playSource,
     required int playIndex,
+    int? reportSourceIndex,
+    String? reportOutcome,
   }) async {
     final token = await _token();
     return _api.play(
@@ -208,6 +213,8 @@ class WatchPartyService {
       playSource: playSource,
       playIndex: playIndex,
       token: token,
+      reportSourceIndex: reportSourceIndex,
+      reportOutcome: reportOutcome,
     );
   }
 

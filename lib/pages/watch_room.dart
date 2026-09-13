@@ -12,6 +12,7 @@ import '../providers/auth_provider.dart';
 import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../services/watch_party_service.dart';
+import '../services/web_sniff_service.dart';
 import '../widgets/video_player.dart';
 
 /// 深色沉浸主题色板（对齐腾讯视频「一起看」的暗色氛围）。
@@ -105,6 +106,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
   bool _membersInitialized = false;
 
   String? _playUrl;
+  String _playReferer = '';
   bool _loading = true;
   String? _error;
   bool _catchingUp = false;
@@ -270,27 +272,69 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     }
   }
 
+  /// 解析可播放地址：web嗅探线路由客户端 WebView 嗅探，失败回传触发换源。
+  Future<({String? url, String referer, String message})> _resolveWithSniff({
+    required String vodId,
+    required int playSource,
+    required int playIndex,
+  }) async {
+    var result = await _service.resolvePlayUrl(
+      vodId: vodId,
+      playSource: playSource,
+      playIndex: playIndex,
+    );
+    var guard = 0;
+    while (mounted && result.isWebSniff && guard < 6) {
+      guard++;
+      final sniffed = await WebSniffService.sniff(result.sniffUrl!);
+      if (sniffed != null && sniffed.isNotEmpty) {
+        return (url: sniffed, referer: _originOf(sniffed), message: '');
+      }
+      result = await _service.resolvePlayUrl(
+        vodId: vodId,
+        playSource: playSource,
+        playIndex: playIndex,
+        reportSourceIndex: result.sourceIndex ?? playSource,
+        reportOutcome: 'fail',
+      );
+    }
+    if (result.success &&
+        result.hasAccess &&
+        (result.playUrl ?? '').isNotEmpty) {
+      return (url: result.playUrl, referer: '', message: '');
+    }
+    return (
+      url: null,
+      referer: '',
+      message: result.message.isEmpty ? '暂时无法播放该内容' : result.message,
+    );
+  }
+
+  /// 从直链地址推出 origin，作为播放防盗链的 Referer。
+  String _originOf(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.scheme.isEmpty || uri.host.isEmpty) return '';
+    return '${uri.scheme}://${uri.host}';
+  }
+
   Future<void> _resolveUrl() async {
     final room = _room;
     if (room == null || room.vodId.isEmpty) return;
     try {
-      final result = await _service.resolvePlayUrl(
+      final resolved = await _resolveWithSniff(
         vodId: room.vodId,
         playSource: _playSource,
         playIndex: _episode,
       );
       if (!mounted) return;
-      if (result.success &&
-          result.hasAccess &&
-          (result.playUrl ?? '').isNotEmpty) {
+      if (resolved.url != null && resolved.url!.isNotEmpty) {
         setState(() {
-          _playUrl = result.playUrl;
+          _playUrl = resolved.url;
+          _playReferer = resolved.referer;
           _error = null;
         });
       } else {
-        setState(
-          () => _error = result.message.isEmpty ? '暂时无法播放该内容' : result.message,
-        );
+        setState(() => _error = resolved.message);
       }
     } catch (e) {
       if (!mounted) return;
@@ -916,22 +960,20 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
       _episode = next;
       _playSource = room.playSource;
     });
-    final result = await _service.resolvePlayUrl(
+    final resolved = await _resolveWithSniff(
       vodId: room.vodId,
       playSource: _playSource,
       playIndex: _episode,
     );
     if (!mounted) return;
-    if (!result.success ||
-        !result.hasAccess ||
-        (result.playUrl ?? '').isEmpty) {
+    if (resolved.url == null || resolved.url!.isEmpty) {
       setState(() {
         _episode = prevEpisode;
         _playSource = prevSource;
         _busy = false;
       });
       if (!quiet) {
-        final msg = result.message.trim();
+        final msg = resolved.message.trim();
         _toast(msg.isNotEmpty
             ? msg
             : (next > prevEpisode ? '没有下一集了' : '已经是第一集'));
@@ -939,7 +981,8 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
       return;
     }
     setState(() {
-      _playUrl = result.playUrl;
+      _playUrl = resolved.url;
+      _playReferer = resolved.referer;
       _initialPosition = 0;
       _error = null;
       _busy = false;
@@ -1532,6 +1575,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     return EchoVideoPlayer(
       key: _playerKey,
       url: _playUrl!,
+      referer: _playReferer,
       title: room.title,
       initialPosition: _initialPosition,
       danmaku: const [],
