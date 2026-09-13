@@ -42,6 +42,8 @@ import UIKit
           result(true)
         case "enter":
           result(self.startPictureInPicture())
+        case "status":
+          result(self.statusString())
         default:
           result(FlutterMethodNotImplemented)
         }
@@ -59,6 +61,7 @@ import UIKit
       NSLog("echotv: applicationWillResignActive 重新绑定画中画")
       rebindPipController(force: true)
       attemptAutoStartPip()
+      broadcastStatus()
     }
   }
 
@@ -134,7 +137,7 @@ import UIKit
     guard pipEnabled, AVPictureInPictureController.isPictureInPictureSupported() else { return }
     // 画中画进行中不重建，避免打断当前小窗。
     if pipController?.isPictureInPictureActive == true { return }
-    if let layer = findPlayerLayer(from: window) {
+    if let layer = findPlayerLayer() {
       if !force, let existing = pipController, existing.playerLayer === layer {
         return
       }
@@ -144,18 +147,21 @@ import UIKit
         controller?.canStartPictureInPictureAutomaticallyFromInline = true
       }
       pipController = controller
-      NSLog("echotv: rebindPipController 绑定成功 attempt=\(attempt) layer=\(type(of: layer)) controller=\(controller != nil)")
+      NSLog("echotv: rebindPipController 绑定成功 attempt=\(attempt) controller=\(controller != nil)")
+      broadcastStatus()
       // 绑定后短时间内打印可用性，便于确认系统是否允许进入画中画。
       for delay in [0.3, 1.0, 2.0] {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
           guard let c = self?.pipController else { return }
           NSLog("echotv: PiP possible=\(c.isPictureInPicturePossible) active=\(c.isPictureInPictureActive) delay=\(delay)")
+          self?.broadcastStatus()
         }
       }
       return
     }
     if attempt == 0 || attempt == 12 {
       NSLog("echotv: rebindPipController 未找到 AVPlayerLayer attempt=\(attempt) 层级=\(describeLayers(from: window))")
+      broadcastStatus()
     }
     if attempt < 12 {
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -201,22 +207,71 @@ import UIKit
     return true
   }
 
-  private func findPlayerLayer(from view: UIView?) -> AVPlayerLayer? {
-    guard let view = view else { return nil }
+  /// 找到当前可用的 AVPlayerLayer。
+  ///
+  /// 遍历所有 window（Flutter 平台视图可能不在 key window 上），并优先返回
+  /// 正在播放的图层，避免命中已废弃/暂停的旧图层导致画中画不可用。
+  private func findPlayerLayer() -> AVPlayerLayer? {
+    var layers: [AVPlayerLayer] = []
+    for window in allWindows() {
+      collectPlayerLayers(from: window, into: &layers)
+    }
+    if layers.isEmpty { return nil }
+    if let playing = layers.first(where: { ($0.player?.rate ?? 0) > 0 }) {
+      return playing
+    }
+    if let ready = layers.first(where: { $0.player?.currentItem?.status == .readyToPlay }) {
+      return ready
+    }
+    return layers.first
+  }
+
+  private func allWindows() -> [UIWindow] {
+    var result: [UIWindow] = []
+    if let key = window { result.append(key) }
+    for scene in UIApplication.shared.connectedScenes {
+      guard let windowScene = scene as? UIWindowScene else { continue }
+      for candidate in windowScene.windows where !result.contains(where: { $0 === candidate }) {
+        result.append(candidate)
+      }
+    }
+    return result
+  }
+
+  private func collectPlayerLayers(from view: UIView?, into layers: inout [AVPlayerLayer]) {
+    guard let view = view else { return }
     if let layer = view.layer as? AVPlayerLayer, layer.player != nil {
-      return layer
+      layers.append(layer)
     }
     for sublayer in view.layer.sublayers ?? [] {
-      if let playerLayer = sublayer as? AVPlayerLayer, playerLayer.player != nil {
-        return playerLayer
+      if let layer = sublayer as? AVPlayerLayer, layer.player != nil {
+        layers.append(layer)
       }
     }
     for subview in view.subviews {
-      if let found = findPlayerLayer(from: subview) {
-        return found
-      }
+      collectPlayerLayers(from: subview, into: &layers)
     }
-    return nil
+  }
+
+  /// 汇总画中画运行状态，供 App 内展示与问题定位。
+  private func statusString() -> String {
+    let supported = AVPictureInPictureController.isPictureInPictureSupported()
+    var layerCount = 0
+    var playingCount = 0
+    for window in allWindows() {
+      var layers: [AVPlayerLayer] = []
+      collectPlayerLayers(from: window, into: &layers)
+      layerCount += layers.count
+      playingCount += layers.filter { ($0.player?.rate ?? 0) > 0 }.count
+    }
+    let controller = pipController
+    return "supported=\(supported) layers=\(layerCount) playing=\(playingCount) "
+      + "controller=\(controller != nil) possible=\(controller?.isPictureInPicturePossible ?? false) "
+      + "active=\(controller?.isPictureInPictureActive ?? false) enabled=\(pipEnabled)"
+  }
+
+  private func broadcastStatus() {
+    pipChannel?.invokeMethod("onPipStatus", arguments: statusString())
   }
 
   private func notifyPip(_ active: Bool) {

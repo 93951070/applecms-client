@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -115,7 +116,27 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     _doubanId = widget.subject.id;
     _detailSub =
         ref.read(cmsServiceProvider).detailUpdates.listen(_onDetailUpdated);
+    if (Platform.isIOS) {
+      PipService.status.addListener(_onPipStatus);
+    }
     _checkHistoryAndLoadData();
+  }
+
+  String _lastPipStatus = '';
+
+  /// iOS 画中画诊断：原生侧上报状态时在页面上提示一次，便于定位唤不出的原因。
+  void _onPipStatus() {
+    final text = PipService.status.value ?? '';
+    if (!mounted || text.isEmpty || text == _lastPipStatus) return;
+    _lastPipStatus = text;
+    ScaffoldMessenger.of(context)
+      ..removeCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('画中画诊断: $text'),
+          duration: const Duration(seconds: 10),
+        ),
+      );
   }
 
   @override
@@ -536,6 +557,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   void dispose() {
     routeObserver.unsubscribe(this);
     _detailSub?.cancel();
+    if (Platform.isIOS) {
+      PipService.status.removeListener(_onPipStatus);
+    }
     _commentController.dispose();
     _commentFocus.dispose();
     _danmakuController.dispose();

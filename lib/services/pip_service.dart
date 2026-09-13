@@ -13,6 +13,9 @@ class PipService {
   /// 当前是否处于系统画中画窗口。
   static final ValueNotifier<bool> inPip = ValueNotifier<bool>(false);
 
+  /// 原生侧上报的画中画运行状态（诊断用）。
+  static final ValueNotifier<String?> status = ValueNotifier<String?>(null);
+
   static bool _initialized = false;
 
   /// 注册原生反向回调，App 启动时调用一次。
@@ -25,6 +28,8 @@ class PipService {
         if (args is Map) {
           inPip.value = args['isInPip'] == true;
         }
+      } else if (call.method == 'onPipStatus') {
+        status.value = call.arguments?.toString();
       }
       return null;
     });
