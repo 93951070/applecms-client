@@ -958,6 +958,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
         final aspect = (size != null && size.width > 0 && size.height > 0)
             ? size.width / size.height
             : 0.0;
+        _applyFit(c, aspect);
         setState(() {
           _initializing = false;
           _aspectRatio = aspect;
@@ -979,7 +980,9 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
         if (_aspectRatio <= 0) {
           final size = value.size;
           if (size != null && size.width > 0 && size.height > 0) {
-            setState(() => _aspectRatio = size.width / size.height);
+            final aspect = size.width / size.height;
+            _applyFit(c, aspect);
+            setState(() => _aspectRatio = aspect);
           }
         }
         final total = value.duration ?? Duration.zero;
@@ -994,6 +997,16 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
       default:
         break;
     }
+  }
+
+  // 用内核自身的缩放方式，横屏源等比完整显示、竖屏源铺满裁切。
+  // iOS 平台视图不跟随 Flutter 的 FittedBox/Transform 变换，必须交给内核处理。
+  void _applyFit(BetterPlayerController c, double aspect) {
+    try {
+      c.setOverriddenFit(aspect > 0 && aspect >= 1
+          ? BoxFit.contain
+          : BoxFit.cover);
+    } catch (_) {}
   }
 
   void _notifyCompleted() {
@@ -1022,31 +1035,19 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
 
   Widget _buildVideo(BetterPlayerController controller) {
     final aspect = _aspectRatio;
-    // 横屏源等比完整显示（模糊海报补边）；竖屏源按真实比例铺满裁切。
-    // 两种都按视频真实比例缩放，不做拉伸。
+    // 缩放交给内核（setOverriddenFit），iOS 平台视图不跟随 Flutter 侧变换。
+    // 横屏源等比完整显示并铺模糊海报补边，竖屏源铺满裁切。
     if (aspect >= 1) {
       return Stack(
         fit: StackFit.expand,
         children: [
           _buildBlurredPoster(),
-          Center(
-            child: AspectRatio(
-              aspectRatio: aspect,
-              child: BetterPlayer(controller: controller),
-            ),
-          ),
+          SizedBox.expand(child: BetterPlayer(controller: controller)),
         ],
       );
     }
-    return ClipRect(
-      child: FittedBox(
-        fit: BoxFit.cover,
-        child: SizedBox(
-          width: aspect * 1000,
-          height: 1000,
-          child: BetterPlayer(controller: controller),
-        ),
-      ),
+    return SizedBox.expand(
+      child: BetterPlayer(controller: controller),
     );
   }
 

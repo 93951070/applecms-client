@@ -555,8 +555,12 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
       return;
     }
     if (state != AppLifecycleState.resumed) return;
-    _pipActive = false;
     _cancelBufferingTimer();
+    if (_pipActive) {
+      _pipActive = false;
+      // 回到应用时主动结束画中画，让画面归位到应用内，无需手动点关闭。
+      unawaited(exitPip());
+    }
     if (_errorMessage != null) {
       setState(() => _errorMessage = null);
     }
