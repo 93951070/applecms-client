@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -17,6 +18,7 @@ import 'pages/messages_page.dart';
 import 'pages/play_history_page.dart';
 import 'providers/settings_provider.dart';
 import 'services/config_service.dart';
+import 'services/preload_service.dart';
 import 'widgets/main_layout.dart';
 import 'widgets/edit_dialog.dart';
 import 'widgets/update_gate.dart';
@@ -33,6 +35,9 @@ void main() async {
       child: const EchoTVApp(),
     ),
   );
+
+  // 启动预热：分类树 / 首页聚合 / 主分类列表，提升首屏速度。
+  unawaited(container.read(preloadServiceProvider).warmUp());
 }
 
 class EchoTVApp extends ConsumerStatefulWidget {

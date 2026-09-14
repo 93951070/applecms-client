@@ -81,6 +81,9 @@ class VideoDetail {
   final String id;
   final String title;
   final String poster;
+
+  /// 横版剧照（首页幻灯片用），无则为 null。
+  final String? heroImage;
   final List<PlayGroup> playGroups;
   final String source;
   final String sourceName;
@@ -106,6 +109,7 @@ class VideoDetail {
     required this.playGroups,
     required this.source,
     required this.sourceName,
+    this.heroImage,
     this.year,
     this.desc,
     this.typeName,
@@ -120,6 +124,7 @@ class VideoDetail {
         'id': id,
         'title': title,
         'poster': poster,
+        'hero_image': heroImage,
         'source': source,
         'source_name': sourceName,
         'year': year,
@@ -138,6 +143,9 @@ class VideoDetail {
       id: (json['id'] ?? '').toString(),
       title: (json['title'] ?? '').toString(),
       poster: (json['poster'] ?? '').toString(),
+      heroImage: (json['hero_image'] ?? '').toString().trim().isEmpty
+          ? null
+          : json['hero_image'].toString(),
       playGroups: ((json['play_groups'] as List?) ?? const [])
           .whereType<Map>()
           .map((e) => PlayGroup.fromJson(Map<String, dynamic>.from(e)))

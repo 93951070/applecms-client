@@ -20,6 +20,10 @@ final cmsCategoryProvider =
     FutureProvider.family<List<VideoDetail>, int>((ref, typeId) async {
   final config = ref.read(configServiceProvider);
   final cms = ref.read(cmsServiceProvider);
+  final sub = cms.listUpdates.listen((key) {
+    if (key == 'cat:$typeId:1:18:') ref.invalidateSelf();
+  });
+  ref.onDispose(sub.cancel);
   final site = await config.getPrimarySite();
   if (site.disabled) return [];
   return cms.getCategoryList(site, typeId, page: 1, pageSize: 18);
@@ -30,9 +34,35 @@ final categoryTreeProvider =
     FutureProvider<List<CmsCategoryGroup>>((ref) async {
   final config = ref.read(configServiceProvider);
   final cms = ref.read(cmsServiceProvider);
+  final sub = cms.listUpdates.listen((key) {
+    if (key == 'tree') ref.invalidateSelf();
+  });
+  ref.onDispose(sub.cancel);
   final site = await config.getPrimarySite();
   if (site.disabled) return [];
   return cms.getCategoryTree(site);
+});
+
+/// 首页聚合：一次返回幻灯片与各主分类栏目，首屏只需一次请求。
+final homeFeedProvider = FutureProvider<HomeFeed?>((ref) async {
+  final config = ref.read(configServiceProvider);
+  final cms = ref.read(cmsServiceProvider);
+  final site = await config.getPrimarySite();
+  if (site.disabled) return null;
+  final tree = await ref.watch(categoryTreeProvider.future);
+  final groups = tree
+      .where((g) => !isFeedCategory(
+            typeId: g.category.typeId,
+            typeName: g.category.typeName,
+          ))
+      .toList();
+  final ids = groups.map((g) => g.category.typeId).toList();
+  if (ids.isEmpty) return null;
+  final sub = cms.listUpdates.listen((key) {
+    if (key.startsWith('home:')) ref.invalidateSelf();
+  });
+  ref.onDispose(sub.cancel);
+  return cms.getHomeFeed(site, ids, limit: 18, heroLimit: 6);
 });
 
 /// 无法取得分类树时的兜底分类（与后端默认数据一致）
@@ -183,6 +213,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                     onRefresh: () async {
                       ref.invalidate(categoryTreeProvider);
                       ref.invalidate(cmsCategoryProvider);
+                      ref.invalidate(homeFeedProvider);
                     },
                     child: recommend
                         ? _buildRecommend(groups)
@@ -320,8 +351,14 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   // ==================== 推荐页 ====================
 
-  /// 推荐：精品推荐 + 各主分类推荐栏目
+  /// 推荐：优先使用首屏聚合数据（幻灯片 + 差异化栏目）；不可用时回退旧逻辑
   Widget _buildRecommend(List<CmsCategoryGroup> groups) {
+    final feed = ref.watch(homeFeedProvider).value;
+    if (feed != null &&
+        feed.hero.isNotEmpty &&
+        feed.sections.any((s) => s.items.isNotEmpty)) {
+      return _buildRecommendFromFeed(feed);
+    }
     final first = groups.isNotEmpty ? groups.first : null;
     final extra = first == null ? 0 : 2;
     return ListView.builder(
@@ -344,22 +381,80 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
+  /// 用聚合数据渲染推荐页：幻灯片 + 精品推荐（跨栏混合）+ 各分类推荐
+  Widget _buildRecommendFromFeed(HomeFeed feed) {
+    final heroItems = feed.hero.take(5).toList();
+
+    // 精品推荐：逐层取各栏目条目轮询混合，跨栏去重，与下方分类栏目互补
+    final picks = <VideoDetail>[];
+    final pickIds = <String>{};
+    const depth = 3;
+    for (var d = 0; d < depth; d++) {
+      for (final s in feed.sections) {
+        if (d < s.items.length) {
+          final v = s.items[d];
+          if (pickIds.add('${v.source}:${v.id}')) picks.add(v);
+        }
+      }
+    }
+    final jingpin = picks.take(18).toList();
+
+    final sections = feed.sections
+        .map((s) => HomeSection(
+              typeId: s.typeId,
+              title: s.title,
+              items: s.items
+                  .where((v) => !pickIds.contains('${v.source}:${v.id}'))
+                  .toList(),
+            ))
+        .where((s) => s.items.isNotEmpty)
+        .toList();
+
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(
+        parent: BouncingScrollPhysics(),
+      ),
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [
+        if (heroItems.isNotEmpty) _heroFromList(heroItems),
+        if (jingpin.isNotEmpty && feed.sections.isNotEmpty)
+          _buildSection(
+            title: '精品推荐',
+            icon: Icons.local_fire_department,
+            videos: jingpin,
+            onMore: () =>
+                _pushCategory(feed.sections.first.typeId, '精品推荐'),
+          ),
+        ...sections.map((s) => _buildSection(
+              title: '${s.title}推荐',
+              icon: Icons.local_fire_department,
+              videos: s.items,
+              onMore: () => _pushCategory(s.typeId, '${s.title}推荐'),
+            )),
+      ],
+    );
+  }
+
   Widget _heroSection(int typeId) {
     return Consumer(
       builder: (context, ref, _) {
         final async = ref.watch(cmsCategoryProvider(typeId));
         return async.maybeWhen(
-          data: (list) {
-            final count = list.length > 5 ? 5 : list.length;
-            WidgetsBinding.instance.addPostFrameCallback(
-              (_) => _startHeroAutoPlay(count),
-            );
-            return _buildHero(list);
-          },
+          skipLoadingOnReload: true,
+          data: (list) => _heroFromList(list),
           orElse: () => const SizedBox.shrink(),
         );
       },
     );
+  }
+
+  /// 幻灯片：传入列表，自动轮播并懒加载横版图
+  Widget _heroFromList(List<VideoDetail> list) {
+    final count = list.length > 5 ? 5 : list.length;
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _startHeroAutoPlay(count),
+    );
+    return _buildHero(list);
   }
 
   /// 分类页：按子分类自动加载栏目（子分类即栏目，而不是筛选）
@@ -390,6 +485,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       builder: (context, ref, _) {
         final async = ref.watch(cmsCategoryProvider(typeId));
         return async.maybeWhen(
+          skipLoadingOnReload: true,
           data: (list) => _buildSection(
             title: title,
             icon: Icons.local_fire_department,
@@ -407,8 +503,13 @@ class _HomePageState extends ConsumerState<HomePage> {
     final items = list.take(5).toList();
     final page = _heroPage.clamp(0, items.length - 1).toInt();
     final item = items[page];
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadHeroSlide(item));
-    final heroImage = _heroSlides[item.id] ?? item.poster;
+    if ((item.heroImage ?? '').isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadHeroSlide(item));
+    }
+    final slide = (item.heroImage ?? '').trim();
+    final heroImage = _heroSlides[item.id] ??
+        (slide.startsWith('http') ? slide : null) ??
+        item.poster;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),

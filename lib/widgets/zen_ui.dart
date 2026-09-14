@@ -393,12 +393,76 @@ class ZenSliverAppBar extends StatelessWidget {
   }
 }
 
+/// 标题关键词高亮：命中的部分用主色加粗显示。
+class HighlightedTitle extends StatelessWidget {
+  final String text;
+  final String query;
+  final int maxLines;
+  final TextStyle style;
+
+  const HighlightedTitle({
+    super.key,
+    required this.text,
+    required this.query,
+    required this.style,
+    this.maxLines = 1,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) {
+      return Text(
+        text,
+        maxLines: maxLines,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      );
+    }
+    final lower = text.toLowerCase();
+    final spans = <TextSpan>[];
+    var start = 0;
+    while (start <= lower.length) {
+      final idx = lower.indexOf(q, start);
+      if (idx < 0) {
+        spans.add(TextSpan(text: text.substring(start)));
+        break;
+      }
+      if (idx > start) {
+        spans.add(TextSpan(text: text.substring(start, idx)));
+      }
+      spans.add(TextSpan(
+        text: text.substring(idx, idx + q.length),
+        style: style.copyWith(
+          color: AppColors.pink,
+          fontWeight: FontWeight.w800,
+        ),
+      ));
+      start = idx + q.length;
+    }
+    return Text.rich(
+      TextSpan(style: style, children: spans),
+      maxLines: maxLines,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
 class MovieCard extends ConsumerWidget {
   final DoubanSubject movie;
   final VoidCallback onTap;
   final String? badge;
 
-  const MovieCard({super.key, required this.movie, required this.onTap, this.badge});
+  /// 命中的搜索关键词：非空时在标题中高亮显示。
+  final String? highlight;
+
+  const MovieCard({
+    super.key,
+    required this.movie,
+    required this.onTap,
+    this.badge,
+    this.highlight,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -440,10 +504,10 @@ class MovieCard extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Text(
-            movie.title,
+          HighlightedTitle(
+            text: movie.title,
+            query: highlight ?? '',
             maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontWeight: FontWeight.bold,
               fontSize: 13,

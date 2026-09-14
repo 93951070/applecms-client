@@ -28,15 +28,28 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   bool _isSearching = false;
   bool _noSitesConfigured = false;
 
+  /// 分页状态
+  int _page = 1;
+  int _total = 0;
+  bool _hasMore = false;
+  bool _loadingMore = false;
+  String _query = '';
+  final ScrollController _scrollController = ScrollController();
+  static const int _pageSize = 30;
+
   @override
   void initState() {
     super.initState();
     _loadHistory();
+    _scrollController.addListener(_onScroll);
     _controller.addListener(() {
       if (_controller.text.isEmpty && _isSearching) {
         setState(() {
           _isSearching = false;
           _results = [];
+          _page = 1;
+          _total = 0;
+          _hasMore = false;
           _noSitesConfigured = false;
         });
       }
@@ -45,6 +58,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -91,6 +105,10 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       _isLoading = true;
       _isSearching = true;
       _results = [];
+      _page = 1;
+      _total = 0;
+      _hasMore = false;
+      _query = searchText;
       _noSitesConfigured = false;
     });
 
@@ -110,19 +128,57 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       return;
     }
 
-    final allResults = await cmsService.search(site, searchText);
+    final result =
+        await cmsService.searchPaged(site, searchText, page: 1, pageSize: _pageSize);
     if (!mounted) return;
 
-    final filteredResults = _filterAndSortResults(allResults, searchText);
     setState(() {
-      _results = filteredResults;
+      _results = _sortResults(result.items, searchText);
+      _total = result.total;
+      _hasMore = result.hasMore;
+      _page = 1;
       _isLoading = false;
     });
   }
 
-  List<VideoDetail> _filterAndSortResults(List<VideoDetail> results, String query) {
+  /// 滚动到底部附近时加载下一页。
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 400) {
+      _loadMore();
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore || !_isSearching) return;
+    setState(() => _loadingMore = true);
+    final cmsService = ref.read(cmsServiceProvider);
+    final configService = ref.read(configServiceProvider);
+    final site = await configService.getPrimarySite();
+    final nextPage = _page + 1;
+    final result =
+        await cmsService.searchPaged(site, _query, page: nextPage, pageSize: _pageSize);
+    if (!mounted) {
+      _loadingMore = false;
+      return;
+    }
+    final existing = _results.map((e) => '${e.source}:${e.id}').toSet();
+    final appended =
+        result.items.where((e) => existing.add('${e.source}:${e.id}')).toList();
+    setState(() {
+      _results = [..._results, ...appended];
+      _page = nextPage;
+      _hasMore = result.hasMore;
+      _loadingMore = false;
+      if (_total == 0) _total = result.total;
+    });
+  }
+
+  /// 仅用于把精确命中与新年份排前，不再过滤结果（避免漏掉别名/译名）。
+  List<VideoDetail> _sortResults(List<VideoDetail> results, String query) {
     final q = query.replaceAll(' ', '').toLowerCase();
-    return results.where((res) => res.title.replaceAll(' ', '').toLowerCase().contains(q)).toList()
+    return List<VideoDetail>.from(results)
       ..sort((a, b) {
         final aExact = a.title.replaceAll(' ', '').toLowerCase() == q;
         final bExact = b.title.replaceAll(' ', '').toLowerCase() == q;
@@ -146,6 +202,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
 
     return ZenScaffold(
       body: CustomScrollView(
+        controller: _scrollController,
         slivers: [
           const ZenSliverAppBar(
             title: '搜索',
@@ -163,7 +220,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
               child: Padding(
                 padding: EdgeInsets.fromLTRB(horizontalPadding, 12, horizontalPadding, 8),
                 child: Text(
-                  '共找到 ${_results.length} 个资源',
+                  '共找到 ${_total > 0 ? _total : _results.length} 个资源',
                   style: TextStyle(
                     fontSize: 12,
                     color: theme.colorScheme.secondary.withValues(alpha: 0.8),
@@ -186,6 +243,19 @@ class _SearchPageState extends ConsumerState<SearchPage> {
             _buildEmptyState(theme)
           else
             _buildResultsGrid(_results, horizontalPadding, crossAxisCount),
+          if (_loadingMore)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Center(
+                  child: SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              ),
+            ),
           const SliverToBoxAdapter(child: SizedBox(height: 120)),
         ],
       ),
@@ -350,6 +420,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     return MovieCard(
       movie: DoubanSubject(id: item.id, title: item.title, rate: '0.0', cover: item.poster, year: item.year),
       badge: badge,
+      highlight: _query,
       onTap: () => VideoRouter.open(context, item),
     );
   }

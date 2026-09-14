@@ -163,6 +163,8 @@ class AppApiService {
     String? typeId,
     String? keyword,
     String? sort,
+    String? year,
+    String? area,
   }) async {
     final params = <String, String>{
       'page': '$page',
@@ -170,11 +172,34 @@ class AppApiService {
       if (typeId != null && typeId.isNotEmpty) 'type_id': typeId,
       if (keyword != null && keyword.isNotEmpty) 'wd': keyword,
       if (sort != null && sort.isNotEmpty) 'sort': sort,
+      if (year != null && year.isNotEmpty) 'year': year,
+      if (area != null && area.isNotEmpty) 'area': area,
     };
     return _request(
       base,
       method: 'GET',
       path: '$_apiPrefix/videos',
+      query: _encodeQuery(params),
+    );
+  }
+
+  /// 首屏聚合：一次返回幻灯片（hero）与各栏目，减少首屏请求数。
+  Future<Map<String, dynamic>> home(
+    String base, {
+    List<int>? typeIds,
+    int limit = 18,
+    int heroLimit = 6,
+  }) async {
+    final params = <String, String>{
+      'limit': '$limit',
+      'hero_limit': '$heroLimit',
+      if (typeIds != null && typeIds.isNotEmpty)
+        'type_ids': typeIds.join(','),
+    };
+    return _request(
+      base,
+      method: 'GET',
+      path: '$_apiPrefix/home',
       query: _encodeQuery(params),
     );
   }

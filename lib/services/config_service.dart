@@ -226,8 +226,39 @@ class ConfigService {
     await prefs.setStringList(keyVideoDetailIndex, index);
   }
 
-  Future<Map<String, SkipConfig>> getSkipConfigs() async {
+  /// 分类列表/分类树本地缓存：冷启动时先用旧数据秒开，再后台刷新。
+  static const String keyListCache = 'list_cache';
+  static const String keyListCacheIndex = 'list_cache_index';
+  static const int _listCacheLimit = 60;
+
+  Future<Map<String, dynamic>?> getCachedList(String key) async {
+    if (key.isEmpty) return null;
     final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('$keyListCache:$key');
+    if (raw == null) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> cacheList(String key, Map<String, dynamic> data) async {
+    if (key.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('$keyListCache:$key', jsonEncode(data));
+    final index = prefs.getStringList(keyListCacheIndex) ?? <String>[];
+    index.remove(key);
+    index.insert(0, key);
+    while (index.length > _listCacheLimit) {
+      final evicted = index.removeLast();
+      await prefs.remove('$keyListCache:$evicted');
+    }
+    await prefs.setStringList(keyListCacheIndex, index);
+  }
+
+  Future<Map<String, SkipConfig>> getSkipConfigs() async {    final prefs = await SharedPreferences.getInstance();
     final data = prefs.getString(keySkipConfigs);
     if (data == null) return <String, SkipConfig>{};
     try {

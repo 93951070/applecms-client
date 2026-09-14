@@ -36,6 +36,40 @@ class CmsCategoryGroup {
   });
 }
 
+/// 首页聚合的单个栏目
+class HomeSection {
+  final int typeId;
+  final String title;
+  final List<VideoDetail> items;
+
+  const HomeSection({
+    required this.typeId,
+    required this.title,
+    this.items = const [],
+  });
+}
+
+/// 首页聚合数据：幻灯片 + 各栏目（栏目间已跨栏去重）
+class HomeFeed {
+  final List<VideoDetail> hero;
+  final List<HomeSection> sections;
+
+  const HomeFeed({this.hero = const [], this.sections = const []});
+}
+
+/// 分页搜索结果
+class SearchPageResult {
+  final List<VideoDetail> items;
+  final int total;
+  final bool hasMore;
+
+  const SearchPageResult({
+    this.items = const [],
+    this.total = 0,
+    this.hasMore = false,
+  });
+}
+
 /// 无法取得站点分类树时的兜底分类（与后端默认数据一致）
 const defaultCategoryGroups = <CmsCategoryGroup>[
   CmsCategoryGroup(category: CmsCategory(typeId: 1, typeName: '电影')),
@@ -73,7 +107,9 @@ class CmsService {
     }
   }
 
-  /// 按分类拉取列表（顶级分类由服务端聚合子分类）
+  /// 按分类拉取列表（顶级分类由服务端聚合子分类）。
+  ///
+  /// 先返回本地缓存（内存/磁盘）实现秒开，超过新鲜期再后台静默刷新。
   Future<List<VideoDetail>> getCategoryList(
     SiteConfig site,
     int typeId, {
@@ -81,6 +117,137 @@ class CmsService {
     int pageSize = 20,
     String? sort,
   }) async {
+    final key = 'cat:$typeId:$page:$pageSize:${sort ?? ''}';
+    final cached = await _readListCache(key, site);
+    if (cached != null) {
+      if (DateTime.now().millisecondsSinceEpoch - cached.$2 > _listFreshMs) {
+        unawaited(_refreshList(key, site, typeId, page, pageSize, sort));
+      }
+      return cached.$1;
+    }
+    return await _refreshList(key, site, typeId, page, pageSize, sort) ?? [];
+  }
+
+  /// 获取站点分类树（主分类 + 子分类），经加密网关返回。
+  ///
+  /// 分类树变化极少，本地缓存 24 小时内直接复用，过期后后台刷新。
+  Future<List<CmsCategoryGroup>> getCategoryTree(SiteConfig site) async {
+    const key = 'tree';
+    final mem = _treeMemCache[key];
+    if (mem != null) {
+      if (DateTime.now().millisecondsSinceEpoch - mem.$2 > _treeFreshMs) {
+        unawaited(_refreshTree(key, site));
+      }
+      return mem.$1;
+    }
+    try {
+      final raw = await _ref.read(configServiceProvider).getCachedList(key);
+      if (raw != null) {
+        final at = _asInt(raw['at']);
+        if (at > 0 &&
+            DateTime.now().millisecondsSinceEpoch - at <= _listDiskFreshMs) {
+          final groups = _groupsFromHierarchy(raw['items']);
+          _treeMemCache[key] = (groups, at);
+          unawaited(_refreshTree(key, site));
+          return groups;
+        }
+      }
+    } catch (_) {
+      // 忽略缓存读取异常，走网络。
+    }
+    return await _refreshTree(key, site) ?? [];
+  }
+
+  /// 首屏聚合：一次拉取幻灯片与各栏目。先返回缓存，后台刷新。
+  Future<HomeFeed?> getHomeFeed(
+    SiteConfig site,
+    List<int> typeIds, {
+    int limit = 18,
+    int heroLimit = 6,
+  }) async {
+    final key = 'home:${typeIds.join(',')}:$limit:$heroLimit';
+    final cached = await _readHomeCache(key, site);
+    if (cached != null) {
+      if (DateTime.now().millisecondsSinceEpoch - cached.$2 > _listFreshMs) {
+        unawaited(_refreshHome(key, site, typeIds, limit, heroLimit));
+      }
+      return cached.$1;
+    }
+    return await _refreshHome(key, site, typeIds, limit, heroLimit);
+  }
+
+  Future<List<CmsCategoryGroup>?> _refreshTree(String key, SiteConfig site) async {
+    try {
+      final hierarchy = await _api.categories(await _base());
+      final groups = _groupsFromHierarchy(hierarchy);
+      final at = DateTime.now().millisecondsSinceEpoch;
+      _treeMemCache[key] = (groups, at);
+      unawaited(_ref.read(configServiceProvider).cacheList(key, {
+        'items': hierarchy,
+        'at': at,
+      }));
+      _listUpdates.add(key);
+      return groups;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  List<CmsCategoryGroup> _groupsFromHierarchy(dynamic hierarchyRaw) {
+    final groups = <CmsCategoryGroup>[];
+    if (hierarchyRaw is! List) return groups;
+    for (final entry in hierarchyRaw) {
+      if (entry is! Map) continue;
+      final rawCategory = entry['category'];
+      if (rawCategory is! Map) continue;
+      final subs = <CmsCategory>[];
+      final rawSubs = entry['sub_categories'];
+      if (rawSubs is List) {
+        for (final s in rawSubs) {
+          if (s is Map) {
+            subs.add(_categoryFromJson(Map<String, dynamic>.from(s)));
+          }
+        }
+      }
+      groups.add(CmsCategoryGroup(
+        category: _categoryFromJson(Map<String, dynamic>.from(rawCategory)),
+        subCategories: subs,
+      ));
+    }
+    groups.sort((a, b) => a.category.typeId.compareTo(b.category.typeId));
+    return groups;
+  }
+
+  Future<(List<VideoDetail>, int)?> _readListCache(
+    String key,
+    SiteConfig site,
+  ) async {
+    final mem = _listMemCache[key];
+    if (mem != null) return mem;
+    try {
+      final raw = await _ref.read(configServiceProvider).getCachedList(key);
+      if (raw == null) return null;
+      final at = _asInt(raw['at']);
+      if (at <= 0) return null;
+      if (DateTime.now().millisecondsSinceEpoch - at > _listDiskFreshMs) {
+        return null;
+      }
+      final list = _listFromItems(raw['items'], site);
+      _listMemCache[key] = (list, at);
+      return (list, at);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<VideoDetail>?> _refreshList(
+    String key,
+    SiteConfig site,
+    int typeId,
+    int page,
+    int pageSize,
+    String? sort,
+  ) async {
     try {
       final data = await _api.listVideos(
         await _base(),
@@ -89,39 +256,83 @@ class CmsService {
         typeId: '$typeId',
         sort: sort,
       );
-      return _listFromItems(data['items'], site);
+      final items = data['items'];
+      final list = _listFromItems(items, site);
+      final at = DateTime.now().millisecondsSinceEpoch;
+      _listMemCache[key] = (list, at);
+      unawaited(_ref
+          .read(configServiceProvider)
+          .cacheList(key, {'items': items, 'at': at}));
+      _listUpdates.add(key);
+      return list;
     } catch (_) {
-      return [];
+      return null;
     }
   }
 
-  /// 获取站点分类树（主分类 + 子分类），经加密网关返回。
-  Future<List<CmsCategoryGroup>> getCategoryTree(SiteConfig site) async {
+  Future<(HomeFeed, int)?> _readHomeCache(String key, SiteConfig site) async {
+    final mem = _homeMemCache[key];
+    if (mem != null) return mem;
     try {
-      final hierarchy = await _api.categories(await _base());
-      final groups = <CmsCategoryGroup>[];
-      for (final entry in hierarchy) {
-        final rawCategory = entry['category'];
-        if (rawCategory is! Map) continue;
-        final subs = <CmsCategory>[];
-        final rawSubs = entry['sub_categories'];
-        if (rawSubs is List) {
-          for (final s in rawSubs) {
-            if (s is Map) {
-              subs.add(_categoryFromJson(Map<String, dynamic>.from(s)));
-            }
-          }
-        }
-        groups.add(CmsCategoryGroup(
-          category: _categoryFromJson(Map<String, dynamic>.from(rawCategory)),
-          subCategories: subs,
+      final raw = await _ref.read(configServiceProvider).getCachedList(key);
+      if (raw == null) return null;
+      final at = _asInt(raw['at']);
+      if (at <= 0) return null;
+      if (DateTime.now().millisecondsSinceEpoch - at > _listDiskFreshMs) {
+        return null;
+      }
+      final feed = _homeFeedFromRaw(raw, site);
+      _homeMemCache[key] = (feed, at);
+      return (feed, at);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<HomeFeed?> _refreshHome(
+    String key,
+    SiteConfig site,
+    List<int> typeIds,
+    int limit,
+    int heroLimit,
+  ) async {
+    try {
+      final data = await _api.home(
+        await _base(),
+        typeIds: typeIds,
+        limit: limit,
+        heroLimit: heroLimit,
+      );
+      final feed = _homeFeedFromRaw(data, site);
+      final at = DateTime.now().millisecondsSinceEpoch;
+      _homeMemCache[key] = (feed, at);
+      unawaited(_ref.read(configServiceProvider).cacheList(key, {
+        'hero': data['hero'],
+        'sections': data['sections'],
+        'at': at,
+      }));
+      _listUpdates.add(key);
+      return feed;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  HomeFeed _homeFeedFromRaw(dynamic raw, SiteConfig site) {
+    final hero = _listFromItems(raw['hero'], site);
+    final sections = <HomeSection>[];
+    final rawSections = raw['sections'];
+    if (rawSections is List) {
+      for (final s in rawSections) {
+        if (s is! Map) continue;
+        sections.add(HomeSection(
+          typeId: _asInt(s['type_id']),
+          title: (s['title'] ?? '').toString(),
+          items: _listFromItems(s['items'], site),
         ));
       }
-      groups.sort((a, b) => a.category.typeId.compareTo(b.category.typeId));
-      return groups;
-    } catch (_) {
-      return [];
     }
+    return HomeFeed(hero: hero, sections: sections);
   }
 
   Future<VideoDetail?> getDetail(SiteConfig site, String id) async {
@@ -158,6 +369,52 @@ class CmsService {
 
   /// 读取内存缓存（同步），用于页面首帧立即渲染。
   VideoDetail? cachedDetail(String id) => _detailMemCache[id.trim()];
+
+  // ==================== 列表 / 分类树 / 首页聚合缓存 ====================
+
+  /// 列表缓存新鲜期：超过后先返回旧数据再后台刷新。
+  static const int _listFreshMs = 5 * 60 * 1000;
+
+  /// 分类树新鲜期。
+  static const int _treeFreshMs = 24 * 60 * 60 * 1000;
+
+  /// 磁盘缓存最长可用时长，超过则不再使用。
+  static const int _listDiskFreshMs = 6 * 60 * 60 * 1000;
+
+  static final Map<String, (List<VideoDetail>, int)> _listMemCache = {};
+  static final Map<String, (List<CmsCategoryGroup>, int)> _treeMemCache = {};
+  static final Map<String, (HomeFeed, int)> _homeMemCache = {};
+
+  /// 后台刷新完成后的通知流，载荷为缓存 key；页面据此重建。
+  final StreamController<String> _listUpdates =
+      StreamController<String>.broadcast();
+
+  Stream<String> get listUpdates => _listUpdates.stream;
+
+  /// 分页搜索：返回当页结果、总数与是否还有更多。
+  Future<SearchPageResult> searchPaged(
+    SiteConfig site,
+    String query, {
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    try {
+      final data = await _api.listVideos(
+        await _base(),
+        page: page,
+        limit: pageSize,
+        keyword: query,
+      );
+      final items = _listFromItems(data['items'], site);
+      final total = _asInt(data['total']);
+      final hasMore = data['has_more'] == true || (page * pageSize) < total;
+      final at = DateTime.now().millisecondsSinceEpoch;
+      _listMemCache['search:${query.trim()}:$page:$pageSize'] = (items, at);
+      return SearchPageResult(items: items, total: total, hasMore: hasMore);
+    } catch (_) {
+      return const SearchPageResult();
+    }
+  }
 
   Future<VideoDetail?> _loadCachedDetail(String key, SiteConfig site) async {
     try {
@@ -202,6 +459,9 @@ class CmsService {
       id: (item['vod_id'] ?? '').toString(),
       title: (item['vod_name'] ?? '').toString().trim(),
       poster: (item['vod_pic'] ?? '').toString(),
+      heroImage: (item['vod_pic_slide'] ?? '').toString().trim().isEmpty
+          ? null
+          : item['vod_pic_slide'].toString(),
       playGroups: const [],
       source: site.key,
       sourceName: site.name,
