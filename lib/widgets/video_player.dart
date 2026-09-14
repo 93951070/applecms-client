@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:better_player_plus/better_player_plus.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../models/comment.dart';
 import '../models/site.dart';
@@ -96,14 +95,13 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
         SingleTickerProviderStateMixin {
   BetterPlayerController? _controller;
   final GlobalKey _betterPlayerKey = GlobalKey();
-  StreamSubscription<bool>? _controlsSub;
   bool _isInitializing = false;
   bool _isDisposed = false;
-  bool _controlsVisible = true;
   Timer? _bufferingTimer;
   String? _errorMessage;
   bool _wasPlayingBeforePause = false;
   bool _holdPaused = false;
+  bool _pipActive = false;
   bool _locked = false;
   bool _endedHandled = false;
   int _initToken = 0;
@@ -166,6 +164,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
   }
 
   Future<void> enterPip() async {
+    if (!ref.read(pipEnabledProvider)) return;
     try {
       await _controller?.enablePictureInPicture(_betterPlayerKey);
     } catch (_) {}
@@ -286,11 +285,6 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
     controller.setBetterPlayerGlobalKey(_betterPlayerKey);
     controller.addEventsListener(_onPlayerEvent);
     _controller = controller;
-    _controlsSub = controller.controlsVisibilityStream.listen((visible) {
-      if (_isDisposed || !mounted) return;
-      if (_controlsVisible == visible) return;
-      setState(() => _controlsVisible = visible);
-    });
 
     if (volume != 1.0) {
       unawaited(_applyVolume(controller, volume));
@@ -307,8 +301,6 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
 
   void _releasePlayer() {
     _cancelBufferingTimer();
-    _controlsSub?.cancel();
-    _controlsSub = null;
     final old = _controller;
     _controller = null;
     if (old == null) return;
@@ -321,82 +313,47 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
   }
 
   BetterPlayerControlsConfiguration _buildControlsConfiguration() {
+    // 换内核前的自研控制条：内核只负责视频渲染，控制条通过
+    // customControlsBuilder 注入，保持原有布局与功能。
     return BetterPlayerControlsConfiguration(
-      playerTheme: BetterPlayerTheme.material,
-      controlBarColor: Colors.black54,
-      iconsColor: Colors.white,
-      progressBarPlayedColor:
-          widget.isLive ? Colors.white : const Color(0xFF0A84FF),
-      progressBarHandleColor:
-          widget.isLive ? Colors.white : const Color(0xFF0A84FF),
-      progressBarBufferedColor: Colors.white30,
-      progressBarBackgroundColor: Colors.white10,
-      loadingColor: const Color(0xFF0A84FF),
-      enablePip: true,
-      enablePlaybackSpeed: true,
-      enableSubtitles: false,
-      enableQualities: false,
-      enableAudioTracks: false,
-      enableRetry: false,
-      enableFullscreen: widget.showFullscreenControl,
-      enableProgressBar: widget.showPlaybackStatus,
-      enableProgressText: widget.showPlaybackStatus,
-      enablePlayPause: widget.showPlaybackStatus,
-      enableOverflowMenu: true,
-      overflowMenuCustomItems: _buildOverflowItems(),
-    );
-  }
-
-  List<BetterPlayerOverflowMenuItem> _buildOverflowItems() {
-    return [
-      if (widget.episodeTitles.isNotEmpty)
-        BetterPlayerOverflowMenuItem(
-            LucideIcons.listVideo, '选集', _openEpisodeSheet),
-      if (widget.showDanmakuControl)
-        BetterPlayerOverflowMenuItem(
-            LucideIcons.messageSquare,
-            widget.danmakuEnabled ? '关闭弹幕' : '开启弹幕',
-            () => widget.onDanmakuToggle?.call()),
-      if (widget.showSettingsControl)
-        BetterPlayerOverflowMenuItem(
-            LucideIcons.settings, '播放设置', _openSkipSheet),
-      if (widget.hasNextEpisode && widget.onNextEpisode != null)
-        BetterPlayerOverflowMenuItem(
-            LucideIcons.skipForward, '下一集', () => widget.onNextEpisode?.call()),
-      BetterPlayerOverflowMenuItem(
-          LucideIcons.lock, '锁定屏幕', () => _setLocked(true)),
-    ];
-  }
-
-  void _openEpisodeSheet() {
-    showModalBottomSheet<void>(
-      context: context,
-      useRootNavigator: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => ZenEpisodeSheet(
-        episodeTitles: widget.episodeTitles,
-        episodeNeedVip: widget.episodeNeedVip,
-        isVip: widget.isVip,
-        currentEpisodeIndex: widget.currentEpisodeIndex,
-        onSelect: (index) {
-          final wasFull = _controller?.isFullScreen ?? false;
-          widget.onSelectEpisode?.call(index, wasFull);
-        },
-      ),
-    );
-  }
-
-  void _openSkipSheet() {
-    showModalBottomSheet<void>(
-      context: context,
-      useRootNavigator: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => ZenSkipSheet(
-        initial: widget.skipConfig ?? const SkipConfig(),
-        currentPosition: currentPosition,
-        duration: duration,
-        onChanged: (config) => widget.onSkipConfigChange?.call(config),
-      ),
+      playerTheme: BetterPlayerTheme.custom,
+      customControlsBuilder: (controller, onVisibilityChanged, configuration) {
+        return Positioned.fill(
+          child: ZenVideoControls(
+            controller: controller,
+            skipConfig: widget.skipConfig ?? const SkipConfig(),
+            onSkipConfigChange: widget.onSkipConfigChange,
+            onNextEpisode: widget.onNextEpisode,
+            hasNextEpisode: widget.hasNextEpisode,
+            initialVolume: ref.read(playerVolumeProvider),
+            onVolumeChanged: (v) =>
+                ref.read(playerVolumeProvider.notifier).setVolume(v),
+            danmakuEnabled: widget.danmakuEnabled,
+            danmakuListenable: _danmakuEnabledNotifier,
+            danmakuInputListenable: _danmakuInputNotifier,
+            onDanmakuToggle: widget.onDanmakuToggle,
+            episodeTitles: widget.episodeTitles,
+            episodeNeedVip: widget.episodeNeedVip,
+            isVip: widget.isVip,
+            currentEpisodeIndex: widget.currentEpisodeIndex,
+            onSelectEpisode: widget.onSelectEpisode,
+            danmakuInputActive: widget.danmakuInputActive,
+            danmakuController: widget.danmakuController,
+            danmakuFocus: widget.danmakuFocus,
+            onDanmakuInputActivate: widget.onDanmakuInputActivate,
+            onDanmakuInputClose: widget.onDanmakuInputClose,
+            onDanmakuSubmit: widget.onDanmakuSubmit,
+            showDanmakuControl: widget.showDanmakuControl,
+            showSettingsControl: widget.showSettingsControl,
+            showFullscreenControl: widget.showFullscreenControl,
+            showPlaybackStatus: widget.showPlaybackStatus,
+            onLockChanged: _setLocked,
+            pipEnabled: ref.read(pipEnabledProvider),
+            onPipEnabledChanged: (v) =>
+                ref.read(pipEnabledProvider.notifier).setEnabled(v),
+          ),
+        );
+      },
     );
   }
 
@@ -404,10 +361,6 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
     if (_locked == value) return;
     setState(() => _locked = value);
     widget.onLockChanged?.call(value);
-    try {
-      _controller?.setControlsEnabled(!value);
-      if (value) _controller?.toggleControlsVisibility(false);
-    } catch (_) {}
   }
 
   void _onPlayerEvent(BetterPlayerEvent event) {
@@ -431,9 +384,14 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
         _cancelBufferingTimer();
         break;
       case BetterPlayerEventType.pipStart:
+        _pipActive = true;
         _holdPaused = false;
+        // Android 进入画中画的时序可能先收到生命周期 paused（被误暂停），
+        // 画中画生效后把播放恢复回来。
+        if (!isPlaying) resumePlayback();
         break;
       case BetterPlayerEventType.pipStop:
+        _pipActive = false;
         _holdPaused = false;
         break;
       case BetterPlayerEventType.exception:
@@ -578,16 +536,26 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_isDisposed) return;
+    if (state == AppLifecycleState.inactive) {
+      // 进入后台前触发画中画：开关开启且正在播放时进入小窗。
+      if (ref.read(pipEnabledProvider) && isPlaying && !_isInitializing) {
+        unawaited(enterPip());
+      }
+      return;
+    }
     if (state == AppLifecycleState.paused) {
       _wasPlayingBeforePause = isPlaying;
       _cancelBufferingTimer();
-      // iOS 由 better_player 原生侧自动进入系统画中画，退后台必须保持播放；
-      // Android 不支持自动画中画，退后台按常理暂停。
+      // 画中画接管后保持播放，不再暂停。
+      if (_pipActive) return;
+      // iOS 保持播放等待系统接管画中画；Android 无画中画时按常理暂停。
       if (Platform.isIOS) return;
       _safePause();
       return;
     }
-    if (state != AppLifecycleState.resumed || _isDisposed) return;
+    if (state != AppLifecycleState.resumed) return;
+    _pipActive = false;
     _cancelBufferingTimer();
     if (_errorMessage != null) {
       setState(() => _errorMessage = null);
@@ -601,6 +569,8 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    // 订阅画中画开关，开关变化时重建控制条以同步状态。
+    ref.watch(pipEnabledProvider);
     if (_errorMessage != null) {
       return _buildError();
     }
@@ -620,9 +590,6 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
         children: [
           BetterPlayer(controller: controller, key: _betterPlayerKey),
           _buildDanmakuOverlay(),
-          if (_locked)
-            ZenLockButton(locked: true, onToggle: () => _setLocked(false)),
-          _buildDanmakuInputOverlay(),
         ],
       ),
     );
@@ -646,32 +613,6 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
             child: const Text('重试', style: TextStyle(color: Colors.white)),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildDanmakuInputOverlay() {
-    if (!widget.showDanmakuControl || !widget.danmakuEnabled) {
-      return const SizedBox.shrink();
-    }
-    if (!_controlsVisible && !widget.danmakuInputActive) {
-      return const SizedBox.shrink();
-    }
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 64,
-      child: ValueListenableBuilder<bool>(
-        valueListenable: _danmakuInputNotifier,
-        builder: (context, active, _) => ZenDanmakuInputBar(
-          active: active,
-          visible: _controlsVisible || active,
-          controller: widget.danmakuController,
-          focusNode: widget.danmakuFocus,
-          onActivate: widget.onDanmakuInputActivate,
-          onClose: widget.onDanmakuInputClose,
-          onSubmit: widget.onDanmakuSubmit,
-        ),
       ),
     );
   }

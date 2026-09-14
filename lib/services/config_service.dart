@@ -262,6 +262,18 @@ class ConfigService {
     await prefs.setDouble(keyPlayerVolume, volume);
   }
 
+  static const String keyPipEnabled = 'pip_enabled';
+
+  Future<bool> getPipEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(keyPipEnabled) ?? true;
+  }
+
+  Future<void> setPipEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(keyPipEnabled, enabled);
+  }
+
   /// 网站会员 API 基址（去掉结尾斜杠）
   Future<String> getApiBaseUrl() async {
     final prefs = await SharedPreferences.getInstance();

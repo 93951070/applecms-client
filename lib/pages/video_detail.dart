@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -604,21 +603,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               ),
             ),
           ),
-          if (Platform.isIOS)
-            Positioned(
-              top: 4,
-              right: 4,
-              child: Material(
-                color: Colors.transparent,
-                child: IconButton(
-                  icon: const Icon(LucideIcons.pictureInPicture,
-                      size: 22, color: Colors.white),
-                  tooltip: '画中画',
-                  onPressed: () =>
-                      unawaited(_playerKey.currentState?.enterPip()),
-                ),
-              ),
-            ),
         ],
       ),
     );

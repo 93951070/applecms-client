@@ -54,6 +54,28 @@ class PlayerVolumeModel extends Notifier<double> {
   }
 }
 
+final pipEnabledProvider = NotifierProvider<PipEnabledModel, bool>(PipEnabledModel.new);
+
+class PipEnabledModel extends Notifier<bool> {
+  @override
+  bool build() {
+    _load();
+    // 画中画默认开启
+    return true;
+  }
+
+  Future<void> _load() async {
+    final configService = ref.read(configServiceProvider);
+    state = await configService.getPipEnabled();
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    state = enabled;
+    final configService = ref.read(configServiceProvider);
+    await configService.setPipEnabled(enabled);
+  }
+}
+
 final adBlockEnabledProvider = NotifierProvider<AdBlockEnabledModel, bool>(AdBlockEnabledModel.new);
 
 class AdBlockEnabledModel extends Notifier<bool> {
