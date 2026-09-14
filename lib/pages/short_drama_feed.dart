@@ -1054,7 +1054,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
         if (ready) _buildVideo(controller) else _buildPlaceholder(),
         if (widget.accessMessage != null) _buildMessage(widget.accessMessage!),
         if (!ready && _failed)
-          _buildMessage('播放失败', retry: true, detail: _failReason),
+          _buildMessage('播放失败', retry: true, detail: _failureDetail()),
       ],
     );
   }
@@ -1103,6 +1103,15 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
     );
   }
 
+  String _failureDetail() {
+    final parts = <String>[];
+    if (_failReason.isNotEmpty) parts.add(_failReason);
+    final url = widget.url;
+    if (url != null && url.isNotEmpty) parts.add(url);
+    parts.add('源:${widget.entry.playSource} 集:${widget.entry.playIndex}');
+    return parts.join('\n');
+  }
+
   Widget _buildMessage(String message, {bool retry = false, String detail = ''}) {
     final isLock = !retry &&
         (widget.locked || message.contains('会员') || message.contains('VIP'));
@@ -1133,7 +1142,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
                 child: Text(
                   detail,
                   textAlign: TextAlign.center,
-                  maxLines: 4,
+                  maxLines: 12,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(color: Colors.white38, fontSize: 11),
                 ),

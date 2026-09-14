@@ -1014,12 +1014,17 @@ class AppApiService {
   /// 后端可能下发相对地址（如服务端 HLS 过滤入口 `/api/app/v1/hls`），
   /// 这里统一按当前 API 基地址补全为绝对地址。
   String? _absolutePlayUrl(String base, String? url) {
-    if (url == null || url.isEmpty) return url;
-    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    if (url == null) return null;
+    // 去掉换行/控制字符，避免原生播放器把地址判为 bad URL。
+    final cleaned = url.replaceAll(RegExp(r'[\s\u0000-\u001f\u007f]'), '');
+    if (cleaned.isEmpty) return null;
+    if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
+      return cleaned;
+    }
     try {
-      return Uri.parse(base).resolve(url).toString();
+      return Uri.parse(base.trim()).resolve(cleaned).toString();
     } catch (_) {
-      return url;
+      return cleaned;
     }
   }
 
