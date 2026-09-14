@@ -199,7 +199,9 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   }
 
   /// 解析某一集的直连地址并缓存。
-  Future<void> _resolve(int index) async {
+  ///
+  /// [forceRefresh] 为真时跳过服务端解析缓存强制重新解析（用于地址失效/首播失败重试）。
+  Future<void> _resolve(int index, {bool forceRefresh = false}) async {
     if (index < 0 || index >= _entries.length) return;
     if (_urlCache.containsKey(index)) return;
     final entry = _entries[index];
@@ -214,6 +216,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
         playSource: entry.playSource,
         playIndex: entry.playIndex,
         token: token,
+        refresh: forceRefresh,
       );
       // web嗅探线路：复用与主播放页一致的客户端 WebView 嗅探，
       // 嗅到直链直接播放；失败才回传让服务端换源，不再把「请客户端网页解析」当结果展示。
@@ -241,16 +244,47 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
       }
       final url =
           (res.hasAccess && (res.playUrl ?? '').isNotEmpty) ? res.playUrl : null;
+      // 服务端解析失败（非会员拦截）：丢弃结果强制刷新解析一次，避免把失效地址定格。
+      if (url == null && res.hasAccess && !forceRefresh) {
+        _urlCache.remove(index);
+        return await _resolve(index, forceRefresh: true);
+      }
       _urlCache[index] = url;
       _refererCache[index] = '';
       _msgCache[index] = url == null
           ? (res.message.isNotEmpty ? res.message : '该内容需要会员权限')
           : null;
     } catch (_) {
+      if (!forceRefresh) {
+        _urlCache.remove(index);
+        return await _resolve(index, forceRefresh: true);
+      }
       _urlCache[index] = null;
       _msgCache[index] = _msgCache[index] ?? '取流失败，请检查网络后重试';
     }
     if (mounted) setState(() {});
+  }
+
+  /// 通知服务端预热下一集分片缓存，切集时首个分片可直接命中。
+  Future<void> _prefetchNextOnServer(int index) async {
+    final next = index + 1;
+    if (next < 0 || next >= _entries.length) return;
+    final entry = _entries[next];
+    final api = ref.read(appApiServiceProvider);
+    final config = ref.read(configServiceProvider);
+    try {
+      final base = await config.getApiBaseUrl();
+      final token = await config.getAuthToken();
+      await api.prefetch(
+        base,
+        videoId: entry.vodId,
+        playSource: entry.playSource,
+        playIndex: entry.playIndex,
+        token: token,
+      );
+    } catch (_) {
+      // 预热是尽力而为，失败不影响正常播放。
+    }
   }
 
   /// 从直链地址推出 origin，作为播放防盗链的 Referer。
@@ -430,6 +464,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
           locked: entry.requiresVip && !vipActive,
           onUpgrade: _openUpgrade,
           onCompleted: _goNext,
+          onNearEnd: () => unawaited(_prefetchNextOnServer(i)),
           onRetry: () {
             _urlCache.remove(i);
             _msgCache.remove(i);
@@ -810,6 +845,9 @@ class _DramaVideoPage extends StatefulWidget {
   final VoidCallback onCompleted;
   final VoidCallback onRetry;
 
+  /// 即将播完（进度接近结尾）时回调，用于触发下一集预缓存。
+  final VoidCallback? onNearEnd;
+
   const _DramaVideoPage({
     super.key,
     required this.entry,
@@ -821,6 +859,7 @@ class _DramaVideoPage extends StatefulWidget {
     required this.onUpgrade,
     required this.onCompleted,
     required this.onRetry,
+    this.onNearEnd,
   });
 
   @override
@@ -833,6 +872,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
   bool _initializing = false;
   bool _failed = false;
   bool _completed = false;
+  bool _nearEndNotified = false;
   int _syncToken = 0;
   double _aspectRatio = 0;
   String _failReason = '';
@@ -882,6 +922,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
       _initializing = true;
       _failed = false;
       _completed = false;
+      _nearEndNotified = false;
       _aspectRatio = 0;
       _failReason = '';
     });
@@ -1006,6 +1047,14 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
           _notifyCompleted();
         } else {
           _completed = false;
+          // 进度接近结尾时提前触发下一集预缓存，保证上滑切集即刻可播。
+          if (widget.isActive &&
+              !_nearEndNotified &&
+              total > Duration.zero &&
+              value.position >= total * 0.85) {
+            _nearEndNotified = true;
+            widget.onNearEnd?.call();
+          }
         }
         break;
       default:

@@ -720,6 +720,29 @@ class AppApiService {
     );
   }
 
+  /// 通知服务端预热某集分片缓存（尽力而为：只在即将切集时调用，失败不影响播放）。
+  Future<void> prefetch(
+    String base, {
+    required String videoId,
+    required int playSource,
+    required int playIndex,
+    String? token,
+    int? segments,
+  }) async {
+    await _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/prefetch',
+      jsonBody: <String, dynamic>{
+        'video_id': videoId,
+        'play_source': playSource,
+        'play_index': playIndex,
+        if (segments != null) 'segments': segments,
+      },
+      token: token,
+    );
+  }
+
   /// 清除已缓存的会话（例如用户切换了后端地址）。
   void clearSession([String? base]) {
     if (base == null) {

@@ -62,6 +62,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   double? _initialResumePosition;
   final bool _autoPlayNext = true;
 
+  /// 已触发过服务端预热的下一集下标，避免同一集重复请求。
+  int _prefetchedEpisode = -1;
+
   /// 从一起看回到本页时置位：同步进度并保持暂停，直到用户真正开始播放。
   bool _resumePaused = false;
   SkipConfig _skipConfig = SkipConfig();
@@ -270,6 +273,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       _accessMessage = null;
       _errorMessage = null;
       _playerLocked = false;
+      if (isEpisodeChange) _prefetchedEpisode = -1;
     });
     _resolveCurrentEpisode();
     _loadDanmaku();
@@ -373,6 +377,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           _accessMessage =
               result.message.isEmpty ? '该内容需要会员权限' : result.message;
         });
+      } else if (!forceRefresh) {
+        // 服务端解析失败（非会员拦截）：丢弃缓存强制刷新一次，避免把失效地址定格。
+        _episodeUrlCache.remove(cacheKey);
+        return await _resolveCurrentEpisode(forceRefresh: true);
       } else {
         setState(() {
           _errorMessage =
@@ -382,6 +390,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     } catch (e) {
       if (!mounted) return;
       debugPrint('App 网关取流失败: $e');
+      if (!forceRefresh) {
+        _episodeUrlCache.remove(cacheKey);
+        return await _resolveCurrentEpisode(forceRefresh: true);
+      }
       setState(() {
         _errorMessage = '取流失败，请检查网络后重试';
       });
@@ -480,6 +492,43 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       setState(() {
         _skipConfig = config[key]!;
       });
+    }
+  }
+
+  /// 进度接近结尾时提前通知服务端预热下一集分片缓存，切集时首个分片直接命中。
+  void _maybePrefetchNext(Duration position, Duration duration) {
+    final video = _video;
+    if (video == null || video.playGroups.isEmpty) return;
+    final group = video.playGroups.first;
+    final next = _currentEpisodeIndex + 1;
+    if (next >= group.urls.length) return;
+    if (_prefetchedEpisode == next) return;
+    if (duration <= Duration.zero) return;
+    if (position < duration * 0.85) return;
+    _prefetchedEpisode = next;
+    unawaited(_prefetchNextOnServer(next));
+  }
+
+  Future<void> _prefetchNextOnServer(int next) async {
+    final video = _video;
+    if (video == null || video.playGroups.isEmpty) return;
+    final group = video.playGroups.first;
+    if (next >= group.urls.length) return;
+    final api = ref.read(appApiServiceProvider);
+    final config = ref.read(configServiceProvider);
+    final playSource = video.playGroups.indexOf(group);
+    try {
+      final base = await config.getApiBaseUrl();
+      final token = await config.getAuthToken();
+      await api.prefetch(
+        base,
+        videoId: video.id,
+        playSource: playSource < 0 ? 0 : playSource,
+        playIndex: next,
+        token: token,
+      );
+    } catch (_) {
+      // 预热是尽力而为，失败不影响正常播放。
     }
   }
 
@@ -737,8 +786,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       },
       hasNextEpisode: _currentEpisodeIndex < group.urls.length - 1,
       onNextEpisode: _playNextEpisode,
-      onProgress: (pos, dur, {isFinal = false}) =>
-          _savePlayRecord(pos, dur, isFinal: isFinal),
+      onProgress: (pos, dur, {isFinal = false}) {
+        _savePlayRecord(pos, dur, isFinal: isFinal);
+        _maybePrefetchNext(pos, dur);
+      },
       onEnded: _autoPlayNext ? _playNextEpisode : null,
       danmaku: _danmaku,
       danmakuEnabled: _danmakuEnabled,
