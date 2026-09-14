@@ -835,7 +835,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
   bool _completed = false;
   int _syncToken = 0;
   double _aspectRatio = 0;
-  String _dbg = '';
+  String _failReason = '';
 
   @override
   void initState() {
@@ -883,12 +883,16 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
       _failed = false;
       _completed = false;
       _aspectRatio = 0;
+      _failReason = '';
     });
 
     final c = BetterPlayerController(
       BetterPlayerConfiguration(
         autoPlay: true,
         fit: BoxFit.contain,
+        // 关掉内核自带的 Center+AspectRatio 包裹：SizedBox.expand 的紧约束下，
+        // 播放器区域直接铺满整屏，再由 overridden fit 决定画面裁切/留边。
+        expandToFill: false,
         allowedScreenSleep: false,
         handleLifecycle: false,
         autoDispose: false,
@@ -968,8 +972,6 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
         setState(() {
           _initializing = false;
           _aspectRatio = aspect;
-          _dbg = 'size=${size?.width.toStringAsFixed(0)}x'
-              '${size?.height.toStringAsFixed(0)} $_dbg';
         });
         break;
       case BetterPlayerEventType.finished:
@@ -979,6 +981,8 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
         setState(() {
           _initializing = false;
           _failed = true;
+          _failReason =
+              event.parameters?['exception']?.toString() ?? _failReason;
         });
         break;
       case BetterPlayerEventType.progress:
@@ -1020,12 +1024,6 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
         aspect <= 0 || boxAspect <= 0 || (aspect >= 1) == (boxAspect >= 1);
     final fit = sameSide ? BoxFit.cover : BoxFit.contain;
     try {
-      // 内核 BetterPlayerWithControls 会用 AspectRatio(controller.getAspectRatio())
-      // 包裹播放器，默认 16:9，导致竖屏屏幕上播放器区域是一条横向区域、上下留黑边。
-      // 这里把包装比例设为屏幕比例，使播放器区域铺满整屏。
-      if (boxAspect > 0) c.setOverriddenAspectRatio(boxAspect);
-    } catch (_) {}
-    try {
       c.setOverriddenFit(fit);
     } catch (_) {}
     // iOS 上内核在部分时序下不会把 overridden fit 同步到原生 AVLayerVideoGravity，
@@ -1034,13 +1032,6 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
       c.videoPlayerController
           ?.setAspectRatio(fit == BoxFit.cover ? 'fill' : 'aspect');
     } catch (_) {}
-    if (mounted) {
-      setState(() {
-        _dbg = 'asp=${aspect.toStringAsFixed(3)} box='
-            '${boxAspect.toStringAsFixed(3)} fit=$fit '
-            'ios=${fit == BoxFit.cover ? 'fill' : 'aspect'}';
-      });
-    }
   }
 
   void _notifyCompleted() {
@@ -1062,24 +1053,8 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
       children: [
         if (ready) _buildVideo(controller) else _buildPlaceholder(),
         if (widget.accessMessage != null) _buildMessage(widget.accessMessage!),
-        if (!ready && _failed) _buildMessage('播放失败', retry: true),
-        if (_dbg.isNotEmpty)
-          Positioned(
-            left: 8,
-            top: MediaQuery.of(context).padding.top + 4,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: const BoxDecoration(color: Colors.black54),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  child: Text(
-                    _dbg,
-                    style: const TextStyle(color: Colors.yellow, fontSize: 11),
-                  ),
-                ),
-              ),
-            ),
-          ),
+        if (!ready && _failed)
+          _buildMessage('播放失败', retry: true, detail: _failReason),
       ],
     );
   }
@@ -1128,7 +1103,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
     );
   }
 
-  Widget _buildMessage(String message, {bool retry = false}) {
+  Widget _buildMessage(String message, {bool retry = false, String detail = ''}) {
     final isLock = !retry &&
         (widget.locked || message.contains('会员') || message.contains('VIP'));
     return ColoredBox(
@@ -1151,6 +1126,19 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
                 style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
             ),
+            if (detail.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  detail,
+                  textAlign: TextAlign.center,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white38, fontSize: 11),
+                ),
+              ),
+            ],
             if (isLock) ...[
               const SizedBox(height: 12),
               ElevatedButton(
