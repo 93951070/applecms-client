@@ -201,6 +201,10 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
     if (!mounted) return;
     switch (event.betterPlayerEventType) {
       case BetterPlayerEventType.initialized:
+        // 控制器初始化后才能查询到设备是否支持画中画。
+        _loadPipSupport();
+        setState(() {});
+        break;
       case BetterPlayerEventType.progress:
       case BetterPlayerEventType.play:
       case BetterPlayerEventType.pause:
@@ -217,7 +221,10 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
 
   Future<void> _loadPipSupport() async {
     try {
-      final supported = await _controller.isPictureInPictureSupported();
+      // 直接用底层播放器能力判断，避免控制器在非全屏/全屏切换时误判。
+      final supported = await _controller.videoPlayerController
+              ?.isPictureInPictureSupported() ??
+          false;
       if (mounted && supported != _pipSupported) {
         setState(() => _pipSupported = supported);
       }

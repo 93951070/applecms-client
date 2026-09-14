@@ -958,7 +958,6 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
         final aspect = (size != null && size.width > 0 && size.height > 0)
             ? size.width / size.height
             : 0.0;
-        _applyFit(c, aspect);
         setState(() {
           _initializing = false;
           _aspectRatio = aspect;
@@ -976,12 +975,11 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
       case BetterPlayerEventType.progress:
         final value = c.videoPlayerController?.value;
         if (value == null) break;
+        // 首帧初始化时尺寸可能还没上报，播放中补齐一次比例。
         if (_aspectRatio <= 0) {
           final size = value.size;
           if (size != null && size.width > 0 && size.height > 0) {
-            final aspect = size.width / size.height;
-            _applyFit(c, aspect);
-            setState(() => _aspectRatio = aspect);
+            setState(() => _aspectRatio = size.width / size.height);
           }
         }
         final total = value.duration ?? Duration.zero;
@@ -998,15 +996,6 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
     }
   }
 
-  // 根据视频真实比例设置渲染方式：横屏等比完整显示并补边，竖屏铺满裁切。
-  void _applyFit(BetterPlayerController c, double aspect) {
-    try {
-      c.setOverriddenFit(aspect > 0 && aspect >= 1
-          ? BoxFit.contain
-          : BoxFit.cover);
-    } catch (_) {}
-  }
-
   void _notifyCompleted() {
     if (!widget.isActive || _completed) return;
     _completed = true;
@@ -1016,7 +1005,10 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
-    final ready = controller != null && !_failed && !_initializing;
+    final ready = controller != null &&
+        !_failed &&
+        !_initializing &&
+        _aspectRatio > 0;
 
     return Stack(
       fit: StackFit.expand,
@@ -1030,19 +1022,31 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
 
   Widget _buildVideo(BetterPlayerController controller) {
     final aspect = _aspectRatio;
-    // 内核内部已按真实比例做 FittedBox 缩放，这里只需给出可用区域：
-    // 横屏源等比完整显示并铺模糊海报补边，竖屏源或比例未知时铺满裁切。
+    // 横屏源等比完整显示（模糊海报补边）；竖屏源按真实比例铺满裁切。
+    // 两种都按视频真实比例缩放，不做拉伸。
     if (aspect >= 1) {
       return Stack(
         fit: StackFit.expand,
         children: [
           _buildBlurredPoster(),
-          SizedBox.expand(child: BetterPlayer(controller: controller)),
+          Center(
+            child: AspectRatio(
+              aspectRatio: aspect,
+              child: BetterPlayer(controller: controller),
+            ),
+          ),
         ],
       );
     }
-    return SizedBox.expand(
-      child: BetterPlayer(controller: controller),
+    return ClipRect(
+      child: FittedBox(
+        fit: BoxFit.cover,
+        child: SizedBox(
+          width: aspect * 1000,
+          height: 1000,
+          child: BetterPlayer(controller: controller),
+        ),
+      ),
     );
   }
 
