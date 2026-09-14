@@ -9,6 +9,7 @@ import '../providers/history_provider.dart';
 import '../providers/auth_provider.dart';
 import '../models/site.dart';
 import '../core/video_router.dart';
+import '../core/content_kind.dart';
 import '../core/theme.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
@@ -140,9 +141,15 @@ class _HomePageState extends ConsumerState<HomePage> {
     _maybeScheduleContinue(historyList);
 
     final treeAsync = ref.watch(categoryTreeProvider);
-    final groups = (treeAsync.value ?? const <CmsCategoryGroup>[]).isNotEmpty
+    final allGroups = (treeAsync.value ?? const <CmsCategoryGroup>[]).isNotEmpty
         ? treeAsync.value!
         : _fallbackGroups;
+    final groups = allGroups
+        .where((g) => !isFeedCategory(
+              typeId: g.category.typeId,
+              typeName: g.category.typeName,
+            ))
+        .toList();
 
     final mainIndex = _mainIndex > groups.length ? 0 : _mainIndex;
     final recommend = mainIndex == 0;
