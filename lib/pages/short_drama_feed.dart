@@ -920,11 +920,13 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
         BetterPlayerDataSourceType.network,
         url,
         headers: {
-          if (widget.referer != null && widget.referer!.isNotEmpty) ...{
-            'User-Agent':
-                'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
+          // 始终携带浏览器 UA：iOS 端 headers 为空时，AVPlayer 会以「无 UA」
+          // 请求取流，部分 CDN 会直接拒绝分片（403，表现为
+          // “You do not have permission to access the requested resource”）。
+          'User-Agent':
+              'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
+          if (widget.referer != null && widget.referer!.isNotEmpty)
             'Referer': widget.referer!,
-          },
         },
       ),
     );
