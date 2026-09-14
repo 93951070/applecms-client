@@ -969,9 +969,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
           _initializing = false;
           _aspectRatio = aspect;
           _dbg = 'size=${size?.width.toStringAsFixed(0)}x'
-              '${size?.height.toStringAsFixed(0)} asp=${aspect.toStringAsFixed(3)}'
-              ' fit=${c.getFit()} ios='
-              '${c.videoPlayerController?.value.aspectRatioIOS}';
+              '${size?.height.toStringAsFixed(0)} $_dbg';
         });
         break;
       case BetterPlayerEventType.finished:
@@ -1022,6 +1020,12 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
         aspect <= 0 || boxAspect <= 0 || (aspect >= 1) == (boxAspect >= 1);
     final fit = sameSide ? BoxFit.cover : BoxFit.contain;
     try {
+      // 内核 BetterPlayerWithControls 会用 AspectRatio(controller.getAspectRatio())
+      // 包裹播放器，默认 16:9，导致竖屏屏幕上播放器区域是一条横向区域、上下留黑边。
+      // 这里把包装比例设为屏幕比例，使播放器区域铺满整屏。
+      if (boxAspect > 0) c.setOverriddenAspectRatio(boxAspect);
+    } catch (_) {}
+    try {
       c.setOverriddenFit(fit);
     } catch (_) {}
     // iOS 上内核在部分时序下不会把 overridden fit 同步到原生 AVLayerVideoGravity，
@@ -1032,7 +1036,8 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
     } catch (_) {}
     if (mounted) {
       setState(() {
-        _dbg = 'asp=${aspect.toStringAsFixed(3)} fit=$fit '
+        _dbg = 'asp=${aspect.toStringAsFixed(3)} box='
+            '${boxAspect.toStringAsFixed(3)} fit=$fit '
             'ios=${fit == BoxFit.cover ? 'fill' : 'aspect'}';
       });
     }
@@ -1068,7 +1073,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   child: Text(
-                    '$_dbg box=${(MediaQuery.of(context).size.width / MediaQuery.of(context).size.height).toStringAsFixed(3)}',
+                    _dbg,
                     style: const TextStyle(color: Colors.yellow, fontSize: 11),
                   ),
                 ),
