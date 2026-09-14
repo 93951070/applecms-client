@@ -968,9 +968,10 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
         setState(() {
           _initializing = false;
           _aspectRatio = aspect;
-          _dbg = 'init size=${size?.width.toStringAsFixed(0)}x'
+          _dbg = 'size=${size?.width.toStringAsFixed(0)}x'
               '${size?.height.toStringAsFixed(0)} asp=${aspect.toStringAsFixed(3)}'
-              ' fit=${c.getFit()}';
+              ' fit=${c.getFit()} ios='
+              '${c.videoPlayerController?.value.aspectRatioIOS}';
         });
         break;
       case BetterPlayerEventType.finished:
@@ -1012,21 +1013,29 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
   // 必须交给内核处理。仅当视频方向与屏幕方向一致时才铺满裁切，方向不同则完整显示，
   // 避免竖屏视频在横屏屏幕上被裁成横条。
   void _applyFit(BetterPlayerController c, double aspect) {
-    if (aspect <= 0) {
-      try {
-        c.setOverriddenFit(BoxFit.cover);
-      } catch (_) {}
-      return;
-    }
     var boxAspect = 0.0;
     if (mounted) {
       final size = MediaQuery.maybeOf(context)?.size;
       if (size != null && size.height > 0) boxAspect = size.width / size.height;
     }
-    final sameSide = boxAspect <= 0 || (aspect >= 1) == (boxAspect >= 1);
+    final sameSide =
+        aspect <= 0 || boxAspect <= 0 || (aspect >= 1) == (boxAspect >= 1);
+    final fit = sameSide ? BoxFit.cover : BoxFit.contain;
     try {
-      c.setOverriddenFit(sameSide ? BoxFit.cover : BoxFit.contain);
+      c.setOverriddenFit(fit);
     } catch (_) {}
+    // iOS 上内核在部分时序下不会把 overridden fit 同步到原生 AVLayerVideoGravity，
+    // 原生保持默认 resizeAspect，导致竖屏视频上下留黑边。这里直接下发 gravity 兜底。
+    try {
+      c.videoPlayerController
+          ?.setAspectRatio(fit == BoxFit.cover ? 'fill' : 'aspect');
+    } catch (_) {}
+    if (mounted) {
+      setState(() {
+        _dbg = 'asp=${aspect.toStringAsFixed(3)} fit=$fit '
+            'ios=${fit == BoxFit.cover ? 'fill' : 'aspect'}';
+      });
+    }
   }
 
   void _notifyCompleted() {
