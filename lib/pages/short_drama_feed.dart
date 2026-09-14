@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:better_player_plus/better_player_plus.dart';
@@ -102,6 +103,9 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   @override
   void initState() {
     super.initState();
+    // 短剧 Feed 是竖屏消费场景，锁定竖屏避免从全屏播放返回时残留横屏，
+    // 横屏下竖屏视频会被裁切成横条。
+    SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
     _detailSub =
         ref.read(cmsServiceProvider).detailUpdates.listen(_onDetailUpdated);
     _bootstrap();
@@ -111,6 +115,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   void dispose() {
     _detailSub?.cancel();
     _pageController.dispose();
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
   }
 
@@ -999,13 +1004,24 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
     }
   }
 
-  // 用内核自身的缩放方式，横屏源等比完整显示、竖屏源铺满裁切。
-  // iOS 平台视图不跟随 Flutter 的 FittedBox/Transform 变换，必须交给内核处理。
+  // 用内核自身的缩放方式适配。iOS 平台视图不跟随 Flutter 的 FittedBox/Transform，
+  // 必须交给内核处理。仅当视频方向与屏幕方向一致时才铺满裁切，方向不同则完整显示，
+  // 避免竖屏视频在横屏屏幕上被裁成横条。
   void _applyFit(BetterPlayerController c, double aspect) {
+    if (aspect <= 0) {
+      try {
+        c.setOverriddenFit(BoxFit.cover);
+      } catch (_) {}
+      return;
+    }
+    var boxAspect = 0.0;
+    if (mounted) {
+      final size = MediaQuery.maybeOf(context)?.size;
+      if (size != null && size.height > 0) boxAspect = size.width / size.height;
+    }
+    final sameSide = boxAspect <= 0 || (aspect >= 1) == (boxAspect >= 1);
     try {
-      c.setOverriddenFit(aspect > 0 && aspect >= 1
-          ? BoxFit.contain
-          : BoxFit.cover);
+      c.setOverriddenFit(sameSide ? BoxFit.cover : BoxFit.contain);
     } catch (_) {}
   }
 

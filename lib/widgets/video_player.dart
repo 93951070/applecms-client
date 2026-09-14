@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:better_player_plus/better_player_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -277,6 +278,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
         handleLifecycle: false,
         autoDispose: false,
         fullScreenByDefault: widget.autoEnterFullScreen,
+        deviceOrientationsAfterFullScreen: const [DeviceOrientation.portraitUp],
         controlsConfiguration: _buildControlsConfiguration(),
       ),
       betterPlayerDataSource: dataSource,
