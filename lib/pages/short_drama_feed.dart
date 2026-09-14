@@ -835,6 +835,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
   bool _completed = false;
   int _syncToken = 0;
   double _aspectRatio = 0;
+  String _dbg = '';
 
   @override
   void initState() {
@@ -967,6 +968,9 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
         setState(() {
           _initializing = false;
           _aspectRatio = aspect;
+          _dbg = 'init size=${size?.width.toStringAsFixed(0)}x'
+              '${size?.height.toStringAsFixed(0)} asp=${aspect.toStringAsFixed(3)}'
+              ' fit=${c.getFit()}';
         });
         break;
       case BetterPlayerEventType.finished:
@@ -1045,6 +1049,23 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
         if (ready) _buildVideo(controller) else _buildPlaceholder(),
         if (widget.accessMessage != null) _buildMessage(widget.accessMessage!),
         if (!ready && _failed) _buildMessage('播放失败', retry: true),
+        if (_dbg.isNotEmpty)
+          Positioned(
+            left: 8,
+            top: MediaQuery.of(context).padding.top + 4,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: const BoxDecoration(color: Colors.black54),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  child: Text(
+                    '$_dbg box=${(MediaQuery.of(context).size.width / MediaQuery.of(context).size.height).toStringAsFixed(3)}',
+                    style: const TextStyle(color: Colors.yellow, fontSize: 11),
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
