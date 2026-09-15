@@ -30,7 +30,7 @@ class ConfigService {
 
   /// 网站（会员/登录）API 基址，默认指向当前部署；可在设置中覆盖
   static const String defaultApiBaseUrl =
-      'https://8080-69c51079e0ea8ede.monkeycode-ai.online';
+      'https://8080-34eaf1c63757ea0b.monkeycode-ai.online';
 
   static const String keyAnnouncement = 'announcement';
   static const String keyFavorites = 'favorites';
