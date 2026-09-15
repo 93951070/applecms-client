@@ -34,6 +34,7 @@ class ConfigService {
 
   static const String keyAnnouncement = 'announcement';
   static const String keyFavorites = 'favorites';
+  static const String keyLikes = 'liked_keys';
   static const String keyHistory = 'play_history';
   static const String keySkipConfigs = 'skip_configs';
   static const String keyHasAgreedTerms = 'has_agreed_terms';
@@ -136,6 +137,17 @@ class ConfigService {
     final prefs = await SharedPreferences.getInstance();
     final data = favorites.map((s) => jsonEncode(s.toJson())).toList();
     await prefs.setStringList(keyFavorites, data);
+  }
+
+  /// 已「推荐」过的条目 key（优先 subjectId，缺失时退化为标题）。
+  Future<Set<String>> getLikedKeys() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getStringList(keyLikes) ?? const <String>[]).toSet();
+  }
+
+  Future<void> saveLikedKeys(Iterable<String> keys) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(keyLikes, keys.toList());
   }
 
   Future<List<PlayRecord>> getHistory() async {

@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/movie.dart';
 import '../models/comment.dart';
 import '../models/douban_media.dart';
@@ -14,6 +16,7 @@ import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../providers/history_provider.dart';
 import '../providers/favorites_provider.dart';
+import '../providers/likes_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/download_service.dart';
 import '../core/theme.dart';
@@ -1367,6 +1370,12 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
             ),
           ),
           GestureDetector(
+            onTap: _shareVideo,
+            child: Icon(LucideIcons.share,
+                size: 18, color: theme.colorScheme.secondary),
+          ),
+          const SizedBox(width: 14),
+          GestureDetector(
             onTap: _showSynopsisSheet,
             child: Row(
               children: [
@@ -1421,6 +1430,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     }
   }
 
+  /// 播放页主操作区：推荐 / 加追 / 下载 / 投屏 / 一起看，一行等宽分散。
   Widget _buildActionRow(ThemeData theme) {
     final favorited = ref.watch(favoritesProvider).value?.any((f) {
           return widget.subject.id.isNotEmpty
@@ -1428,35 +1438,154 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               : f.searchTitle == widget.subject.title;
         }) ??
         false;
+    final liked = ref.watch(likesProvider).value?.contains(_interactionKey) ??
+        false;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+      padding: const EdgeInsets.fromLTRB(10, 14, 10, 2),
       child: Row(
         children: [
-          GestureDetector(
-            onTap: () => _toggleFavorite(favorited),
-            child: Icon(
-              LucideIcons.star,
-              size: 26,
-              color: favorited
-                  ? AppColors.vipGold
-                  : theme.colorScheme.secondary,
+          Expanded(
+            child: _ActionButton(
+              icon: LucideIcons.thumbsUp,
+              label: liked ? '已推荐' : '推荐',
+              active: liked,
+              onTap: _toggleLike,
             ),
           ),
-          const Spacer(),
-          _buildActionIcon(LucideIcons.heart, const Color(0xFFFF6B9D),
-              () => _toggleFavorite(favorited)),
-          const SizedBox(width: 20),
-          _buildActionIcon(LucideIcons.users, const Color(0xFF8B5CF6),
-              _openWatchParty),
-          const SizedBox(width: 20),
-          _buildActionIcon(LucideIcons.download, const Color(0xFFFF9F43),
-              _cacheCurrentEpisode),
-          const SizedBox(width: 20),
-          _buildActionIcon(LucideIcons.share, const Color(0xFF3B82F6),
-              _shareVideo),
+          Expanded(
+            child: _ActionButton(
+              icon: LucideIcons.listPlus,
+              label: favorited ? '已追' : '加追',
+              active: favorited,
+              onTap: () => _toggleFavorite(favorited),
+            ),
+          ),
+          Expanded(
+            child: _ActionButton(
+              icon: LucideIcons.squareArrowDown,
+              label: '下载',
+              onTap: _cacheCurrentEpisode,
+            ),
+          ),
+          Expanded(
+            child: _ActionButton(
+              iconWidget: _CastTvIcon(color: theme.colorScheme.secondary),
+              label: '投屏',
+              onTap: _openCastSheet,
+            ),
+          ),
+          Expanded(
+            child: _ActionButton(
+              icon: LucideIcons.users,
+              label: '一起看',
+              onTap: _openWatchParty,
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  /// 推荐/加追共用的条目标识：优先用条目 ID，缺失时退化为标题。
+  String get _interactionKey => widget.subject.id.isNotEmpty
+      ? widget.subject.id
+      : widget.subject.title;
+
+  Future<void> _toggleLike() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final nowLiked =
+        await ref.read(likesProvider.notifier).toggle(_interactionKey);
+    messenger
+      ..removeCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(nowLiked ? '已推荐，感谢支持' : '已取消推荐'),
+        duration: const Duration(seconds: 1),
+      ));
+  }
+
+  /// 投屏：系统未提供 AirPlay 直连能力，这里给出三条可用路径。
+  Future<void> _openCastSheet() async {
+    final theme = Theme.of(context);
+    final url = _resolvedUrl ?? '';
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: theme.cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 14),
+            const Text('投屏到电视',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Text(
+                'iOS 未开放应用内直接枚举投屏设备，可用下面任一方式投到电视。',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 12, color: theme.colorScheme.secondary),
+              ),
+            ),
+            const SizedBox(height: 10),
+            ListTile(
+              leading: const Icon(LucideIcons.tv, size: 22),
+              title: const Text('系统屏幕镜像'),
+              subtitle: const Text('下拉控制中心 → 屏幕镜像 → 选择电视'),
+              onTap: () => Navigator.pop(sheetContext),
+            ),
+            ListTile(
+              leading: const Icon(LucideIcons.cast, size: 22),
+              title: const Text('在浏览器中播放并投屏'),
+              subtitle: const Text('Safari 播放时会出现系统投屏按钮'),
+              enabled: url.isNotEmpty,
+              onTap: url.isEmpty
+                  ? null
+                  : () async {
+                      Navigator.pop(sheetContext);
+                      await _openInBrowser(url);
+                    },
+            ),
+            ListTile(
+              leading: const Icon(LucideIcons.share, size: 22),
+              title: const Text('复制播放地址'),
+              subtitle: const Text('粘贴到支持投屏的播放器'),
+              enabled: url.isNotEmpty,
+              onTap: url.isEmpty
+                  ? null
+                  : () async {
+                      Navigator.pop(sheetContext);
+                      await _copyPlayUrl(url);
+                    },
+            ),
+            const SizedBox(height: 6),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openInBrowser(String url) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok) await launchUrl(uri, mode: LaunchMode.platformDefault);
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(content: Text('无法打开播放地址')));
+    }
+  }
+
+  Future<void> _copyPlayUrl(String url) async {
+    final messenger = ScaffoldMessenger.of(context);
+    await Clipboard.setData(ClipboardData(text: url));
+    messenger
+      ..removeCurrentSnackBar()
+      ..showSnackBar(const SnackBar(content: Text('播放地址已复制')));
   }
 
   Future<void> _shareVideo() async {
@@ -1517,13 +1646,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       searchTitle: widget.subject.title,
     ));
     messenger.showSnackBar(const SnackBar(content: Text('已收藏')));
-  }
-
-  Widget _buildActionIcon(IconData icon, Color color, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Icon(icon, size: 24, color: color),
-    );
   }
 
   Widget _buildEpisodeHeader(ThemeData theme) {
@@ -1667,6 +1789,101 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               ],
             ],
           ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 播放页主操作区里的一个按钮：图标在上、文字在下，等宽分散。
+class _ActionButton extends StatelessWidget {
+  const _ActionButton({
+    this.icon,
+    this.iconWidget,
+    required this.label,
+    required this.onTap,
+    this.active = false,
+  }) : assert(icon != null || iconWidget != null);
+
+  final IconData? icon;
+  final Widget? iconWidget;
+  final String label;
+  final VoidCallback onTap;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = active ? AppColors.pink : theme.colorScheme.secondary;
+    const size = 24.0;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              height: size,
+              child: iconWidget != null
+                  ? SizedBox(width: size, height: size, child: iconWidget)
+                  : Icon(icon, size: size, color: color),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                color: color,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 投屏图标：空心显示器轮廓 + 中间小号 TV 字母（lucide 无此字形，自绘）。
+class _CastTvIcon extends StatelessWidget {
+  const _CastTvIcon({required this.color, this.size = 24});
+
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: size,
+          height: size * 0.76,
+          decoration: BoxDecoration(
+            border: Border.all(color: color, width: 1.6),
+            borderRadius: BorderRadius.circular(3),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            'TV',
+            style: TextStyle(
+              color: color,
+              fontSize: size * 0.36,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+              height: 1,
+            ),
+          ),
+        ),
+        Container(
+          width: size * 0.42,
+          height: 1.6,
+          margin: EdgeInsets.only(top: size * 0.08),
+          color: color,
         ),
       ],
     );
