@@ -52,11 +52,11 @@ class PlayGroup {
   });
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'urls': urls,
-        'titles': titles,
-        'need_vip': needVip,
-      };
+    'name': name,
+    'urls': urls,
+    'titles': titles,
+    'need_vip': needVip,
+  };
 
   factory PlayGroup.fromJson(Map<String, dynamic> json) {
     final titles = List<String>.from((json['titles'] as List?) ?? const []);
@@ -91,6 +91,13 @@ String? sanitizeYear(dynamic raw) {
   return text;
 }
 
+/// 宽松整数解析：兼容接口返回的字符串/浮点数。
+int _intOf(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '') ?? 0;
+}
+
 class VideoDetail {
   final String id;
   final String title;
@@ -116,6 +123,18 @@ class VideoDetail {
   /// 会员模式下每部作品免费的前 N 集。
   final int freeEpisodes;
 
+  /// 服务端热度值（播放次数 + 推荐数加权），0 表示暂无数据。
+  final int heat;
+
+  /// 服务端累计播放次数。
+  final int hits;
+
+  /// 服务端累计推荐数。
+  final int likeCount;
+
+  /// 当前用户/设备是否已推荐。
+  final bool liked;
+
   VideoDetail({
     required this.id,
     required this.title,
@@ -132,25 +151,33 @@ class VideoDetail {
     this.directors,
     this.vipMode = 0,
     this.freeEpisodes = 0,
+    this.heat = 0,
+    this.hits = 0,
+    this.likeCount = 0,
+    this.liked = false,
   });
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'poster': poster,
-        'hero_image': heroImage,
-        'source': source,
-        'source_name': sourceName,
-        'year': year,
-        'desc': desc,
-        'type_name': typeName,
-        'type_id': typeId,
-        'actors': actors,
-        'directors': directors,
-        'play_groups': playGroups.map((g) => g.toJson()).toList(),
-        'vip_mode': vipMode,
-        'free_episodes': freeEpisodes,
-      };
+    'id': id,
+    'title': title,
+    'poster': poster,
+    'hero_image': heroImage,
+    'source': source,
+    'source_name': sourceName,
+    'year': year,
+    'desc': desc,
+    'type_name': typeName,
+    'type_id': typeId,
+    'actors': actors,
+    'directors': directors,
+    'play_groups': playGroups.map((g) => g.toJson()).toList(),
+    'vip_mode': vipMode,
+    'free_episodes': freeEpisodes,
+    'heat': heat,
+    'hits': hits,
+    'like_count': likeCount,
+    'liked': liked,
+  };
 
   factory VideoDetail.fromJson(Map<String, dynamic> json) {
     return VideoDetail(
@@ -180,6 +207,10 @@ class VideoDetail {
       freeEpisodes: (json['free_episodes'] is int)
           ? json['free_episodes'] as int
           : int.tryParse(json['free_episodes']?.toString() ?? '') ?? 0,
+      heat: _intOf(json['heat']),
+      hits: _intOf(json['hits']),
+      likeCount: _intOf(json['like_count']),
+      liked: json['liked'] == true,
     );
   }
 
@@ -207,9 +238,45 @@ class PlayRecord {
   final int saveTime;
   final String searchTitle;
   final String? doubanId;
-  PlayRecord({required this.title, required this.sourceName, required this.cover, required this.year, required this.index, required this.totalEpisodes, required this.playTime, required this.totalTime, required this.saveTime, required this.searchTitle, this.doubanId});
-  Map<String, dynamic> toJson() => {'title': title, 'source_name': sourceName, 'cover': cover, 'year': year, 'index': index, 'total_episodes': totalEpisodes, 'play_time': playTime, 'total_time': totalTime, 'save_time': saveTime, 'search_title': searchTitle, 'douban_id': doubanId};
-  factory PlayRecord.fromJson(Map<String, dynamic> json) => PlayRecord(title: json['title'] ?? '', sourceName: json['source_name'] ?? '', cover: json['cover'] ?? '', year: json['year'] ?? '', index: json['index'] ?? 0, totalEpisodes: json['total_episodes'] ?? 0, playTime: json['play_time'] ?? 0, totalTime: json['total_time'] ?? 0, saveTime: json['save_time'] ?? 0, searchTitle: json['search_title'] ?? '', doubanId: json['douban_id']);
+  PlayRecord({
+    required this.title,
+    required this.sourceName,
+    required this.cover,
+    required this.year,
+    required this.index,
+    required this.totalEpisodes,
+    required this.playTime,
+    required this.totalTime,
+    required this.saveTime,
+    required this.searchTitle,
+    this.doubanId,
+  });
+  Map<String, dynamic> toJson() => {
+    'title': title,
+    'source_name': sourceName,
+    'cover': cover,
+    'year': year,
+    'index': index,
+    'total_episodes': totalEpisodes,
+    'play_time': playTime,
+    'total_time': totalTime,
+    'save_time': saveTime,
+    'search_title': searchTitle,
+    'douban_id': doubanId,
+  };
+  factory PlayRecord.fromJson(Map<String, dynamic> json) => PlayRecord(
+    title: json['title'] ?? '',
+    sourceName: json['source_name'] ?? '',
+    cover: json['cover'] ?? '',
+    year: json['year'] ?? '',
+    index: json['index'] ?? 0,
+    totalEpisodes: json['total_episodes'] ?? 0,
+    playTime: json['play_time'] ?? 0,
+    totalTime: json['total_time'] ?? 0,
+    saveTime: json['save_time'] ?? 0,
+    searchTitle: json['search_title'] ?? '',
+    doubanId: json['douban_id'],
+  );
 }
 
 class SkipConfig {
@@ -246,7 +313,37 @@ class Favorite {
   final int saveTime;
   final String searchTitle;
   final String origin;
-  Favorite({this.subjectId = '', required this.title, required this.sourceName, required this.cover, required this.year, required this.totalEpisodes, required this.saveTime, required this.searchTitle, this.origin = 'vod'});
-  Map<String, dynamic> toJson() => {'subject_id': subjectId, 'title': title, 'source_name': sourceName, 'cover': cover, 'year': year, 'total_episodes': totalEpisodes, 'save_time': saveTime, 'search_title': searchTitle, 'origin': origin};
-  factory Favorite.fromJson(Map<String, dynamic> json) => Favorite(subjectId: json['subject_id'] ?? '', title: json['title'] ?? '', sourceName: json['source_name'] ?? '', cover: json['cover'] ?? '', year: json['year'] ?? '', totalEpisodes: json['total_episodes'] ?? 0, saveTime: json['save_time'] ?? 0, searchTitle: json['search_title'] ?? '', origin: json['origin'] ?? 'vod');
+  Favorite({
+    this.subjectId = '',
+    required this.title,
+    required this.sourceName,
+    required this.cover,
+    required this.year,
+    required this.totalEpisodes,
+    required this.saveTime,
+    required this.searchTitle,
+    this.origin = 'vod',
+  });
+  Map<String, dynamic> toJson() => {
+    'subject_id': subjectId,
+    'title': title,
+    'source_name': sourceName,
+    'cover': cover,
+    'year': year,
+    'total_episodes': totalEpisodes,
+    'save_time': saveTime,
+    'search_title': searchTitle,
+    'origin': origin,
+  };
+  factory Favorite.fromJson(Map<String, dynamic> json) => Favorite(
+    subjectId: json['subject_id'] ?? '',
+    title: json['title'] ?? '',
+    sourceName: json['source_name'] ?? '',
+    cover: json['cover'] ?? '',
+    year: json['year'] ?? '',
+    totalEpisodes: json['total_episodes'] ?? 0,
+    saveTime: json['save_time'] ?? 0,
+    searchTitle: json['search_title'] ?? '',
+    origin: json['origin'] ?? 'vod',
+  );
 }

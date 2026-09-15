@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../models/site.dart';
 
 final configServiceProvider = Provider((ref) => ConfigService());
@@ -39,6 +42,21 @@ class ConfigService {
   static const String keySkipConfigs = 'skip_configs';
   static const String keyHasAgreedTerms = 'has_agreed_terms';
   static const String keyPlayerVolume = 'player_volume';
+  static const String keyDeviceId = 'device_id';
+
+  /// 本机设备号：游客推荐去重与热度统计用，首次访问生成后长期保存。
+  ///
+  /// 服务端把推荐按「账号优先、游客按设备」去重，未登录时依赖它区分不同设备。
+  Future<String> getOrCreateDeviceId() async {
+    final prefs = await SharedPreferences.getInstance();
+    final existing = prefs.getString(keyDeviceId);
+    if (existing != null && existing.isNotEmpty) return existing;
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    final id = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    await prefs.setString(keyDeviceId, id);
+    return id;
+  }
 
   Future<bool> getHasAgreedTerms() async {
     final prefs = await SharedPreferences.getInstance();
@@ -227,7 +245,8 @@ class ConfigService {
     await prefs.setStringList(keyListCacheIndex, index);
   }
 
-  Future<Map<String, SkipConfig>> getSkipConfigs() async {    final prefs = await SharedPreferences.getInstance();
+  Future<Map<String, SkipConfig>> getSkipConfigs() async {
+    final prefs = await SharedPreferences.getInstance();
     final data = prefs.getString(keySkipConfigs);
     if (data == null) return <String, SkipConfig>{};
     try {
@@ -249,7 +268,10 @@ class ConfigService {
     final configs = await getSkipConfigs();
     configs[key] = config;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(keySkipConfigs, jsonEncode(configs.map((key, value) => MapEntry(key, value.toJson()))));
+    await prefs.setString(
+      keySkipConfigs,
+      jsonEncode(configs.map((key, value) => MapEntry(key, value.toJson()))),
+    );
   }
 
   Future<double> getPlayerVolume() async {

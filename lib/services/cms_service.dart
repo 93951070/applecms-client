@@ -93,8 +93,11 @@ class CmsService {
 
   AppApiService get _api => _ref.read(appApiServiceProvider);
 
-  Future<List<VideoDetail>> search(SiteConfig site, String query,
-      {int page = 1}) async {
+  Future<List<VideoDetail>> search(
+    SiteConfig site,
+    String query, {
+    int page = 1,
+  }) async {
     try {
       final data = await _api.listVideos(
         await _base(),
@@ -177,16 +180,21 @@ class CmsService {
     return await _refreshHome(key, site, typeIds, limit, heroLimit);
   }
 
-  Future<List<CmsCategoryGroup>?> _refreshTree(String key, SiteConfig site) async {
+  Future<List<CmsCategoryGroup>?> _refreshTree(
+    String key,
+    SiteConfig site,
+  ) async {
     try {
       final hierarchy = await _api.categories(await _base());
       final groups = _groupsFromHierarchy(hierarchy);
       final at = DateTime.now().millisecondsSinceEpoch;
       _treeMemCache[key] = (groups, at);
-      unawaited(_ref.read(configServiceProvider).cacheList(key, {
-        'items': hierarchy,
-        'at': at,
-      }));
+      unawaited(
+        _ref.read(configServiceProvider).cacheList(key, {
+          'items': hierarchy,
+          'at': at,
+        }),
+      );
       _listUpdates.add(key);
       return groups;
     } catch (_) {
@@ -210,10 +218,12 @@ class CmsService {
           }
         }
       }
-      groups.add(CmsCategoryGroup(
-        category: _categoryFromJson(Map<String, dynamic>.from(rawCategory)),
-        subCategories: subs,
-      ));
+      groups.add(
+        CmsCategoryGroup(
+          category: _categoryFromJson(Map<String, dynamic>.from(rawCategory)),
+          subCategories: subs,
+        ),
+      );
     }
     groups.sort((a, b) => a.category.typeId.compareTo(b.category.typeId));
     return groups;
@@ -261,9 +271,12 @@ class CmsService {
       final list = _listFromItems(items, site);
       final at = DateTime.now().millisecondsSinceEpoch;
       _listMemCache[key] = (list, at);
-      unawaited(_ref
-          .read(configServiceProvider)
-          .cacheList(key, {'items': items, 'at': at}));
+      unawaited(
+        _ref.read(configServiceProvider).cacheList(key, {
+          'items': items,
+          'at': at,
+        }),
+      );
       _listUpdates.add(key);
       return list;
     } catch (_) {
@@ -307,11 +320,13 @@ class CmsService {
       final feed = _homeFeedFromRaw(data, site);
       final at = DateTime.now().millisecondsSinceEpoch;
       _homeMemCache[key] = (feed, at);
-      unawaited(_ref.read(configServiceProvider).cacheList(key, {
-        'hero': data['hero'],
-        'sections': data['sections'],
-        'at': at,
-      }));
+      unawaited(
+        _ref.read(configServiceProvider).cacheList(key, {
+          'hero': data['hero'],
+          'sections': data['sections'],
+          'at': at,
+        }),
+      );
       _listUpdates.add(key);
       return feed;
     } catch (_) {
@@ -332,11 +347,13 @@ class CmsService {
         final typeId = _asInt(s['type_id']);
         final title = (s['title'] ?? '').toString();
         if (isFeedCategory(typeId: typeId, typeName: title)) continue;
-        sections.add(HomeSection(
-          typeId: typeId,
-          title: title,
-          items: _listFromItems(s['items'], site),
-        ));
+        sections.add(
+          HomeSection(
+            typeId: typeId,
+            title: title,
+            items: _listFromItems(s['items'], site),
+          ),
+        );
       }
     }
     return HomeFeed(hero: hero, sections: sections);
@@ -425,8 +442,9 @@ class CmsService {
 
   Future<VideoDetail?> _loadCachedDetail(String key, SiteConfig site) async {
     try {
-      final raw =
-          await _ref.read(configServiceProvider).getCachedVideoDetail(key);
+      final raw = await _ref
+          .read(configServiceProvider)
+          .getCachedVideoDetail(key);
       if (raw == null) return null;
       final detail = _detailFromGateway(raw, site);
       if (detail.playGroups.isEmpty) return null;
@@ -439,7 +457,15 @@ class CmsService {
 
   Future<VideoDetail?> _fetchAndCache(SiteConfig site, String key) async {
     try {
-      final data = await _api.videoDetail(await _base(), key);
+      // 带上设备号，服务端据此返回当前设备的推荐状态。
+      final deviceId = await _ref
+          .read(configServiceProvider)
+          .getOrCreateDeviceId();
+      final data = await _api.videoDetail(
+        await _base(),
+        key,
+        deviceId: deviceId,
+      );
       final detail = _detailFromGateway(data, site);
       if (detail.playGroups.isEmpty) return null;
       _detailMemCache[key] = detail;
@@ -497,13 +523,15 @@ class CmsService {
           }
         }
         if (titles.isEmpty) continue;
-        groups.add(PlayGroup(
-          name: (s['source_name'] ?? '').toString(),
-          // 直连地址由网关在取流时逐集下发，此处仅占位保持集数索引
-          urls: List<String>.filled(titles.length, ''),
-          titles: titles,
-          needVip: needVip,
-        ));
+        groups.add(
+          PlayGroup(
+            name: (s['source_name'] ?? '').toString(),
+            // 直连地址由网关在取流时逐集下发，此处仅占位保持集数索引
+            urls: List<String>.filled(titles.length, ''),
+            titles: titles,
+            needVip: needVip,
+          ),
+        );
       }
     }
     return VideoDetail(
@@ -524,6 +552,10 @@ class CmsService {
       typeId: _asInt(data['type_id']),
       vipMode: _asInt(data['vip_mode']),
       freeEpisodes: _asInt(data['free_episodes']),
+      heat: _asInt(data['heat']),
+      hits: _asInt(data['hits']),
+      likeCount: _asInt(data['like_count']),
+      liked: data['liked'] == true,
     );
   }
 
@@ -613,10 +645,9 @@ class CmsService {
     if (raw is List) {
       for (final e in raw) {
         if (e is Map) {
-          items.add(VideoComment.fromJson(
-            Map<String, dynamic>.from(e),
-            base: base,
-          ));
+          items.add(
+            VideoComment.fromJson(Map<String, dynamic>.from(e), base: base),
+          );
         }
       }
     }
@@ -838,9 +869,5 @@ class CommentPage {
   final int page;
   final List<VideoComment> items;
 
-  const CommentPage({
-    this.total = 0,
-    this.page = 1,
-    this.items = const [],
-  });
+  const CommentPage({this.total = 0, this.page = 1, this.items = const []});
 }

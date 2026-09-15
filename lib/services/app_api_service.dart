@@ -39,6 +39,15 @@ class AppPlayResult {
   /// web嗅探任务对应的线路下标，回传结果时原样带回。
   final int? sourceIndex;
 
+  /// 该视频服务端累计播放次数（成功取流时由服务端返回）。
+  final int hits;
+
+  /// 该视频服务端热度值 = 播放次数 + 推荐数加权。
+  final int heat;
+
+  /// 该视频服务端累计推荐数。
+  final int likeCount;
+
   const AppPlayResult({
     required this.success,
     required this.hasAccess,
@@ -51,13 +60,14 @@ class AppPlayResult {
     this.rawUrl,
     this.sniffUrl,
     this.sourceIndex,
+    this.hits = 0,
+    this.heat = 0,
+    this.likeCount = 0,
   });
 
   /// 是否为 web嗅探任务（需客户端 WebView 解析）。
   bool get isWebSniff =>
-      mode == 'webview' &&
-      sniffUrl != null &&
-      sniffUrl!.isNotEmpty;
+      mode == 'webview' && sniffUrl != null && sniffUrl!.isNotEmpty;
 }
 
 /// `GET /api/app/v1/version` 的解析结果。
@@ -82,7 +92,11 @@ class _Session {
   final SecretKey key;
   final DateTime expiresAt;
 
-  const _Session({required this.id, required this.key, required this.expiresAt});
+  const _Session({
+    required this.id,
+    required this.key,
+    required this.expiresAt,
+  });
 
   bool get isExpired => DateTime.now().isAfter(expiresAt);
 }
@@ -97,11 +111,14 @@ class _SessionExpiredException implements Exception {
 /// 客户端凭证内置；服务端地址复用「网站会员接口地址」（ConfigService.apiBaseUrl）。
 class AppApiService {
   /// 内置客户端凭证，可通过 `--dart-define=APP_CLIENT_ID/APP_CLIENT_SECRET` 覆盖。
-  static const String clientId =
-      String.fromEnvironment('APP_CLIENT_ID', defaultValue: 'echotv-app');
+  static const String clientId = String.fromEnvironment(
+    'APP_CLIENT_ID',
+    defaultValue: 'echotv-app',
+  );
   static const String clientSecret = String.fromEnvironment(
-      'APP_CLIENT_SECRET',
-      defaultValue: 'echotv-app-secret-change-me');
+    'APP_CLIENT_SECRET',
+    defaultValue: 'echotv-app-secret-change-me',
+  );
 
   static const String _apiPrefix = '/api/app/v1';
   static const String _sessionKeyInfo = 'app-gateway-session-v1';
@@ -118,13 +135,16 @@ class AppApiService {
   final Map<String, Future<_Session>> _pendingSessions = {};
 
   AppApiService({Dio? dio})
-      : _dio = dio ??
-            Dio(BaseOptions(
+    : _dio =
+          dio ??
+          Dio(
+            BaseOptions(
               connectTimeout: const Duration(seconds: 12),
               receiveTimeout: const Duration(seconds: 20),
               sendTimeout: const Duration(seconds: 12),
               validateStatus: (s) => s != null && s < 500,
-            ));
+            ),
+          );
 
   // ==================== 公开接口 ====================
 
@@ -134,7 +154,9 @@ class AppApiService {
     String currentVersion, {
     String platform = '',
   }) async {
-    final buf = StringBuffer('version=${Uri.encodeQueryComponent(currentVersion)}');
+    final buf = StringBuffer(
+      'version=${Uri.encodeQueryComponent(currentVersion)}',
+    );
     if (platform.isNotEmpty) {
       buf.write('&platform=${Uri.encodeQueryComponent(platform)}');
     }
@@ -193,8 +215,7 @@ class AppApiService {
     final params = <String, String>{
       'limit': '$limit',
       'hero_limit': '$heroLimit',
-      if (typeIds != null && typeIds.isNotEmpty)
-        'type_ids': typeIds.join(','),
+      if (typeIds != null && typeIds.isNotEmpty) 'type_ids': typeIds.join(','),
     };
     return _request(
       base,
@@ -205,19 +226,56 @@ class AppApiService {
   }
 
   /// 视频详情。
-  Future<Map<String, dynamic>> videoDetail(String base, String vodId) async {
-    return _request(base, method: 'GET', path: '$_apiPrefix/videos/$vodId');
+  Future<Map<String, dynamic>> videoDetail(
+    String base,
+    String vodId, {
+    String? deviceId,
+  }) async {
+    return _request(
+      base,
+      method: 'GET',
+      path: '$_apiPrefix/videos/$vodId',
+      query: deviceId == null || deviceId.isEmpty
+          ? ''
+          : _encodeQuery({'device_id': deviceId}),
+    );
+  }
+
+  /// 推荐/取消推荐（服务端统计）。返回最新的推荐数、播放次数与热度值。
+  Future<Map<String, dynamic>> vodLike(
+    String base,
+    String videoId, {
+    required bool liked,
+    String? deviceId,
+  }) async {
+    return _request(
+      base,
+      method: 'POST',
+      path: '$_apiPrefix/vod/like',
+      jsonBody: {
+        'video_id': videoId,
+        'liked': liked,
+        if (deviceId != null && deviceId.isNotEmpty) 'device_id': deviceId,
+      },
+    );
   }
 
   /// 豆瓣评分/简介/演职员与横版剧照。未开启或未匹配时 `matched` 为 false。
   Future<Map<String, dynamic>> doubanMedia(String base, String vodId) async {
-    return _request(base, method: 'GET', path: '$_apiPrefix/videos/$vodId/douban');
+    return _request(
+      base,
+      method: 'GET',
+      path: '$_apiPrefix/videos/$vodId/douban',
+    );
   }
 
   /// 分类树（主分类 + 子分类）。
   Future<List<Map<String, dynamic>>> categories(String base) async {
-    final data =
-        await _request(base, method: 'GET', path: '$_apiPrefix/categories');
+    final data = await _request(
+      base,
+      method: 'GET',
+      path: '$_apiPrefix/categories',
+    );
     final hierarchy = data['hierarchy'];
     if (hierarchy is List) {
       return hierarchy
@@ -309,7 +367,10 @@ class AppApiService {
   }
 
   /// 播放记录列表，需登录令牌。
-  Future<Map<String, dynamic>> fetchHistory(String base, {String? token}) async {
+  Future<Map<String, dynamic>> fetchHistory(
+    String base, {
+    String? token,
+  }) async {
     return _request(
       base,
       method: 'GET',
@@ -348,7 +409,11 @@ class AppApiService {
   }
 
   /// 清除播放记录；传入 `videoId` 只清除该条，需登录令牌。
-  Future<void> clearHistory(String base, {String? videoId, String? token}) async {
+  Future<void> clearHistory(
+    String base, {
+    String? videoId,
+    String? token,
+  }) async {
     await _request(
       base,
       method: 'DELETE',
@@ -378,7 +443,10 @@ class AppApiService {
   }
 
   /// 我参与的一起看房间列表，需登录令牌。
-  Future<Map<String, dynamic>> watchMyRooms(String base, {String? token}) async {
+  Future<Map<String, dynamic>> watchMyRooms(
+    String base, {
+    String? token,
+  }) async {
     return _request(
       base,
       method: 'GET',
@@ -546,8 +614,7 @@ class AppApiService {
     return _request(
       base,
       method: 'POST',
-      path:
-          '$_apiPrefix/watch/rooms/${Uri.encodeComponent(code)}/transfer',
+      path: '$_apiPrefix/watch/rooms/${Uri.encodeComponent(code)}/transfer',
       jsonBody: {'target_user_id': targetUserId},
       token: token,
     );
@@ -706,6 +773,7 @@ class AppApiService {
     String? reportOutcome,
     String? reportDirectUrl,
     bool refresh = false,
+    bool prefetch = false,
   }) async {
     final jsonBody = <String, dynamic>{
       'video_id': videoId,
@@ -714,6 +782,10 @@ class AppApiService {
     };
     if (refresh) {
       jsonBody['refresh'] = true;
+    }
+    // 预取不算真实播放，服务端据此跳过播放热度累加。
+    if (prefetch) {
+      jsonBody['prefetch'] = true;
     }
     if (reportSourceIndex != null && reportOutcome != null) {
       jsonBody['report'] = {
@@ -742,6 +814,9 @@ class AppApiService {
       rawUrl: _nonEmpty(data['raw_url']),
       sniffUrl: _nonEmpty(data['sniff_url']),
       sourceIndex: (data['source_index'] as num?)?.toInt(),
+      hits: (data['hits'] as num?)?.toInt() ?? 0,
+      heat: (data['heat'] as num?)?.toInt() ?? 0,
+      likeCount: (data['like_count'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -885,8 +960,9 @@ class AppApiService {
       // 非加密的明文错误体
       if (map['success'] == false) {
         throw AppApiException(
-            (map['message'] ?? map['msg'] ?? '请求失败').toString(),
-            statusCode: res.statusCode);
+          (map['message'] ?? map['msg'] ?? '请求失败').toString(),
+          statusCode: res.statusCode,
+        );
       }
       throw const AppApiException('服务器响应格式异常');
     }
@@ -922,11 +998,16 @@ class AppApiService {
   }
 
   Future<Map<String, String>> _signedHeaders(
-      String method, String path, String query, String body) async {
+    String method,
+    String path,
+    String query,
+    String body,
+  ) async {
     final timestamp = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final nonce = _randomHex(16);
     final bodyHash = _hex((await _sha256.hash(utf8.encode(body))).bytes);
-    final canonical = '${method.toUpperCase()}\n$path\n$query\n$timestamp\n$nonce\n$bodyHash';
+    final canonical =
+        '${method.toUpperCase()}\n$path\n$query\n$timestamp\n$nonce\n$bodyHash';
     final mac = await _hmac.calculateMac(
       utf8.encode(canonical),
       secretKey: SecretKey(utf8.encode(clientSecret)),
@@ -958,14 +1039,16 @@ class AppApiService {
       if (pending != null) return pending;
     }
     late final Future<_Session> future;
-    future = _handshake(base).then<_Session>((session) {
-      _sessions[base] = session;
-      return session;
-    }).whenComplete(() {
-      if (identical(_pendingSessions[base], future)) {
-        _pendingSessions.remove(base);
-      }
-    });
+    future = _handshake(base)
+        .then<_Session>((session) {
+          _sessions[base] = session;
+          return session;
+        })
+        .whenComplete(() {
+          if (identical(_pendingSessions[base], future)) {
+            _pendingSessions.remove(base);
+          }
+        });
     _pendingSessions[base] = future;
     return future;
   }
@@ -1001,8 +1084,7 @@ class AppApiService {
 
     final shared = await _x25519.sharedSecretKey(
       keyPair: keyPair,
-      remotePublicKey:
-          SimplePublicKey(serverPublic, type: KeyPairType.x25519),
+      remotePublicKey: SimplePublicKey(serverPublic, type: KeyPairType.x25519),
     );
     final key = await _hkdf.deriveKey(
       secretKey: shared,
@@ -1018,7 +1100,9 @@ class AppApiService {
   }
 
   Future<Map<String, dynamic>> _decryptEnvelope(
-      _Session session, Map<String, dynamic> envelope) async {
+    _Session session,
+    Map<String, dynamic> envelope,
+  ) async {
     final iv = base64Decode(envelope['iv'].toString());
     final cipherText = base64Decode(envelope['data'].toString());
     final tag = base64Decode(envelope['tag'].toString());
@@ -1036,8 +1120,10 @@ class AppApiService {
   // ==================== 工具 ====================
 
   String _encodeQuery(Map<String, String> params) => params.entries
-      .map((e) =>
-          '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}')
+      .map(
+        (e) =>
+            '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}',
+      )
       .join('&');
 
   Uint8List _randomBytes(int length) {

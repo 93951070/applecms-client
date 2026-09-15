@@ -1,0 +1,17 @@
+name: airplay_route_picker
+description: 内嵌 iOS 原生 AVRoutePickerView 的投屏按钮组件（仅 iOS），点击直接唤起系统投屏设备列表。
+version: 1.0.0
+
+environment:
+  sdk: ^3.8.1
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: AirplayRoutePickerPlugin

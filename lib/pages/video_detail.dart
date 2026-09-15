@@ -5,7 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:airplay_route_picker/airplay_route_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
+
 import '../models/movie.dart';
 import '../models/comment.dart';
 import '../models/douban_media.dart';
@@ -33,8 +35,10 @@ import '../widgets/watch_party_sheet.dart';
 import '../services/web_sniff_service.dart';
 
 /// 播放页「同类推荐」数据源：按当前视频所属分类拉取同分类内容。
-final _recommendProvider =
-    FutureProvider.family<List<VideoDetail>, int>((ref, typeId) async {
+final _recommendProvider = FutureProvider.family<List<VideoDetail>, int>((
+  ref,
+  typeId,
+) async {
   if (typeId <= 0) return [];
   final config = ref.read(configServiceProvider);
   final cms = ref.read(cmsServiceProvider);
@@ -52,7 +56,8 @@ class VideoDetailPage extends ConsumerStatefulWidget {
   ConsumerState<VideoDetailPage> createState() => _VideoDetailPageState();
 }
 
-class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsBindingObserver, RouteAware {
+class _VideoDetailPageState extends ConsumerState<VideoDetailPage>
+    with WidgetsBindingObserver, RouteAware {
   late HistoryNotifier _historyNotifier;
 
   int _contentTab = 0;
@@ -110,7 +115,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   /// 播放器内切集时，若当时处于全屏则在新一集加载完成后自动回到全屏。
   bool _restoreFullScreen = false;
 
-  final GlobalKey<EchoVideoPlayerState> _playerKey = GlobalKey<EchoVideoPlayerState>();
+  final GlobalKey<EchoVideoPlayerState> _playerKey =
+      GlobalKey<EchoVideoPlayerState>();
 
   /// 画中画是否激活：此时应用内播放区域显示占位封面，避免露出黑底。
   bool _playerPipActive = false;
@@ -118,13 +124,30 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   /// 详情后台静默刷新的订阅，用于同步最新选集会员状态。
   StreamSubscription<String>? _detailSub;
 
+  /// 服务端热度值（播放次数 + 推荐数加权），取流成功后会刷新。
+  int _heat = 0;
+
+  /// 服务端推荐数。
+  int _likeCount = 0;
+
+  /// 服务端返回的当前账号/设备推荐状态。
+  bool _liked = false;
+
+  /// 是否已拿到服务端推荐状态：未拿到前退回本地镜像，避免闪烁。
+  bool _likeResolved = false;
+
+  /// 推荐请求进行中，避免连点重复提交。
+  bool _likeBusy = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _doubanId = widget.subject.id;
-    _detailSub =
-        ref.read(cmsServiceProvider).detailUpdates.listen(_onDetailUpdated);
+    _detailSub = ref
+        .read(cmsServiceProvider)
+        .detailUpdates
+        .listen(_onDetailUpdated);
     _checkHistoryAndLoadData();
   }
 
@@ -249,6 +272,13 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       if (detail.id.isNotEmpty) _doubanId = detail.id;
       _isSearching = false;
       _loadingMessage = '';
+      // 服务端是最新权威值；推荐请求进行中时保留乐观状态，等接口回包覆盖。
+      if (!_likeBusy) {
+        _liked = detail.liked;
+        _likeResolved = true;
+        _likeCount = detail.likeCount;
+      }
+      if (detail.heat > 0) _heat = detail.heat;
     });
 
     // 详情到手就顺带把豆瓣信息取回来，点开「简介」时直接命中缓存。
@@ -353,7 +383,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       var guard = 0;
       while (mounted && result.isWebSniff && guard < 6) {
         guard++;
-        final sniffed = await WebSniffService.sniff(result.sniffUrl!, owner: this);
+        final sniffed = await WebSniffService.sniff(
+          result.sniffUrl!,
+          owner: this,
+        );
         if (!mounted) return;
         if (sniffed != null && sniffed.isNotEmpty) {
           _episodeUrlCache[cacheKey] = sniffed;
@@ -368,7 +401,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           _prefetchEpisodes();
           return;
         }
-        final reportSource = result.sourceIndex ?? (playSource < 0 ? 0 : playSource);
+        final reportSource =
+            result.sourceIndex ?? (playSource < 0 ? 0 : playSource);
         result = await api.play(
           base,
           videoId: video.id,
@@ -390,12 +424,16 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         setState(() {
           _resolvedUrl = result.playUrl;
           _resolvedReferer = '';
+          // 服务端在成功取流时已累加播放热度，这里同步最新数值。
+          if (result.heat > 0) _heat = result.heat;
+          if (result.likeCount > 0) _likeCount = result.likeCount;
         });
         _prefetchEpisodes();
       } else if (!result.hasAccess) {
         setState(() {
-          _accessMessage =
-              result.message.isEmpty ? '该内容需要会员权限' : result.message;
+          _accessMessage = result.message.isEmpty
+              ? '该内容需要会员权限'
+              : result.message;
         });
       } else if (!forceRefresh) {
         // 服务端解析失败（非会员拦截）：丢弃缓存强制刷新一次，避免把失效地址定格。
@@ -403,8 +441,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         return await _resolveCurrentEpisode(forceRefresh: true);
       } else {
         setState(() {
-          _errorMessage =
-              result.message.isEmpty ? '解析失败，请重试' : result.message;
+          _errorMessage = result.message.isEmpty ? '解析失败，请重试' : result.message;
         });
       }
     } catch (e) {
@@ -467,7 +504,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       final key = '${video.id}:$i';
       if (_episodeUrlCache.containsKey(key)) continue;
       if (!_prefetchingKeys.add(key)) continue;
-      pending.add(_prefetchEpisode(api, base, video.id, sourceIndex, i, key, token));
+      pending.add(
+        _prefetchEpisode(api, base, video.id, sourceIndex, i, key, token),
+      );
     }
     if (pending.isEmpty) return;
     await Future.wait(pending);
@@ -489,6 +528,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         playSource: playSource,
         playIndex: index,
         token: token,
+        prefetch: true,
       );
       if (result.hasAccess &&
           result.playUrl != null &&
@@ -561,7 +601,11 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     }
   }
 
-  Future<void> _savePlayRecord(Duration position, Duration duration, {bool isFinal = false}) async {
+  Future<void> _savePlayRecord(
+    Duration position,
+    Duration duration, {
+    bool isFinal = false,
+  }) async {
     final video = _video;
     if (video == null || !mounted) return;
 
@@ -582,7 +626,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       index: _currentEpisodeIndex,
       totalEpisodes: video.playGroups.first.urls.length,
       playTime: position.inSeconds,
-      totalTime: duration.inSeconds > 0 ? duration.inSeconds : (_initialResumePosition?.toInt() ?? 0),
+      totalTime: duration.inSeconds > 0
+          ? duration.inSeconds
+          : (_initialResumePosition?.toInt() ?? 0),
       saveTime: DateTime.now().millisecondsSinceEpoch,
       searchTitle: widget.subject.title,
       doubanId: _doubanId,
@@ -660,16 +706,21 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
             child: Material(
               color: Colors.transparent,
               child: IconButton(
-                icon: const Icon(LucideIcons.chevronLeft,
-                    size: 24, color: Colors.white),
+                icon: const Icon(
+                  LucideIcons.chevronLeft,
+                  size: 24,
+                  color: Colors.white,
+                ),
                 onPressed: () {
                   if (_playerLocked) {
                     ScaffoldMessenger.of(context)
                       ..removeCurrentSnackBar()
-                      ..showSnackBar(const SnackBar(
-                        content: Text('播放器已上锁，请先解锁'),
-                        duration: Duration(seconds: 2),
-                      ));
+                      ..showSnackBar(
+                        const SnackBar(
+                          content: Text('播放器已上锁，请先解锁'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
                     return;
                   }
                   Navigator.pop(context);
@@ -699,8 +750,11 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(LucideIcons.pictureInPicture2,
-                    size: 30, color: Colors.white70),
+                Icon(
+                  LucideIcons.pictureInPicture2,
+                  size: 30,
+                  color: Colors.white70,
+                ),
                 SizedBox(height: 8),
                 Text(
                   '正在画中画播放，点按回到页面',
@@ -806,9 +860,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
                     _loadingMessage,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold),
+                      color: Colors.white70,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
@@ -901,9 +956,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
             _accessMessage ?? '该内容需要会员权限',
             textAlign: TextAlign.center,
             style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 13,
-                fontWeight: FontWeight.bold),
+              color: Colors.white70,
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           const SizedBox(height: 14),
           Row(
@@ -925,8 +981,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               const SizedBox(width: 10),
               TextButton(
                 onPressed: () => _handlePlayAction(_currentEpisodeIndex),
-                child: const Text('重试',
-                    style: TextStyle(color: Colors.white54)),
+                child: const Text(
+                  '重试',
+                  style: TextStyle(color: Colors.white54),
+                ),
               ),
             ],
           ),
@@ -949,15 +1007,15 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
             _errorMessage ?? '取流失败，请重试',
             textAlign: TextAlign.center,
             style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 13,
-                fontWeight: FontWeight.bold),
+              color: Colors.white70,
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           const SizedBox(height: 14),
           TextButton(
             onPressed: () => _handlePlayAction(_currentEpisodeIndex),
-            child: const Text('重试',
-                style: TextStyle(color: Colors.white54)),
+            child: const Text('重试', style: TextStyle(color: Colors.white54)),
           ),
         ],
       ),
@@ -965,7 +1023,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   }
 
   // ==================== 信息区 ====================
-
 
   // ==================== 视频 / 评论 Tab ====================
 
@@ -1026,7 +1083,11 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         _buildTitleRow(theme),
         _buildActionRow(theme),
         Divider(
-            height: 26, indent: 14, endIndent: 14, color: theme.dividerColor),
+          height: 26,
+          indent: 14,
+          endIndent: 14,
+          color: theme.dividerColor,
+        ),
         _buildEpisodeHeader(theme),
         _buildEpisodeChips(theme),
         const SizedBox(height: 6),
@@ -1052,13 +1113,20 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       return ListView(
         padding: const EdgeInsets.only(top: 120),
         children: [
-          Icon(LucideIcons.messageSquare,
-              size: 46, color: theme.colorScheme.secondary),
+          Icon(
+            LucideIcons.messageSquare,
+            size: 46,
+            color: theme.colorScheme.secondary,
+          ),
           const SizedBox(height: 12),
           Center(
-            child: Text('暂无评论，快来抢沙发',
-                style: TextStyle(
-                    fontSize: 13, color: theme.colorScheme.secondary)),
+            child: Text(
+              '暂无评论，快来抢沙发',
+              style: TextStyle(
+                fontSize: 13,
+                color: theme.colorScheme.secondary,
+              ),
+            ),
           ),
         ],
       );
@@ -1094,17 +1162,21 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           CircleAvatar(
             radius: 16,
             backgroundColor: AppColors.pinkLight,
-            backgroundImage: (comment.userPortrait != null &&
+            backgroundImage:
+                (comment.userPortrait != null &&
                     comment.userPortrait!.isNotEmpty)
                 ? NetworkImage(comment.userPortrait!)
                 : null,
-            child: (comment.userPortrait == null ||
-                    comment.userPortrait!.isEmpty)
-                ? Text(name.characters.first,
+            child:
+                (comment.userPortrait == null || comment.userPortrait!.isEmpty)
+                ? Text(
+                    name.characters.first,
                     style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.pink,
-                        fontWeight: FontWeight.w700))
+                      fontSize: 13,
+                      color: AppColors.pink,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  )
                 : null,
           ),
           const SizedBox(width: 10),
@@ -1114,37 +1186,51 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
               children: [
                 Row(
                   children: [
-                    Text(name,
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: theme.colorScheme.secondary)),
+                    Text(
+                      name,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.secondary,
+                      ),
+                    ),
                     if (comment.kind == 1) ...[
                       const SizedBox(width: 6),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 5, vertical: 1),
+                          horizontal: 5,
+                          vertical: 1,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.pinkLight,
                           borderRadius: BorderRadius.circular(6),
                         ),
-                        child: const Text('弹幕',
-                            style: TextStyle(
-                                fontSize: 10,
-                                color: AppColors.pink,
-                                fontWeight: FontWeight.w600)),
+                        child: const Text(
+                          '弹幕',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: AppColors.pink,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
                     ],
                   ],
                 ),
                 const SizedBox(height: 3),
-                Text(comment.content,
-                    style: const TextStyle(fontSize: 14, height: 1.35)),
+                Text(
+                  comment.content,
+                  style: const TextStyle(fontSize: 14, height: 1.35),
+                ),
                 if (comment.likeCount > 0) ...[
                   const SizedBox(height: 3),
-                  Text('${comment.likeCount} 赞',
-                      style: TextStyle(
-                          fontSize: 11, color: theme.colorScheme.secondary)),
+                  Text(
+                    '${comment.likeCount} 赞',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: theme.colorScheme.secondary,
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -1251,8 +1337,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       return;
     }
     try {
-      final result =
-          await ref.read(cmsServiceProvider).postComment(video.id, text);
+      final result = await ref
+          .read(cmsServiceProvider)
+          .postComment(video.id, text);
       if (!mounted) return;
       final created = result.comment;
       if (created != null) {
@@ -1325,7 +1412,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
     final position = _playerKey.currentState?.currentPosition ?? Duration.zero;
     try {
-      final result = await ref.read(cmsServiceProvider).postDanmaku(
+      final result = await ref
+          .read(cmsServiceProvider)
+          .postDanmaku(
             video.id,
             episode: _currentEpisodeIndex,
             timeMs: position.inMilliseconds,
@@ -1334,10 +1423,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       if (!mounted) return;
       if (result.ok && !result.pending) {
         setState(() {
-          _danmaku = [..._danmaku, DanmakuItem(
-            timeMs: position.inMilliseconds,
-            content: text,
-          )]..sort((a, b) => a.timeMs.compareTo(b.timeMs));
+          _danmaku = [
+            ..._danmaku,
+            DanmakuItem(timeMs: position.inMilliseconds, content: text),
+          ]..sort((a, b) => a.timeMs.compareTo(b.timeMs));
         });
         // 评论与弹幕数据互通：发送弹幕后同步刷新评论区。
         _commentsLoaded = false;
@@ -1359,37 +1448,96 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   Widget _buildTitleRow(ThemeData theme) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Text(
-              widget.subject.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  widget.subject.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              GestureDetector(
+                onTap: _shareVideo,
+                child: Icon(
+                  LucideIcons.share,
+                  size: 18,
+                  color: theme.colorScheme.secondary,
+                ),
+              ),
+              const SizedBox(width: 14),
+              GestureDetector(
+                onTap: _showSynopsisSheet,
+                child: Row(
+                  children: [
+                    Text(
+                      '简介',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: theme.colorScheme.secondary,
+                      ),
+                    ),
+                    Icon(
+                      LucideIcons.chevronRight,
+                      size: 18,
+                      color: theme.colorScheme.secondary,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          GestureDetector(
-            onTap: _shareVideo,
-            child: Icon(LucideIcons.share,
-                size: 18, color: theme.colorScheme.secondary),
-          ),
-          const SizedBox(width: 14),
-          GestureDetector(
-            onTap: _showSynopsisSheet,
-            child: Row(
-              children: [
-                Text('简介',
-                    style: TextStyle(
-                        fontSize: 13, color: theme.colorScheme.secondary)),
-                Icon(LucideIcons.chevronRight,
-                    size: 18, color: theme.colorScheme.secondary),
-              ],
-            ),
-          ),
+          if (_heat > 0 || _likeCount > 0) ...[
+            const SizedBox(height: 6),
+            _buildHeatLine(theme),
+          ],
         ],
       ),
     );
+  }
+
+  /// 标题下方的热度行：空心火花图标 + 服务端热度值，附带推荐数。
+  Widget _buildHeatLine(ThemeData theme) {
+    final accent = theme.colorScheme.primary;
+    return Row(
+      children: [
+        Icon(LucideIcons.sparkles, size: 13, color: accent),
+        const SizedBox(width: 4),
+        Text(
+          '热度 ${_formatCount(_heat)}',
+          style: TextStyle(fontSize: 12, color: accent),
+        ),
+        if (_likeCount > 0) ...[
+          const SizedBox(width: 10),
+          Icon(
+            LucideIcons.thumbsUp,
+            size: 12,
+            color: theme.colorScheme.secondary,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '推荐 ${_formatCount(_likeCount)}',
+            style: TextStyle(fontSize: 12, color: theme.colorScheme.secondary),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// 热度/推荐数展示：过万折算为「万」，与视频站习惯一致。
+  String _formatCount(int value) {
+    if (value >= 100000000) {
+      return '${(value / 100000000).toStringAsFixed(1)}亿';
+    }
+    if (value >= 10000) return '${(value / 10000).toStringAsFixed(1)}万';
+    return '$value';
   }
 
   /// 腾讯风格的「简介」底部弹层：按需拉取豆瓣评分/简介/演职员头像，失败静默降级。
@@ -1413,8 +1561,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
         ),
         builder: (_) => SynopsisSheet(
-          title:
-              (_video?.title ?? '').trim().isNotEmpty ? _video!.title : widget.subject.title,
+          title: (_video?.title ?? '').trim().isNotEmpty
+              ? _video!.title
+              : widget.subject.title,
           year: _video?.year ?? widget.subject.year,
           typeName: _video?.typeName,
           localDesc: localDesc,
@@ -1432,14 +1581,14 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   /// 播放页主操作区：推荐 / 加追 / 下载 / 投屏 / 一起看，一行等宽分散。
   Widget _buildActionRow(ThemeData theme) {
-    final favorited = ref.watch(favoritesProvider).value?.any((f) {
+    final favorited =
+        ref.watch(favoritesProvider).value?.any((f) {
           return widget.subject.id.isNotEmpty
               ? f.subjectId == widget.subject.id
               : f.searchTitle == widget.subject.title;
         }) ??
         false;
-    final liked = ref.watch(likesProvider).value?.contains(_interactionKey) ??
-        false;
+    final liked = _displayLiked;
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 14, 10, 2),
       child: Row(
@@ -1468,11 +1617,13 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
             ),
           ),
           Expanded(
-            child: _ActionButton(
-              iconWidget: _CastTvIcon(color: theme.colorScheme.secondary),
-              label: '投屏',
-              onTap: _openCastSheet,
-            ),
+            child: airplayRoutePickerSupported
+                ? _buildNativeCastButton(theme)
+                : _ActionButton(
+                    iconWidget: _CastTvIcon(color: theme.colorScheme.secondary),
+                    label: '投屏',
+                    onTap: _openCastSheet,
+                  ),
           ),
           Expanded(
             child: _ActionButton(
@@ -1486,21 +1637,101 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     );
   }
 
-  /// 推荐/加追共用的条目标识：优先用条目 ID，缺失时退化为标题。
-  String get _interactionKey => widget.subject.id.isNotEmpty
-      ? widget.subject.id
-      : widget.subject.title;
+  /// iOS 原生投屏按钮：系统 AVRoutePickerView 直接弹出 AirPlay 设备列表。
+  ///
+  /// 平台视图自身消费点击，因此不再包 InkWell；外观与 [_ActionButton] 对齐。
+  Widget _buildNativeCastButton(ThemeData theme) {
+    final color = theme.colorScheme.secondary;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            height: 24,
+            child: Center(
+              child: AirplayRoutePickerButton(size: 24, color: color),
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            '投屏',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 11,
+              color: color,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
+  /// 推荐/加追共用的条目标识：优先用条目 ID，缺失时退化为标题。
+  String get _interactionKey =>
+      widget.subject.id.isNotEmpty ? widget.subject.id : widget.subject.title;
+
+  /// 推荐状态优先取服务端结果；服务端尚未返回时退回本地镜像。
+  bool get _displayLiked => _likeResolved
+      ? _liked
+      : (ref.watch(likesProvider).value?.contains(_interactionKey) ?? false);
+
+  /// 推荐：以服务端统计为准，本地只做离线镜像与乐观更新。
   Future<void> _toggleLike() async {
-    final messenger = ScaffoldMessenger.of(context);
-    final nowLiked =
-        await ref.read(likesProvider.notifier).toggle(_interactionKey);
-    messenger
+    if (_likeBusy) return;
+    final videoId = widget.subject.id.trim();
+    if (videoId.isEmpty) {
+      _showLikeTip('该条目缺少 ID，暂不支持推荐');
+      return;
+    }
+    final target = !_displayLiked;
+    final previousCount = _likeCount;
+    setState(() {
+      _likeBusy = true;
+      _liked = target;
+      _likeResolved = true;
+      _likeCount = (previousCount + (target ? 1 : -1)).clamp(0, 1 << 30);
+    });
+    try {
+      final config = ref.read(configServiceProvider);
+      final base = await config.getApiBaseUrl();
+      final deviceId = await config.getOrCreateDeviceId();
+      final data = await ref
+          .read(appApiServiceProvider)
+          .vodLike(base, videoId, liked: target, deviceId: deviceId);
+      if (!mounted) return;
+      final confirmed = data['liked'] == true;
+      setState(() {
+        _liked = confirmed;
+        _likeCount = (data['like_count'] as num?)?.toInt() ?? _likeCount;
+        final heat = (data['heat'] as num?)?.toInt() ?? 0;
+        if (heat > 0) _heat = heat;
+      });
+      await ref
+          .read(likesProvider.notifier)
+          .setLiked(_interactionKey, confirmed);
+      _showLikeTip(confirmed ? '已推荐，感谢支持' : '已取消推荐');
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _liked = !target;
+        _likeCount = previousCount;
+      });
+      _showLikeTip('推荐失败，请稍后重试');
+    } finally {
+      if (mounted) setState(() => _likeBusy = false);
+    }
+  }
+
+  void _showLikeTip(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
       ..removeCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        content: Text(nowLiked ? '已推荐，感谢支持' : '已取消推荐'),
-        duration: const Duration(seconds: 1),
-      ));
+      ..showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 1)),
+      );
   }
 
   /// 投屏：系统未提供 AirPlay 直连能力，这里给出三条可用路径。
@@ -1518,8 +1749,10 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: 14),
-            const Text('投屏到电视',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+            const Text(
+              '投屏到电视',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 4),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -1527,7 +1760,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
                 'iOS 未开放应用内直接枚举投屏设备，可用下面任一方式投到电视。',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    fontSize: 12, color: theme.colorScheme.secondary),
+                  fontSize: 12,
+                  color: theme.colorScheme.secondary,
+                ),
               ),
             ),
             const SizedBox(height: 10),
@@ -1614,11 +1849,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
     final title = (video != null && video.playGroups.isNotEmpty)
         ? '${widget.subject.title} - ${video.playGroups.first.titles[_currentEpisodeIndex]}'
         : widget.subject.title;
-    final error = await ref.read(downloadsProvider.notifier).start(
-          title: title,
-          cover: widget.subject.cover,
-          url: resolved,
-        );
+    final error = await ref
+        .read(downloadsProvider.notifier)
+        .start(title: title, cover: widget.subject.cover, url: resolved);
     if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(error ?? '已加入离线缓存')));
@@ -1633,18 +1866,20 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       return;
     }
     final video = _video;
-    await notifier.add(Favorite(
-      subjectId: widget.subject.id,
-      title: widget.subject.title,
-      sourceName: video?.sourceName ?? video?.source ?? '',
-      cover: widget.subject.cover,
-      year: widget.subject.year ?? '',
-      totalEpisodes: (video != null && video.playGroups.isNotEmpty)
-          ? video.playGroups.first.urls.length
-          : 0,
-      saveTime: DateTime.now().millisecondsSinceEpoch,
-      searchTitle: widget.subject.title,
-    ));
+    await notifier.add(
+      Favorite(
+        subjectId: widget.subject.id,
+        title: widget.subject.title,
+        sourceName: video?.sourceName ?? video?.source ?? '',
+        cover: widget.subject.cover,
+        year: widget.subject.year ?? '',
+        totalEpisodes: (video != null && video.playGroups.isNotEmpty)
+            ? video.playGroups.first.urls.length
+            : 0,
+        saveTime: DateTime.now().millisecondsSinceEpoch,
+        searchTitle: widget.subject.title,
+      ),
+    );
     messenger.showSnackBar(const SnackBar(content: Text('已收藏')));
   }
 
@@ -1656,23 +1891,33 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       padding: const EdgeInsets.fromLTRB(14, 16, 14, 0),
       child: Row(
         children: [
-          const Text('选集',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+          const Text(
+            '选集',
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+          ),
           const Spacer(),
-          Text('共 $n 集',
-              style:
-                  TextStyle(fontSize: 12, color: theme.colorScheme.secondary)),
+          Text(
+            '共 $n 集',
+            style: TextStyle(fontSize: 12, color: theme.colorScheme.secondary),
+          ),
           const SizedBox(width: 12),
           GestureDetector(
             onTap: () => setState(() => _descending = !_descending),
             child: Row(
               children: [
-                Icon(LucideIcons.arrowUpDown,
-                    size: 16, color: theme.colorScheme.secondary),
+                Icon(
+                  LucideIcons.arrowUpDown,
+                  size: 16,
+                  color: theme.colorScheme.secondary,
+                ),
                 const SizedBox(width: 2),
-                Text(_descending ? '倒序' : '正序',
-                    style: TextStyle(
-                        fontSize: 12, color: theme.colorScheme.secondary)),
+                Text(
+                  _descending ? '倒序' : '正序',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.secondary,
+                  ),
+                ),
               ],
             ),
           ),
@@ -1697,7 +1942,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           itemBuilder: (context, i) {
             final index = _descending ? (group.urls.length - 1 - i) : i;
             final active = _currentEpisodeIndex == index;
-            final locked = !vipActive &&
+            final locked =
+                !vipActive &&
                 index < group.needVip.length &&
                 group.needVip[index] > 0;
             return GestureDetector(
@@ -1719,22 +1965,30 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (locked) ...[
-                      const Icon(LucideIcons.lock,
-                          size: 11, color: Color(0xFFFF8A00)),
+                      const Icon(
+                        LucideIcons.lock,
+                        size: 11,
+                        color: Color(0xFFFF8A00),
+                      ),
                       const SizedBox(width: 3),
                     ],
-                    Text(group.titles[index],
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight:
-                                active ? FontWeight.w700 : FontWeight.w400,
-                            color: active
-                                ? AppColors.pink
-                                : theme.colorScheme.onSurface)),
+                    Text(
+                      group.titles[index],
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: active ? FontWeight.w700 : FontWeight.w400,
+                        color: active
+                            ? AppColors.pink
+                            : theme.colorScheme.onSurface,
+                      ),
+                    ),
                     if (active) ...[
                       const SizedBox(width: 4),
-                      const Icon(LucideIcons.pause,
-                          size: 11, color: AppColors.pink),
+                      const Icon(
+                        LucideIcons.pause,
+                        size: 11,
+                        color: AppColors.pink,
+                      ),
                     ],
                   ],
                 ),
@@ -1783,7 +2037,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
                   year: list[i].year,
                   episode: list[i].typeName,
                   // 用 pushReplacement 打开，避免同类推荐层层压栈导致返回时旧页面无法回收
-                  onTap: () => VideoRouter.open(context, list[i], replace: true),
+                  onTap: () =>
+                      VideoRouter.open(context, list[i], replace: true),
                 ),
                 if (i != list.length - 1) const SizedBox(width: 10),
               ],

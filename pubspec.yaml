@@ -46,6 +46,9 @@ dependencies:
   # 本地精简版：仅打包基础字重字体，去掉未使用的 6 个可变字重（约省 2.7MB）
   lucide_icons_flutter:
     path: third_party/lucide_icons_flutter
+  # 投屏：iOS 原生 AVRoutePickerView 组件，点击直接唤起系统投屏设备列表
+  airplay_route_picker:
+    path: third_party/airplay_route_picker
   google_fonts: ^6.3.2
   flutter_staggered_grid_view: ^0.7.0
   url_launcher: ^6.3.2
