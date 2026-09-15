@@ -8,7 +8,7 @@ import 'appad_widgets.dart';
 
 /// 手机端主框架：底部 4-Tab 导航（首页 / 排行榜 / 短剧 / 我的）。
 ///
-/// 页面用 [PageView] 托管，支持左右滑动切换；切换过程叠加 3D 卡片旋转效果。
+/// 页面用 [PageView] 托管，支持左右滑动切换；切换过程叠加 3D 抽屉式过渡效果。
 class MainLayout extends StatefulWidget {
   final Widget child;
   final String currentPath;
@@ -78,8 +78,9 @@ class _MainLayoutState extends State<MainLayout> {
     context.go(_paths[i]);
   }
 
-  /// 3D 卡片旋转：越接近当前页越正视，两侧页面绕 Y 轴旋转并轻微缩小。
-  Widget _build3DPage(int index, Widget child) {
+  /// 3D 抽屉式过渡：当前页像抽出的面板保持正视，相邻页沿朝向当前页的
+  /// 边缘（铰链）向后退让——同时缩小、绕 Y 轴旋转并压暗，形成抽屉层叠纵深。
+  Widget _buildDrawerPage(int index, Widget child) {
     return AnimatedBuilder(
       animation: _controller,
       child: child,
@@ -91,15 +92,27 @@ class _MainLayoutState extends State<MainLayout> {
           delta = (_index - index).toDouble();
         }
         final t = delta.clamp(-1.0, 1.0);
-        final angle = t * 0.30;
-        final scale = 1.0 - t.abs() * 0.08;
+        final depth = t.abs();
+        // 铰链落在两页相接的一侧：相邻页绕该边缘向后退让。
+        final hinge = t >= 0 ? Alignment.centerRight : Alignment.centerLeft;
+        // 相邻页朝自己那一侧回抽，当前页停在正中。
+        final offsetX = t * MediaQuery.sizeOf(context).width * 0.06;
+        final angle = t * 0.35;
+        final scale = 1.0 - depth * 0.12;
         return Transform(
-          alignment: t >= 0 ? Alignment.centerRight : Alignment.centerLeft,
+          alignment: hinge,
           transform: Matrix4.identity()
-            ..setEntry(3, 2, 0.0014)
+            ..setEntry(3, 2, 0.0016)
             ..rotateY(angle)
             ..scaleByDouble(scale, scale, scale, 1),
-          child: inner,
+          child: Transform.translate(
+            offset: Offset(offsetX, 0),
+            child: _DrawerDepth(
+              depth: depth,
+              side: t >= 0 ? 1.0 : -1.0,
+              child: inner!,
+            ),
+          ),
         );
       },
     );
@@ -115,7 +128,7 @@ class _MainLayoutState extends State<MainLayout> {
         physics: const BouncingScrollPhysics(),
         onPageChanged: _onPageChanged,
         itemBuilder: (context, i) => _KeepAlive(
-          child: _build3DPage(i, _pages[i]),
+          child: _buildDrawerPage(i, _pages[i]),
         ),
       ),
       bottomNavigationBar: AppTabBar(
@@ -123,6 +136,48 @@ class _MainLayoutState extends State<MainLayout> {
         immersive: _paths[_index] == '/shortdrama',
         onTap: _onTabTap,
       ),
+    );
+  }
+}
+
+/// 抽屉纵深：按 [depth] 压暗页面内容，并在朝向堆叠的一侧投下阴影。
+///
+/// [depth] 为 0 表示该页正被拉出（当前页），不压暗、不投影。
+class _DrawerDepth extends StatelessWidget {
+  final double depth;
+  final double side;
+  final Widget child;
+
+  const _DrawerDepth({
+    required this.depth,
+    required this.side,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (depth <= 0.001) return child;
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        child,
+        Positioned.fill(
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.22 * depth),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.20 * depth),
+                    blurRadius: 24 * depth,
+                    offset: Offset(side * 8 * depth, 0),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
