@@ -77,6 +77,20 @@ class PlayGroup {
   }
 }
 
+/// 归一化年份字段。
+///
+/// 采集源常把「没有年份」写成 `0` / `"0"` / `"0.0"`，直接展示会变成卡片上的
+/// 「0」角标。这类占位值统一按未知处理，返回 null。
+String? sanitizeYear(dynamic raw) {
+  final text = raw?.toString().trim() ?? '';
+  if (text.isEmpty) return null;
+  final number = double.tryParse(text);
+  if (number == null) return text;
+  if (number <= 0) return null;
+  if (number == number.roundToDouble()) return number.toInt().toString();
+  return text;
+}
+
 class VideoDetail {
   final String id;
   final String title;
@@ -152,7 +166,7 @@ class VideoDetail {
           .toList(),
       source: (json['source'] ?? '').toString(),
       sourceName: (json['source_name'] ?? '').toString(),
-      year: json['year']?.toString(),
+      year: sanitizeYear(json['year']),
       desc: json['desc']?.toString(),
       typeName: json['type_name']?.toString(),
       actors: json['actors']?.toString(),

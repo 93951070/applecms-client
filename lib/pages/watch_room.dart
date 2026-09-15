@@ -170,6 +170,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
 
   @override
   void dispose() {
+    WebSniffService.abortAll(owner: this);
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _clockTimer?.cancel();
@@ -286,7 +287,7 @@ class _WatchRoomPageState extends ConsumerState<WatchRoomPage>
     var guard = 0;
     while (mounted && result.isWebSniff && guard < 6) {
       guard++;
-      final sniffed = await WebSniffService.sniff(result.sniffUrl!);
+      final sniffed = await WebSniffService.sniff(result.sniffUrl!, owner: this);
       if (sniffed != null && sniffed.isNotEmpty) {
         return (url: sniffed, referer: _originOf(sniffed), message: '');
       }

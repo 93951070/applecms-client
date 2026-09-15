@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../core/navigation.dart';
 import '../core/theme.dart';
 import '../pages/home.dart';
 import '../pages/rank.dart';
@@ -21,7 +22,7 @@ class MainLayout extends StatefulWidget {
 }
 
 class _MainLayoutState extends State<MainLayout> {
-  static const _paths = ['/', '/rank', '/shortdrama', '/profile'];
+  static const _paths = ['/', '/rank', shortDramaTabPath, '/profile'];
 
   static const List<Widget> _pages = [
     HomePage(),
@@ -33,6 +34,9 @@ class _MainLayoutState extends State<MainLayout> {
   late final PageController _controller;
   int _index = 0;
 
+  /// 当前激活的 Tab 路径，供页面订阅；页面据此在失活时停播。
+  final ValueNotifier<String> _activePath = ValueNotifier<String>('/');
+
   int _indexForPath(String path) {
     final i = _paths.indexOf(path);
     return i < 0 ? 0 : i;
@@ -42,6 +46,7 @@ class _MainLayoutState extends State<MainLayout> {
   void initState() {
     super.initState();
     _index = _indexForPath(widget.currentPath);
+    _activePath.value = _paths[_index];
     _controller = PageController(initialPage: _index, viewportFraction: 1.0);
   }
 
@@ -51,6 +56,7 @@ class _MainLayoutState extends State<MainLayout> {
     final target = _indexForPath(widget.currentPath);
     if (target != _index) {
       _index = target;
+      _activePath.value = _paths[target];
       if (_controller.hasClients) {
         _controller.animateToPage(
           target,
@@ -64,6 +70,7 @@ class _MainLayoutState extends State<MainLayout> {
   @override
   void dispose() {
     _controller.dispose();
+    _activePath.dispose();
     super.dispose();
   }
 
@@ -71,6 +78,7 @@ class _MainLayoutState extends State<MainLayout> {
   void _onPageChanged(int i) {
     if (i == _index) return;
     _index = i;
+    _activePath.value = _paths[i];
     context.go(_paths[i]);
   }
 
@@ -119,19 +127,22 @@ class _MainLayoutState extends State<MainLayout> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: Stack(
-        children: [
-          const Positioned.fill(child: _DrawerBackdrop()),
-          PageView.builder(
-            controller: _controller,
-            itemCount: _paths.length,
-            physics: const BouncingScrollPhysics(),
-            onPageChanged: _onPageChanged,
-            itemBuilder: (context, i) => _KeepAlive(
-              child: _buildDrawerPage(i, _pages[i]),
+      body: MainTabScope(
+        notifier: _activePath,
+        child: Stack(
+          children: [
+            const Positioned.fill(child: _DrawerBackdrop()),
+            PageView.builder(
+              controller: _controller,
+              itemCount: _paths.length,
+              physics: const BouncingScrollPhysics(),
+              onPageChanged: _onPageChanged,
+              itemBuilder: (context, i) => _KeepAlive(
+                child: _buildDrawerPage(i, _pages[i]),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
       bottomNavigationBar: AppTabBar(
         current: _index,
@@ -255,3 +266,4 @@ class _KeepAliveState extends State<_KeepAlive>
     return widget.child;
   }
 }
+

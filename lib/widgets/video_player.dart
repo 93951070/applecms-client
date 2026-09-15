@@ -100,6 +100,9 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
   bool _isDisposed = false;
   Timer? _bufferingTimer;
   String? _errorMessage;
+
+  /// 本次数据源是否已上报过「仅音频」错误，避免进度回调里反复上报。
+  bool _reportedAudioOnly = false;
   bool _wasPlayingBeforePause = false;
   bool _holdPaused = false;
   bool _pipActive = false;
@@ -232,6 +235,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
     setState(() {
       _isInitializing = true;
       _errorMessage = null;
+      _reportedAudioOnly = false;
     });
 
     final lowerUrl = widget.url.toLowerCase();
@@ -423,6 +427,12 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
         setState(() {
           _errorMessage = '无法解析视频画面，请尝试切换线路';
         });
+        // 只有声音没有画面（多半是纯音频清单）：上报一次，让上层自动换线路，
+        // 否则用户会一直停在这条线上。
+        if (!_reportedAudioOnly) {
+          _reportedAudioOnly = true;
+          widget.onPlaybackError?.call('该线路仅含音频，已自动更换线路');
+        }
       }
     }
 

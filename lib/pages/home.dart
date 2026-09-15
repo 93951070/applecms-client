@@ -91,6 +91,15 @@ class _HomePageState extends ConsumerState<HomePage> {
   final Map<String, String> _heroSlides = {};
   final Set<String> _heroSlideLoading = {};
 
+  /// 幻灯片豆瓣简介缓存：列表接口只给短简介，豆瓣简介更完整。
+  final Map<String, String> _heroBlurbs = {};
+
+  /// 豆瓣年份缓存：列表里的年份可能是采集源的占位值，豆瓣更准。
+  final Map<String, String> _heroYears = {};
+
+  /// 已拉取过豆瓣信息的条目，避免同一部剧反复请求。
+  final Set<String> _heroFetched = {};
+
   @override
   void initState() {
     super.initState();
@@ -103,11 +112,11 @@ class _HomePageState extends ConsumerState<HomePage> {
     super.dispose();
   }
 
-  /// 按需拉取当前幻灯片的豆瓣横版剧照，失败时回退竖版海报。
+  /// 按需拉取当前幻灯片的豆瓣信息：横版剧照 + 简介 + 年份，失败时保持原样。
   Future<void> _loadHeroSlide(VideoDetail item) async {
     final id = item.id.trim();
     if (id.isEmpty ||
-        _heroSlides.containsKey(id) ||
+        _heroFetched.contains(id) ||
         _heroSlideLoading.contains(id)) {
       return;
     }
@@ -115,13 +124,19 @@ class _HomePageState extends ConsumerState<HomePage> {
     try {
       final base = await ref.read(configServiceProvider).getApiBaseUrl();
       final media = await ref.read(cmsServiceProvider).fetchDouban(id);
-      final slide = media?.slide.trim() ?? '';
-      if (slide.isNotEmpty && mounted) {
-        setState(() {
+      if (!mounted) return;
+      _heroFetched.add(id);
+      final slide = (media?.slide ?? '').trim();
+      final intro = (media?.intro ?? '').trim();
+      final year = (media?.year ?? '').trim();
+      setState(() {
+        _heroBlurbs[id] = intro;
+        if (year.isNotEmpty) _heroYears[id] = year;
+        if (slide.isNotEmpty) {
           _heroSlides[id] =
               '$base/api/douban/image?u=${Uri.encodeQueryComponent(slide)}';
-        });
-      }
+        }
+      });
     } catch (_) {
       // 忽略：保持竖版海报
     } finally {
@@ -503,13 +518,24 @@ class _HomePageState extends ConsumerState<HomePage> {
     final items = list.take(5).toList();
     final page = _heroPage.clamp(0, items.length - 1).toInt();
     final item = items[page];
-    if ((item.heroImage ?? '').isEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _loadHeroSlide(item));
-    }
     final slide = (item.heroImage ?? '').trim();
     final heroImage = _heroSlides[item.id] ??
         (slide.startsWith('http') ? slide : null) ??
         item.poster;
+    final year = (item.year ?? '').trim().isNotEmpty
+        ? item.year!.trim()
+        : (_heroYears[item.id] ?? '');
+    final meta = [
+      if ((item.typeName ?? '').trim().isNotEmpty) item.typeName!.trim(),
+      if (year.isNotEmpty) year,
+    ].join(' · ');
+    final blurb = (item.desc ?? '').trim().isNotEmpty
+        ? item.desc!.trim()
+        : (_heroBlurbs[item.id] ?? '');
+    // 缺横版图或缺简介时拉一次豆瓣信息补齐（每个条目只拉一次）。
+    if ((item.heroImage ?? '').isEmpty || blurb.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadHeroSlide(item));
+    }
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -574,18 +600,34 @@ class _HomePageState extends ConsumerState<HomePage> {
                           shadows: [Shadow(blurRadius: 10, color: Colors.black54)],
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        [
-                          if (item.typeName != null) item.typeName!,
-                          if (item.year != null && item.year!.isNotEmpty)
-                            item.year!,
-                        ].join(' · '),
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.85),
-                          fontSize: 11,
+                      if (meta.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          meta,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.85),
+                            fontSize: 11,
+                          ),
                         ),
-                      ),
+                      ],
+                      if (blurb.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          blurb,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.92),
+                            fontSize: 12,
+                            height: 1.35,
+                            shadows: const [
+                              Shadow(blurRadius: 8, color: Colors.black54),
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),

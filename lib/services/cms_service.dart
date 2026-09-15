@@ -465,7 +465,7 @@ class CmsService {
       playGroups: const [],
       source: site.key,
       sourceName: site.name,
-      year: item['vod_year']?.toString(),
+      year: sanitizeYear(item['vod_year']),
       desc: (item['vod_blurb'] ?? '').toString().trim(),
       typeName: item['type_name']?.toString(),
       typeId: _asInt(item['type_id']),
@@ -506,7 +506,7 @@ class CmsService {
       playGroups: groups,
       source: site.key,
       sourceName: site.name,
-      year: data['vod_year']?.toString(),
+      year: sanitizeYear(data['vod_year']),
       desc: (data['vod_content'] ?? '')
           .toString()
           .replaceAll(RegExp(r'<[^>]*>'), '')

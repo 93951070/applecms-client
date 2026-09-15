@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:better_player_plus/better_player_plus.dart';
 
+import '../core/navigation.dart';
 import '../core/share_utils.dart';
 import '../core/theme.dart';
 import '../models/site.dart';
@@ -81,6 +82,9 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
 
   /// 直连地址播放需要的 Referer（web嗅探直链取自身 origin）。
   final Map<int, String> _refererCache = {};
+
+  /// 每个条目最终采用的是服务端哪条线路，回传失败时按线路号上报。
+  final Map<int, int?> _lineCache = {};
   final Random _rng = Random();
 
   /// 每部剧的详情（简介、年份、演员等），用于底部信息与详情面板。
@@ -106,6 +110,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
     // 短剧 Feed 是竖屏消费场景，锁定竖屏避免从全屏播放返回时残留横屏，
     // 横屏下竖屏视频会被裁切成横条。
     SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
+    fullscreenRouteDepth.addListener(_onForegroundChanged);
     _detailSub =
         ref.read(cmsServiceProvider).detailUpdates.listen(_onDetailUpdated);
     _bootstrap();
@@ -113,10 +118,33 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
 
   @override
   void dispose() {
+    fullscreenRouteDepth.removeListener(_onForegroundChanged);
     _detailSub?.cancel();
     _pageController.dispose();
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
+  }
+
+  /// 页面是否真的在前台：所在 Tab 被切走、或上面压了全屏页面（详情/搜索等）时
+  /// 都算不可见，此时必须立刻停播，否则声音会在后台继续响。
+  bool _isForeground(BuildContext context) {
+    if (fullscreenRouteDepth.value > 0) return false;
+    final active = MainTabScope.activePathOf(context);
+    return active == null || active == shortDramaTabPath;
+  }
+
+  void _onForegroundChanged() {
+    if (!mounted) return;
+    setState(() {});
+    // 无界面 WebView 不在 widget 树里，页面离开后仍会继续加载并出声，
+    // 必须显式掐断在飞的嗅探。
+    if (fullscreenRouteDepth.value > 0) WebSniffService.abortAll(owner: this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_isForeground(context)) WebSniffService.abortAll(owner: this);
   }
 
   Future<void> _bootstrap() async {
@@ -223,10 +251,11 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
       var guard = 0;
       while (mounted && res.isWebSniff && guard < 6) {
         guard++;
-        final sniffed = await WebSniffService.sniff(res.sniffUrl!);
+        final sniffed = await WebSniffService.sniff(res.sniffUrl!, owner: this);
         if (sniffed != null && sniffed.isNotEmpty) {
           _urlCache[index] = sniffed;
           _refererCache[index] = _originOf(sniffed);
+          _lineCache[index] = res.sourceIndex;
           _msgCache[index] = null;
           if (mounted) setState(() {});
           return;
@@ -251,6 +280,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
       }
       _urlCache[index] = url;
       _refererCache[index] = '';
+      _lineCache[index] = res.sourceIndex;
       _msgCache[index] = url == null
           ? (res.message.isNotEmpty ? res.message : '该内容需要会员权限')
           : null;
@@ -459,7 +489,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
           entry: entry,
           url: _urlCache[i],
           referer: _refererCache[i],
-          isActive: i == _current,
+          isActive: i == _current && _isForeground(context),
           accessMessage: _msgCache[i],
           locked: entry.requiresVip && !vipActive,
           onUpgrade: _openUpgrade,
@@ -471,9 +501,45 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
             _refererCache.remove(i);
             unawaited(_resolve(i));
           },
+          onInvalidStream: () => _handleInvalidStream(i),
         );
       },
     );
+  }
+
+  /// 已因「仅音频流」自动换过源的条目，避免同一条目反复重试。
+  final Set<int> _invalidRetried = {};
+
+  /// 线路拿到的是无效流（只有声音没有画面）时：先回传失败让服务端记下这条
+  /// 线路不可用，再丢掉缓存强制重新解析换源。
+  void _handleInvalidStream(int index) {
+    if (index < 0 || index >= _entries.length) return;
+    if (!_invalidRetried.add(index)) return;
+    final entry = _entries[index];
+    final line = _lineCache[index];
+    _urlCache.remove(index);
+    _msgCache.remove(index);
+    _refererCache.remove(index);
+    _lineCache.remove(index);
+    unawaited(_reportUnplayable(entry, line).then(
+      (_) => _resolve(index, forceRefresh: true),
+    ));
+  }
+
+  /// 回传「该线路取到的地址不可播放」，让服务端标记后换源。
+  Future<void> _reportUnplayable(_FeedEntry entry, int? line) async {
+    try {
+      final config = ref.read(configServiceProvider);
+      await ref.read(appApiServiceProvider).play(
+            await config.getApiBaseUrl(),
+            videoId: entry.vodId,
+            playSource: entry.playSource,
+            playIndex: entry.playIndex,
+            token: await config.getAuthToken(),
+            reportSourceIndex: line ?? entry.playSource,
+            reportOutcome: 'fail',
+          );
+    } catch (_) {}
   }
 
   /// 未登录先去登录，已登录引导到"我的"开通/续费会员。
@@ -848,6 +914,9 @@ class _DramaVideoPage extends StatefulWidget {
   /// 即将播完（进度接近结尾）时回调，用于触发下一集预缓存。
   final VoidCallback? onNearEnd;
 
+  /// 拿到的线路「只有音频没有画面」等无效流时回调，用于自动换源。
+  final VoidCallback? onInvalidStream;
+
   const _DramaVideoPage({
     super.key,
     required this.entry,
@@ -860,6 +929,7 @@ class _DramaVideoPage extends StatefulWidget {
     required this.onCompleted,
     required this.onRetry,
     this.onNearEnd,
+    this.onInvalidStream,
   });
 
   @override
@@ -877,6 +947,14 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
   double _aspectRatio = 0;
   String _failReason = '';
 
+  /// 失活后内核继续保留一小段时间，切回/滑回可秒续播，超时才真正释放。
+  static const Duration _recycleDelay = Duration(seconds: 20);
+  Timer? _recycleTimer;
+
+  /// 释放内核前的播放进度，重建后从这里续播（仅本地址与释放时一致才续播）。
+  Duration? _resumeAt;
+  String? _resumeUrl;
+
   @override
   void initState() {
     super.initState();
@@ -891,13 +969,44 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
         widget.isActive != old.isActive) {
       _sync();
     }
+    if (widget.isActive != old.isActive) {
+      if (widget.isActive) {
+        _cancelRecycle();
+      } else {
+        _scheduleRecycle();
+      }
+    }
   }
 
   @override
   void dispose() {
     _syncToken++;
+    _cancelRecycle();
     _release();
     super.dispose();
+  }
+
+  /// 失活后延迟回收内核：短时间内切回可直接续播，长时间离开才释放资源。
+  void _scheduleRecycle() {
+    _cancelRecycle();
+    _recycleTimer = Timer(_recycleDelay, () {
+      if (!mounted || widget.isActive) return;
+      _resumeAt = _currentPosition();
+      _resumeUrl = widget.url;
+      _release();
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _cancelRecycle() {
+    _recycleTimer?.cancel();
+    _recycleTimer = null;
+  }
+
+  Duration? _currentPosition() {
+    final pos = _controller?.videoPlayerController?.value.position;
+    if (pos == null || pos <= Duration.zero) return null;
+    return pos;
   }
 
   void _sync() {
@@ -917,6 +1026,11 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
 
     _release();
     if (!mounted || token != _syncToken) return;
+    // 换了地址就不该沿用旧地址的进度。
+    if (_resumeUrl != url) {
+      _resumeAt = null;
+      _resumeUrl = null;
+    }
 
     setState(() {
       _initializing = true;
@@ -1011,11 +1125,41 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
         final aspect = (size != null && size.width > 0 && size.height > 0)
             ? size.width / size.height
             : 0.0;
+        if (aspect <= 0) {
+          // 初始化成功但拿不到画面尺寸：这条线路只有声音（多半是纯音频清单），
+          // 不能停在占位图上一直转圈，直接判定失败并让上层换源。
+          final token2 = _syncToken;
+          setState(() {
+            _initializing = false;
+            _failed = true;
+            _failReason = '该线路仅含音频，正在自动换源';
+          });
+          unawaited(Future.microtask(() {
+            if (!mounted || token2 != _syncToken) return;
+            _release();
+            if (mounted) setState(() {});
+            widget.onInvalidStream?.call();
+          }));
+          break;
+        }
         _applyFit(c, aspect);
         setState(() {
           _initializing = false;
           _aspectRatio = aspect;
         });
+        final resumeAt = _resumeAt;
+        if (resumeAt != null && resumeAt > Duration.zero) {
+          _resumeAt = null;
+          _resumeUrl = null;
+          unawaited(c.seekTo(resumeAt));
+        }
+        // 初始化期间可能已经失去可见性：autoPlay 会自己开播，这里补一次暂停，
+        // 否则页面在后台也会出声。
+        if (!widget.isActive) {
+          try {
+            c.pause();
+          } catch (_) {}
+        }
         break;
       case BetterPlayerEventType.finished:
         _notifyCompleted();

@@ -138,6 +138,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   // 跳转到其它视频/页面时，暂停当前播放，避免旧视频在后台继续出声。
   @override
   void didPushNext() {
+    // 无界面嗅探 WebView 不随页面销毁，被覆盖时先掐掉，避免它继续出声。
+    WebSniffService.abortAll(owner: this);
     if (_keepPlayingOnNextRoute) {
       _keepPlayingOnNextRoute = false;
       return;
@@ -333,7 +335,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       var guard = 0;
       while (mounted && result.isWebSniff && guard < 6) {
         guard++;
-        final sniffed = await WebSniffService.sniff(result.sniffUrl!);
+        final sniffed = await WebSniffService.sniff(result.sniffUrl!, owner: this);
         if (!mounted) return;
         if (sniffed != null && sniffed.isNotEmpty) {
           _episodeUrlCache[cacheKey] = sniffed;
@@ -578,6 +580,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   @override
   void dispose() {
+    WebSniffService.abortAll(owner: this);
     routeObserver.unsubscribe(this);
     _detailSub?.cancel();
     _commentController.dispose();
