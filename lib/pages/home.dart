@@ -83,6 +83,16 @@ class _HomePageState extends ConsumerState<HomePage> {
   /// 分类翻页（推荐 + 各主分类），横向滑动与点击 Tab 都作用在它上面。
   late final PageController _catController;
 
+  /// 分类页总数（推荐 + 各主分类），用于翻页越界保护。
+  int _catPageCount = 1;
+
+  /// 内层横向滚动（分类 Tab 栏、海报行）到尽头后继续拖动的累计位移，
+  /// 抬手时据此决定是否翻到上/下一个分类。
+  double _catSwipeDrag = 0;
+
+  /// 判定翻分类所需的额外拖动距离（逻辑像素）。
+  static const double _catSwipeThreshold = 48;
+
   bool _continueVisible = false;
   bool _continueScheduled = false;
   bool _continueDismissed = false;
@@ -120,7 +130,7 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   /// 切到指定分类页：Tab 点击与横向滑动共用同一套 3D 翻页转场。
   void _selectCategory(int i, {bool animate = true}) {
-    if (i == _mainIndex) return;
+    if (i < 0 || i >= _catPageCount || i == _mainIndex) return;
     setState(() {
       _mainIndex = i;
       _heroPage = 0;
@@ -132,6 +142,44 @@ class _HomePageState extends ConsumerState<HomePage> {
         curve: FlipConfig.curve,
       );
     }
+  }
+
+  /// 横向手势接力：分类 Tab 栏与海报行本身都是横向可滚动的，Flutter 的手势
+  /// 竞技场会把横滑优先给最内层的滚动，外层翻页器拿不到拖动。这里在它们滚到
+  /// 尽头（pixels 越界）后继续累计手指位移，抬手超过阈值就翻一个分类，
+  /// 既保住了内容行的横滑浏览，也能用左右侧滑切分类。
+  bool _onCategoryScrollNotification(ScrollNotification n) {
+    if (n.metrics.axis != Axis.horizontal) return false;
+
+    if (n is ScrollStartNotification && n.dragDetails != null) {
+      _catSwipeDrag = 0;
+      return false;
+    }
+
+    if (n is ScrollUpdateNotification && n.dragDetails != null) {
+      final m = n.metrics;
+      if (m.pixels > m.maxScrollExtent || m.pixels < m.minScrollExtent) {
+        // 手指左滑（dx 为负）表示要往后翻，与内容行滚动的方向一致。
+        _catSwipeDrag += n.dragDetails!.delta.dx;
+      }
+      return false;
+    }
+
+    if (n is ScrollEndNotification) {
+      final drag = _catSwipeDrag;
+      _catSwipeDrag = 0;
+      if (drag == 0) return false;
+      final velocity = n.dragDetails?.velocity.pixelsPerSecond.dx ?? 0;
+      if (drag <= -_catSwipeThreshold || (drag < 0 && velocity <= -400)) {
+        _selectCategory(_mainIndex + 1);
+      } else if (drag >= _catSwipeThreshold ||
+          (drag > 0 && velocity >= 400)) {
+        _selectCategory(_mainIndex - 1);
+      }
+      return false;
+    }
+
+    return false;
   }
 
   /// 按需拉取当前幻灯片的豆瓣信息：横版剧照 + 简介 + 年份，失败时保持原样。
@@ -232,34 +280,38 @@ class _HomePageState extends ConsumerState<HomePage> {
       '推荐',
       ...groups.map((g) => g.category.typeName),
     ];
+    _catPageCount = mainTabs.length;
 
     return ZenScaffold(
       body: SafeArea(
         bottom: false,
-        child: Stack(
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildTopBar(),
-                AppTabStrip(
-                  tabs: mainTabs,
-                  current: mainIndex,
-                  onChanged: (i) => _selectCategory(i),
-                ),
-                Expanded(
-                  child: _buildCategoryPages(groups),
-                ),
-              ],
-            ),
-            if (_continueVisible && historyList.isNotEmpty)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: _buildContinue(historyList.first),
+        child: NotificationListener<ScrollNotification>(
+          onNotification: _onCategoryScrollNotification,
+          child: Stack(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildTopBar(),
+                  AppTabStrip(
+                    tabs: mainTabs,
+                    current: mainIndex,
+                    onChanged: (i) => _selectCategory(i),
+                  ),
+                  Expanded(
+                    child: _buildCategoryPages(groups),
+                  ),
+                ],
               ),
-          ],
+              if (_continueVisible && historyList.isNotEmpty)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: _buildContinue(historyList.first),
+                ),
+            ],
+          ),
         ),
       ),
     );

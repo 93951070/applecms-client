@@ -1060,6 +1060,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
           loadingColor: AppColors.pink,
           enablePip: false,
           enableFullscreen: false,
+          enableSkips: false,
           enableOverflowMenu: false,
           enablePlaybackSpeed: false,
           enableSubtitles: false,
