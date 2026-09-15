@@ -645,8 +645,8 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               if (locked) ...[
-                                const Icon(Icons.lock,
-                                    color: Color(0xFFFFC24B), size: 10),
+                                const Icon(LucideIcons.lock,
+                                    color: Color(0xFFFFC24B), size: 11),
                                 const SizedBox(width: 2),
                               ],
                               Text(
@@ -990,7 +990,7 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.edit_rounded,
+                            Icon(LucideIcons.squarePen,
                                 size: 14, color: Colors.white70),
                             SizedBox(width: 6),
                             Flexible(

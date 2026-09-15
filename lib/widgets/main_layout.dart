@@ -7,10 +7,12 @@ import '../pages/rank.dart';
 import '../pages/short_drama_tab.dart';
 import '../pages/profile.dart';
 import 'appad_widgets.dart';
+import 'page_flip.dart';
 
 /// 手机端主框架：底部 4-Tab 导航（首页 / 排行榜 / 短剧 / 我的）。
 ///
-/// 页面用 [PageView] 托管，支持左右滑动切换；切换过程叠加缩放抽屉式过渡效果。
+/// 底部 Tab 只用点击切换（横向滑动留给首页的分类翻页），
+/// 切换过程与首页分类共用同一套 3D 翻页转场（见 [FlipPageView]）。
 class MainLayout extends StatefulWidget {
   final Widget child;
   final String currentPath;
@@ -60,8 +62,8 @@ class _MainLayoutState extends State<MainLayout> {
       if (_controller.hasClients) {
         _controller.animateToPage(
           target,
-          duration: const Duration(milliseconds: 360),
-          curve: Curves.easeOutCubic,
+          duration: FlipConfig.duration,
+          curve: FlipConfig.curve,
         );
       }
     }
@@ -74,7 +76,7 @@ class _MainLayoutState extends State<MainLayout> {
     super.dispose();
   }
 
-  /// 滑动切换后同步路由，保证底部栏高亮与深链一致。
+  /// 翻页结束后同步路由，保证底部栏高亮与深链一致。
   void _onPageChanged(int i) {
     if (i == _index) return;
     _index = i;
@@ -87,42 +89,6 @@ class _MainLayoutState extends State<MainLayout> {
     context.go(_paths[i]);
   }
 
-  /// 缩放抽屉式过渡：当前页保持正视并停在正中，相邻页整体缩小、向侧向位移，
-  /// 形成“抽出的面板 + 后退的层叠”纵深。
-  ///
-  /// 只做缩放与位移：不旋转、不加透视，页面始终是规整矩形，不会出现斜面或斜切。
-  Widget _buildDrawerPage(int index, Widget child) {
-    return AnimatedBuilder(
-      animation: _controller,
-      child: child,
-      builder: (context, inner) {
-        double delta;
-        if (_controller.hasClients && _controller.position.haveDimensions) {
-          delta = (_controller.page ?? _index.toDouble()) - index;
-        } else {
-          delta = (_index - index).toDouble();
-        }
-        final t = delta.clamp(-1.0, 1.0);
-        final depth = t.abs();
-        // 相邻页朝自己那一侧回抽，当前页停下时正好居中。
-        final offsetX = t * MediaQuery.sizeOf(context).width * 0.06;
-        // 背景页缩到 0.82（区间 0.78~0.86），当前页保持 1.0。
-        final scale = 1.0 - depth * 0.18;
-        return Transform.translate(
-          offset: Offset(offsetX, 0),
-          child: Transform.scale(
-            scale: scale,
-            child: _DrawerDepth(
-              depth: depth,
-              side: t >= 0 ? 1.0 : -1.0,
-              child: inner!,
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -131,14 +97,15 @@ class _MainLayoutState extends State<MainLayout> {
         notifier: _activePath,
         child: Stack(
           children: [
-            const Positioned.fill(child: _DrawerBackdrop()),
-            PageView.builder(
+            const Positioned.fill(child: _TabBackdrop()),
+            FlipPageView(
               controller: _controller,
               itemCount: _paths.length,
-              physics: const BouncingScrollPhysics(),
+              // 横向滑动留给首页的分类翻页，底部 Tab 只用点击切换。
+              physics: const NeverScrollableScrollPhysics(),
               onPageChanged: _onPageChanged,
               itemBuilder: (context, i) => _KeepAlive(
-                child: _buildDrawerPage(i, _pages[i]),
+                child: _pages[i],
               ),
             ),
           ],
@@ -153,9 +120,9 @@ class _MainLayoutState extends State<MainLayout> {
   }
 }
 
-/// 抽屉底色：沿用极光同色系的柔和渐变 + 粉光晕，避免后退页下方露出黑色底。
-class _DrawerBackdrop extends StatelessWidget {
-  const _DrawerBackdrop();
+/// 翻页底色：沿用极光同色系的柔和渐变 + 粉光晕，避免旋转页两侧露出黑色底。
+class _TabBackdrop extends StatelessWidget {
+  const _TabBackdrop();
 
   @override
   Widget build(BuildContext context) {
@@ -191,56 +158,6 @@ class _DrawerBackdrop extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-/// 抽屉纵深：给后退页加圆角与投影，并按 [depth] 压暗内容。
-///
-/// [depth] 为 0 表示该页正被拉出（当前页），保持规整矩形，不压暗、不投影。
-class _DrawerDepth extends StatelessWidget {
-  final double depth;
-  final double side;
-  final Widget child;
-
-  const _DrawerDepth({
-    required this.depth,
-    required this.side,
-    required this.child,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (depth <= 0.001) return child;
-    final radius = BorderRadius.circular(14 * depth);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: radius,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.24 * depth),
-            blurRadius: 24 * depth,
-            spreadRadius: 2 * depth,
-            offset: Offset(side * 6 * depth, 0),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: radius,
-        child: Stack(
-          fit: StackFit.passthrough,
-          children: [
-            child,
-            Positioned.fill(
-              child: IgnorePointer(
-                child: ColoredBox(
-                  color: Colors.black.withValues(alpha: 0.18 * depth),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

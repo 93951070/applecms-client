@@ -14,6 +14,7 @@ import '../core/theme.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
 import '../widgets/cover_image.dart';
+import '../widgets/page_flip.dart';
 
 /// 按分类拉取 CMS 列表（1电影 / 2电视剧 / 3动漫 / 4综艺）
 final cmsCategoryProvider =
@@ -79,6 +80,9 @@ class _HomePageState extends ConsumerState<HomePage> {
   int _mainIndex = 0;
   int _heroPage = 0;
 
+  /// 分类翻页（推荐 + 各主分类），横向滑动与点击 Tab 都作用在它上面。
+  late final PageController _catController;
+
   bool _continueVisible = false;
   bool _continueScheduled = false;
   bool _continueDismissed = false;
@@ -103,13 +107,31 @@ class _HomePageState extends ConsumerState<HomePage> {
   @override
   void initState() {
     super.initState();
+    _catController = PageController(initialPage: _mainIndex);
   }
 
   @override
   void dispose() {
+    _catController.dispose();
     _continueTimer?.cancel();
     _heroTimer?.cancel();
     super.dispose();
+  }
+
+  /// 切到指定分类页：Tab 点击与横向滑动共用同一套 3D 翻页转场。
+  void _selectCategory(int i, {bool animate = true}) {
+    if (i == _mainIndex) return;
+    setState(() {
+      _mainIndex = i;
+      _heroPage = 0;
+    });
+    if (animate && _catController.hasClients) {
+      _catController.animateToPage(
+        i,
+        duration: FlipConfig.duration,
+        curve: FlipConfig.curve,
+      );
+    }
   }
 
   /// 按需拉取当前幻灯片的豆瓣信息：横版剧照 + 简介 + 年份，失败时保持原样。
@@ -197,8 +219,14 @@ class _HomePageState extends ConsumerState<HomePage> {
         .toList();
 
     final mainIndex = _mainIndex > groups.length ? 0 : _mainIndex;
-    final recommend = mainIndex == 0;
-    final group = recommend ? null : groups[mainIndex - 1];
+    // 分类树变化可能让当前页越界，回到推荐页并同步翻页器。
+    if (mainIndex != _mainIndex) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _mainIndex = mainIndex);
+        if (_catController.hasClients) _catController.jumpToPage(mainIndex);
+      });
+    }
 
     final mainTabs = <String>[
       '推荐',
@@ -217,23 +245,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                 AppTabStrip(
                   tabs: mainTabs,
                   current: mainIndex,
-                  onChanged: (i) => setState(() {
-                    _mainIndex = i;
-                    _heroPage = 0;
-                  }),
+                  onChanged: (i) => _selectCategory(i),
                 ),
                 Expanded(
-                  child: RefreshIndicator(
-                    color: AppColors.pink,
-                    onRefresh: () async {
-                      ref.invalidate(categoryTreeProvider);
-                      ref.invalidate(cmsCategoryProvider);
-                      ref.invalidate(homeFeedProvider);
-                    },
-                    child: recommend
-                        ? _buildRecommend(groups)
-                        : _buildCategorySections(group!),
-                  ),
+                  child: _buildCategoryPages(groups),
                 ),
               ],
             ),
@@ -360,6 +375,31 @@ class _HomePageState extends ConsumerState<HomePage> {
           _continueVisible = false;
           _continueDismissed = true;
         });
+      },
+    );
+  }
+
+  /// 分类翻页容器：顶部 Tab 点击或内容区横向滑动时，整块分类内容做 3D 翻页。
+  ///
+  /// 第 0 页是推荐，第 i 页对应 `groups[i - 1]`；翻页器与 [AppTabStrip] 双向同步。
+  Widget _buildCategoryPages(List<CmsCategoryGroup> groups) {
+    return FlipPageView(
+      controller: _catController,
+      itemCount: groups.length + 1,
+      onPageChanged: (i) => _selectCategory(i, animate: false),
+      itemBuilder: (context, i) {
+        final isRecommend = i == 0;
+        return RefreshIndicator(
+          color: AppColors.pink,
+          onRefresh: () async {
+            ref.invalidate(categoryTreeProvider);
+            ref.invalidate(cmsCategoryProvider);
+            ref.invalidate(homeFeedProvider);
+          },
+          child: isRecommend
+              ? _buildRecommend(groups)
+              : _buildCategorySections(groups[i - 1]),
+        );
       },
     );
   }

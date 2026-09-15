@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:better_player_plus/better_player_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -616,7 +617,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.error_outline, color: Colors.white54, size: 42),
+          const Icon(LucideIcons.circleAlert, color: Colors.white54, size: 42),
           const SizedBox(height: 16),
           Text(
             _errorMessage ?? '播放失败: ${widget.title}',

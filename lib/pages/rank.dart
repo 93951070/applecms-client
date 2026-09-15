@@ -7,6 +7,7 @@ import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
+import '../widgets/page_flip.dart';
 import 'home.dart';
 
 /// 排行榜数据：按每日热度（vod_hits_day）由服务端真实排序。
@@ -35,9 +36,31 @@ class RankPage extends ConsumerStatefulWidget {
 
 class _RankPageState extends ConsumerState<RankPage> {
   int _tab = 0;
+  late final PageController _tabController;
 
-  void _openDetail(VideoDetail video) {
-    VideoRouter.open(context, video);
+  @override
+  void initState() {
+    super.initState();
+    _tabController = PageController(initialPage: _tab);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  /// 切换榜单分类：与首页分类共用同一套 3D 翻页转场。
+  void _selectTab(int i, {bool animate = true}) {
+    if (i == _tab) return;
+    setState(() => _tab = i);
+    if (animate && _tabController.hasClients) {
+      _tabController.animateToPage(
+        i,
+        duration: FlipConfig.duration,
+        curve: FlipConfig.curve,
+      );
+    }
   }
 
   @override
@@ -48,12 +71,8 @@ class _RankPageState extends ConsumerState<RankPage> {
         : defaultCategoryGroups;
 
     final mainIndex = _tab > groups.length - 1 ? 0 : _tab;
-    final group = groups[mainIndex];
-    final typeId = group.category.typeId;
 
     final tabs = groups.map((g) => g.category.typeName).toList();
-
-    final asyncList = ref.watch(_rankProvider(typeId));
 
     return ZenScaffold(
       body: SafeArea(
@@ -75,9 +94,7 @@ class _RankPageState extends ConsumerState<RankPage> {
             AppTabStrip(
               tabs: tabs,
               current: mainIndex,
-              onChanged: (i) => setState(() {
-                _tab = i;
-              }),
+              onChanged: (i) => _selectTab(i),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
@@ -90,28 +107,12 @@ class _RankPageState extends ConsumerState<RankPage> {
               ),
             ),
             Expanded(
-              child: asyncList.when(
-                data: (list) => list.isEmpty
-                    ? _buildEmpty()
-                    : RefreshIndicator(
-                        color: AppColors.pink,
-                        onRefresh: () async {
-                          ref.invalidate(_rankProvider(typeId));
-                        },
-                        child: ListView.builder(
-                          padding: const EdgeInsets.only(bottom: 24),
-                          itemCount: list.length,
-                          itemBuilder: (context, i) => _RankItem(
-                            no: i + 1,
-                            video: list[i],
-                            onTap: () => _openDetail(list[i]),
-                          ),
-                        ),
-                      ),
-                loading: () => const Center(
-                  child: CircularProgressIndicator(color: AppColors.pink),
-                ),
-                error: (e, st) => _buildEmpty(),
+              child: FlipPageView(
+                controller: _tabController,
+                itemCount: groups.length,
+                onPageChanged: (i) => _selectTab(i, animate: false),
+                itemBuilder: (context, i) =>
+                    _RankList(typeId: groups[i].category.typeId),
               ),
             ),
           ],
@@ -119,8 +120,47 @@ class _RankPageState extends ConsumerState<RankPage> {
       ),
     );
   }
+}
 
-  Widget _buildEmpty() {
+/// 单个榜单分类的列表（每个分类各自订阅自己的榜单数据）。
+class _RankList extends ConsumerWidget {
+  const _RankList({required this.typeId});
+
+  final int typeId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ref.watch(_rankProvider(typeId)).when(
+          data: (list) => list.isEmpty
+              ? const _RankEmpty()
+              : RefreshIndicator(
+                  color: AppColors.pink,
+                  onRefresh: () async {
+                    ref.invalidate(_rankProvider(typeId));
+                  },
+                  child: ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 24),
+                    itemCount: list.length,
+                    itemBuilder: (context, i) => _RankItem(
+                      no: i + 1,
+                      video: list[i],
+                      onTap: () => VideoRouter.open(context, list[i]),
+                    ),
+                  ),
+                ),
+          loading: () => const Center(
+            child: CircularProgressIndicator(color: AppColors.pink),
+          ),
+          error: (e, st) => const _RankEmpty(),
+        );
+  }
+}
+
+class _RankEmpty extends StatelessWidget {
+  const _RankEmpty();
+
+  @override
+  Widget build(BuildContext context) {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
