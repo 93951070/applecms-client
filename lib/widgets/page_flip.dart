@@ -312,13 +312,26 @@ class _FlipBackGestureDetectorState extends State<FlipBackGestureDetector> {
 
   ModalRoute<Object?>? get _route => ModalRoute.of(context);
 
-  bool get _gestureEnabled {
+  /// 取当前路由的转场控制器。
+  ///
+  /// [ModalRoute.animation] 是只读的 [ProxyAnimation]，改写进度必须拿底层的
+  /// [AnimationController]；这个 getter 在框架里标了 @protected，这里按官方
+  /// Cupertino 返回手势的做法直接使用（cupertino/route.dart 同样如此）。
+  AnimationController? get _routeController {
     final route = _route;
-    if (route == null) return false;
-    if (!route.isCurrent) return false;
-    if (route.popDisposition != RoutePopDisposition.pop) return false;
-    return route.animation?.status == AnimationStatus.completed;
+    if (route == null) return null;
+    if (!route.isCurrent) return null;
+    if (route.popDisposition != RoutePopDisposition.pop) return null;
+    // ignore: invalid_use_of_protected_member
+    final controller = route.controller;
+    if (controller == null) return null;
+    if (controller.status != AnimationStatus.completed) return null;
+    return controller;
   }
+
+  /// 拖动过程中即使控制器已不再处于 completed，也要保留手势带，否则一次重建
+  /// 就会把手势识别器从树上摘掉，正在进行的拖动被静默取消、页面卡在半途。
+  bool get _gestureEnabled => _controller != null || _routeController != null;
 
   @override
   Widget build(BuildContext context) {
@@ -345,10 +358,11 @@ class _FlipBackGestureDetectorState extends State<FlipBackGestureDetector> {
   }
 
   void _handleDragStart(DragStartDetails details) {
-    final animation = _route?.animation;
-    if (animation is! AnimationController) return;
-    animation.stop();
-    _controller = animation;
+    if (_controller != null) return;
+    final controller = _routeController;
+    if (controller == null) return;
+    controller.stop();
+    _controller = controller;
     _dragStartX = details.globalPosition.dx;
   }
 
