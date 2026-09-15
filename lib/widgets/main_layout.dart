@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../core/theme.dart';
 import '../pages/home.dart';
 import '../pages/rank.dart';
 import '../pages/short_drama_tab.dart';
@@ -41,7 +42,7 @@ class _MainLayoutState extends State<MainLayout> {
   void initState() {
     super.initState();
     _index = _indexForPath(widget.currentPath);
-    _controller = PageController(initialPage: _index, viewportFraction: 0.94);
+    _controller = PageController(initialPage: _index, viewportFraction: 1.0);
   }
 
   @override
@@ -117,21 +118,68 @@ class _MainLayoutState extends State<MainLayout> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: PageView.builder(
-        controller: _controller,
-        itemCount: _paths.length,
-        physics: const BouncingScrollPhysics(),
-        onPageChanged: _onPageChanged,
-        itemBuilder: (context, i) => _KeepAlive(
-          child: _buildDrawerPage(i, _pages[i]),
-        ),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: Stack(
+        children: [
+          const Positioned.fill(child: _DrawerBackdrop()),
+          PageView.builder(
+            controller: _controller,
+            itemCount: _paths.length,
+            physics: const BouncingScrollPhysics(),
+            onPageChanged: _onPageChanged,
+            itemBuilder: (context, i) => _KeepAlive(
+              child: _buildDrawerPage(i, _pages[i]),
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: AppTabBar(
         current: _index,
         immersive: _paths[_index] == '/shortdrama',
         onTap: _onTabTap,
       ),
+    );
+  }
+}
+
+/// 抽屉底色：沿用极光同色系的柔和渐变 + 粉光晕，避免后退页下方露出黑色底。
+class _DrawerBackdrop extends StatelessWidget {
+  const _DrawerBackdrop();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final top = isDark ? const Color(0xFF161016) : const Color(0xFFF6F0F4);
+    final bottom = isDark ? const Color(0xFF0B080A) : const Color(0xFFF2F4FA);
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [top, bottom],
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: const Alignment(-0.85, -0.95),
+                radius: 1.5,
+                colors: [
+                  AppColors.pink.withValues(alpha: isDark ? 0.16 : 0.20),
+                  Colors.transparent,
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
