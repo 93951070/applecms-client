@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -232,7 +234,7 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
-class _CreditGrid extends StatelessWidget {
+class _CreditGrid extends StatefulWidget {
   final List<DoubanCredit> credits;
   final String Function(String raw) proxyImageUrl;
   final bool showCharacter;
@@ -243,16 +245,48 @@ class _CreditGrid extends StatelessWidget {
     required this.showCharacter,
   });
 
+  /// 演职员头像一次性最多拉取的数量，避免长列表同时解码几十张图。
+  static const int maxCredits = 24;
+
+  @override
+  State<_CreditGrid> createState() => _CreditGridState();
+}
+
+class _CreditGridState extends State<_CreditGrid> {
+  /// 弹层入场动画结束后再加载头像，避免动画与图片解码抢主线程。
+  static const Duration _deferDelay = Duration(milliseconds: 260);
+
+  bool _avatarsReady = false;
+  Timer? _deferTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _deferTimer = Timer(_deferDelay, () {
+      if (mounted) setState(() => _avatarsReady = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _deferTimer?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final credits = widget.credits.length > _CreditGrid.maxCredits
+        ? widget.credits.sublist(0, _CreditGrid.maxCredits)
+        : widget.credits;
     return Wrap(
       spacing: 16,
       runSpacing: 16,
       children: credits
           .map((c) => _CreditItem(
                 credit: c,
-                proxyImageUrl: proxyImageUrl,
-                showCharacter: showCharacter,
+                proxyImageUrl: widget.proxyImageUrl,
+                showCharacter: widget.showCharacter,
+                showImage: _avatarsReady,
               ))
           .toList(),
     );
@@ -264,10 +298,14 @@ class _CreditItem extends StatelessWidget {
   final String Function(String raw) proxyImageUrl;
   final bool showCharacter;
 
+  /// 首帧先画占位，弹层动画结束后再换成真实头像。
+  final bool showImage;
+
   const _CreditItem({
     required this.credit,
     required this.proxyImageUrl,
     required this.showCharacter,
+    required this.showImage,
   });
 
   @override
@@ -282,11 +320,15 @@ class _CreditItem extends StatelessWidget {
             child: SizedBox(
               width: 50,
               height: 50,
-              child: avatar.isEmpty
+              child: avatar.isEmpty || !showImage
                   ? _fallback(theme)
                   : CachedNetworkImage(
                       imageUrl: proxyImageUrl(avatar),
                       fit: BoxFit.cover,
+                      // 头像只按 50 逻辑像素展示，按原图尺寸解码会白白吃掉内存与主线程。
+                      memCacheWidth:
+                          (50 * MediaQuery.devicePixelRatioOf(context))
+                              .round(),
                       placeholder: (_, __) => _fallback(theme),
                       errorWidget: (_, __, ___) => _fallback(theme),
                     ),

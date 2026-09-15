@@ -512,6 +512,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage>
           url: _urlCache[i],
           referer: _refererCache[i],
           isActive: i == _current && _isForeground(context),
+          pageVisible: _isForeground(context),
           accessMessage: _msgCache[i],
           locked: entry.requiresVip && !vipActive,
           onUpgrade: _openUpgrade,
@@ -925,6 +926,13 @@ class _DramaVideoPage extends StatefulWidget {
   /// 直链播放需要的 Referer（web嗅探直链防盗链）。
   final String? referer;
   final bool isActive;
+
+  /// 当前 Feed 页面本身是否可见。
+  ///
+  /// [isActive] 还会因为「不是当前这一集」而为 false，这时要保留内核以便滑回
+  /// 秒续播；页面被别的页面盖住或退到后台[pageVisible] 为 false，必须立刻
+  /// 释放内核，否则加载中的内核会在初始化完成后被 autoPlay 把声音放出来。
+  final bool pageVisible;
   final String? accessMessage;
 
   /// 当前集需会员且用户未开通。
@@ -945,6 +953,7 @@ class _DramaVideoPage extends StatefulWidget {
     required this.url,
     this.referer,
     required this.isActive,
+    required this.pageVisible,
     required this.accessMessage,
     required this.locked,
     required this.onUpgrade,
@@ -988,7 +997,8 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
     super.didUpdateWidget(old);
     if (widget.url != old.url ||
         widget.referer != old.referer ||
-        widget.isActive != old.isActive) {
+        widget.isActive != old.isActive ||
+        widget.pageVisible != old.pageVisible) {
       _sync();
     }
     if (widget.isActive != old.isActive) {
@@ -1034,6 +1044,12 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
   void _sync() {
     final token = ++_syncToken;
     final controller = _controller;
+    if (!widget.pageVisible) {
+      // 页面整体不可见（被别的页面盖住或退到后台）：不管是不是当前这一集，
+      // 都要把内核放掉，否则加载中的内核初始化完成后会被 autoPlay 放出声音。
+      _releaseNow();
+      return;
+    }
     if (!widget.isActive) {
       _pause();
       return;
@@ -1108,7 +1124,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
         },
       ),
     );
-    c.addEventsListener((event) => _onPlayerEvent(event, token));
+    c.addEventsListener((event) => _onPlayerEvent(event, c));
     if (!mounted || token != _syncToken) {
       c.dispose(forceDispose: true);
       return;
@@ -1125,10 +1141,25 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
     _loadedUrl = null;
     _aspectRatio = 0;
     if (c != null) {
+      // 加载中的内核在 dispose 时，平台侧可能还残留着起播音频；先静音再销毁，
+      // 退页/回收时才不会出现「画面已经没了声音还在响」。
+      try {
+        c.setVolume(0);
+      } catch (_) {}
+      try {
+        c.pause();
+      } catch (_) {}
       try {
         c.dispose(forceDispose: true);
       } catch (_) {}
     }
+  }
+
+  /// 页面不可见时立即回收内核：先静音再释放，并触发一次重建以回到占位态。
+  void _releaseNow() {
+    if (_controller == null) return;
+    _release();
+    if (mounted) setState(() {});
   }
 
   void _pause() {
@@ -1137,10 +1168,11 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
     } catch (_) {}
   }
 
-  void _onPlayerEvent(BetterPlayerEvent event, int token) {
-    if (!mounted || token != _syncToken) return;
-    final c = _controller;
-    if (c == null) return;
+  void _onPlayerEvent(BetterPlayerEvent event, BetterPlayerController c) {
+    // 用「事件源是否还是当前内核」判断，而不是按 preload token 丢弃：token 在
+    // 只做 pause 的 _sync() 里也会自增，会把仍属当前内核的事件误判成过期事件，
+    // 导致初始化完成后的补暂停永远不执行。
+    if (!mounted || !identical(_controller, c)) return;
     switch (event.betterPlayerEventType) {
       case BetterPlayerEventType.initialized:
         final value = c.videoPlayerController?.value;
@@ -1151,14 +1183,13 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
         if (aspect <= 0) {
           // 初始化成功但拿不到画面尺寸：这条线路只有声音（多半是纯音频清单），
           // 不能停在占位图上一直转圈，直接判定失败并让上层换源。
-          final token2 = _syncToken;
           setState(() {
             _initializing = false;
             _failed = true;
             _failReason = '该线路仅含音频，正在自动换源';
           });
           unawaited(Future.microtask(() {
-            if (!mounted || token2 != _syncToken) return;
+            if (!mounted || !identical(_controller, c)) return;
             _release();
             if (mounted) setState(() {});
             widget.onInvalidStream?.call();
@@ -1176,8 +1207,12 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
           _resumeUrl = null;
           unawaited(c.seekTo(resumeAt));
         }
-        // 初始化期间可能已经失去可见性：autoPlay 会自己开播，这里补一次暂停，
-        // 否则页面在后台也会出声。
+        // 初始化期间页面可能已经不可见：autoPlay 会自己开播，这里必须补一次处理，
+        // 页面被盖住/退到后台就直接回收内核，只是不再当前集就先暂停，否则会出声。
+        if (!widget.pageVisible) {
+          _releaseNow();
+          break;
+        }
         if (!widget.isActive) {
           try {
             c.pause();

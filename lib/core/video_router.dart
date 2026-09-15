@@ -120,5 +120,5 @@ class VideoRouter {
       .replaceAll(RegExp(r'[\s\-_·:：()（）【】\[\]]'), '');
 
   static PageRoute<void> _route(Widget child) =>
-      FlipPageRoute<void>(builder: (_) => child);
+      CrackRevealPageRoute<void>(builder: (_) => child);
 }

@@ -527,15 +527,56 @@ class CmsService {
     );
   }
 
+  /// 豆瓣信息缓存新鲜期：评分、简介与演职员变动极少，命中后直接复用。
+  static const int _doubanFreshMs = 60 * 60 * 1000;
+
+  /// 未匹配到的结果只短时缓存，避免同一部剧被反复重试拖慢简介弹层。
+  static const int _doubanMissFreshMs = 2 * 60 * 1000;
+
+  static final Map<String, (DoubanMedia?, int)> _doubanMemCache = {};
+  final Map<String, Future<DoubanMedia?>> _doubanInflight = {};
+
+  /// 同步读取已缓存的豆瓣信息，供弹层首帧直接渲染，无需再转圈等待。
+  DoubanMedia? cachedDouban(String vodId) => _doubanMemCache[vodId.trim()]?.$1;
+
+  /// 预取豆瓣信息；已有缓存或在飞请求时几乎无开销，可放心在详情加载后调用。
+  void prefetchDouban(String vodId) {
+    final key = vodId.trim();
+    if (key.isEmpty) return;
+    unawaited(fetchDouban(key));
+  }
+
   /// 按需拉取豆瓣评分、简介、演职员与横版剧照（后台未开启或未匹配时返回 null）。
   Future<DoubanMedia?> fetchDouban(String vodId) async {
-    if (vodId.trim().isEmpty) return null;
+    final key = vodId.trim();
+    if (key.isEmpty) return null;
+    final cached = _doubanMemCache[key];
+    if (cached != null) {
+      final fresh = cached.$1 == null ? _doubanMissFreshMs : _doubanFreshMs;
+      if (DateTime.now().millisecondsSinceEpoch - cached.$2 <= fresh) {
+        return cached.$1;
+      }
+    }
+    final inflight = _doubanInflight[key];
+    if (inflight != null) return inflight;
+    final future = _fetchDoubanRemote(key);
+    _doubanInflight[key] = future;
+    try {
+      return await future;
+    } finally {
+      _doubanInflight.remove(key);
+    }
+  }
+
+  Future<DoubanMedia?> _fetchDoubanRemote(String vodId) async {
     try {
       final data = await _api.doubanMedia(await _base(), vodId);
       final media = DoubanMedia.fromJson(data);
-      if (!media.enabled || !media.matched) return null;
-      return media;
+      final result = (!media.enabled || !media.matched) ? null : media;
+      _doubanMemCache[vodId] = (result, DateTime.now().millisecondsSinceEpoch);
+      return result;
     } catch (_) {
+      _doubanMemCache[vodId] = (null, DateTime.now().millisecondsSinceEpoch);
       return null;
     }
   }

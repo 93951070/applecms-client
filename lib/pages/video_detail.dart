@@ -248,6 +248,11 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       _loadingMessage = '';
     });
 
+    // 详情到手就顺带把豆瓣信息取回来，点开「简介」时直接命中缓存。
+    if (detail.id.isNotEmpty) {
+      ref.read(cmsServiceProvider).prefetchDouban(detail.id);
+    }
+
     if (!startPlayback) return;
     _didStartPlayback = true;
     final total = detail.playGroups.first.urls.length;
