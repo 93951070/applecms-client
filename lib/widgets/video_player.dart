@@ -48,6 +48,9 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
   final void Function(String message)? onPlaybackError;
   final void Function(bool locked)? onLockChanged;
 
+  /// 画中画激活状态变化回调，父级据此切换占位封面。
+  final ValueChanged<bool>? onPipChanged;
+
   const EchoVideoPlayer({
     super.key,
     required this.url,
@@ -57,6 +60,7 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
     this.initialPosition,
     this.onPlaybackError,
     this.onLockChanged,
+    this.onPipChanged,
     this.skipConfig,
     this.onSkipConfigChange,
     this.onNextEpisode,
@@ -107,6 +111,8 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
   bool _wasPlayingBeforePause = false;
   bool _holdPaused = false;
   bool _pipActive = false;
+  /// 已上报给父级的画中画状态，用于回调去重。
+  bool _pipUiState = false;
   bool _locked = false;
   bool _endedHandled = false;
   int _initToken = 0;
@@ -127,6 +133,12 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
   Duration get duration => _value?.duration ?? Duration.zero;
 
   bool get isPlaying => _value?.isPlaying ?? false;
+
+  /// 画中画是否处于激活状态。
+  ///
+  /// iOS 侧画中画启停由系统回调写入播放器 value 的 `isPip`，
+  /// 不一定会上报 `pipStart` 事件，因此这里同时看事件与 value 两个来源。
+  bool get isPipActive => _pipActive || (_value?.isPip ?? false);
 
   double get aspectRatio => _value?.aspectRatio ?? 0;
 
@@ -179,6 +191,23 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
     try {
       await _controller?.disablePictureInPicture();
     } catch (_) {}
+  }
+
+  /// 画中画状态变化时通知父级（去重），父级据此切换占位封面。
+  void _notifyPipState() {
+    final next = isPipActive;
+    if (next == _pipUiState) return;
+    _pipUiState = next;
+    widget.onPipChanged?.call(next);
+  }
+
+  /// iOS 进入后台后系统需要短暂时间接管画中画；
+  /// 若始终没进入画中画则暂停，避免应用退到后台后声音继续播放。
+  Future<void> _pauseIfPipNotStarted() async {
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (_isDisposed) return;
+    if (isPipActive) return;
+    _safePause();
   }
 
   void _safePause() {
@@ -380,6 +409,8 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
       case BetterPlayerEventType.progress:
         final value = _value;
         if (value != null) _onTick(value.position, value.duration ?? Duration.zero);
+        // iOS 的 isPip 只写在播放器 value 上，借进度事件同步给父级。
+        _notifyPipState();
         break;
       case BetterPlayerEventType.finished:
         _handleEnded();
@@ -393,6 +424,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
       case BetterPlayerEventType.pipStart:
         _pipActive = true;
         _holdPaused = false;
+        _notifyPipState();
         // Android 进入画中画的时序可能先收到生命周期 paused（被误暂停），
         // 画中画生效后把播放恢复回来。
         if (!isPlaying) resumePlayback();
@@ -400,6 +432,7 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
       case BetterPlayerEventType.pipStop:
         _pipActive = false;
         _holdPaused = false;
+        _notifyPipState();
         break;
       case BetterPlayerEventType.exception:
         final message =
@@ -525,11 +558,31 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
   }
 
   @override
+  void deactivate() {
+    // 离开播放页时如果画中画还开着，先结束悬浮窗，避免离开页面后仍在后台出声。
+    if (isPipActive) {
+      _pipActive = false;
+      unawaited(exitPip());
+      // deactivate 发生在构建阶段，不能在此时同步触发父级 setState。
+      final notify = widget.onPipChanged;
+      if (notify != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => notify(false));
+      }
+    }
+    super.deactivate();
+  }
+
+  @override
   void dispose() {
     _isDisposed = true;
     _initToken++;
     _cancelBufferingTimer();
     WidgetsBinding.instance.removeObserver(this);
+
+    if (isPipActive) {
+      _pipActive = false;
+      unawaited(exitPip());
+    }
 
     if (_controller?.videoPlayerController != null &&
         widget.onProgress != null) {
@@ -561,23 +614,33 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
       _wasPlayingBeforePause = isPlaying;
       _cancelBufferingTimer();
       // 画中画接管后保持播放，不再暂停。
-      if (_pipActive) return;
-      // iOS 保持播放等待系统接管画中画；Android 无画中画时按常理暂停。
-      if (Platform.isIOS) return;
+      if (isPipActive) return;
+      if (Platform.isIOS) {
+        // 画中画开关打开时给系统一点时间接管；始终没进入画中画就暂停，
+        // 避免退到后台后声音仍在响。
+        if (ref.read(pipEnabledProvider)) {
+          unawaited(_pauseIfPipNotStarted());
+          return;
+        }
+        _safePause();
+        return;
+      }
       _safePause();
       return;
     }
     if (state != AppLifecycleState.resumed) return;
     _cancelBufferingTimer();
-    if (_pipActive) {
+    if (isPipActive) {
       _pipActive = false;
-      // 回到应用时主动结束画中画，让画面归位到应用内，无需手动点关闭。
+      // 回到应用时主动结束画中画，让画面自动归位到应用内，无需手动点关闭。
       unawaited(exitPip());
+      _notifyPipState();
+      if (_wasPlayingBeforePause && !isPlaying) resumePlayback();
     }
     if (_errorMessage != null) {
       setState(() => _errorMessage = null);
     }
-    if (_wasPlayingBeforePause && !isPlaying) {
+    if (_wasPlayingBeforePause && !isPlaying && !isPipActive) {
       resumePlayback();
     }
     _wasPlayingBeforePause = false;

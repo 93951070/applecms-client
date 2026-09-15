@@ -109,6 +109,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   final GlobalKey<EchoVideoPlayerState> _playerKey = GlobalKey<EchoVideoPlayerState>();
 
+  /// 画中画是否激活：此时应用内播放区域显示占位封面，避免露出黑底。
+  bool _playerPipActive = false;
+
   /// 详情后台静默刷新的订阅，用于同步最新选集会员状态。
   StreamSubscription<String>? _detailSub;
 
@@ -134,6 +137,13 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
 
   // 简介等非跳转类弹层会压入 ModalRoute，此处用一次性豁免避免误暂停。
   bool _keepPlayingOnNextRoute = false;
+
+  // 返回上一页时立刻停播，避免离开播放页后旧视频继续出声。
+  @override
+  void didPop() {
+    WebSniffService.abortAll(owner: this);
+    _playerKey.currentState?.forcePause();
+  }
 
   // 跳转到其它视频/页面时，暂停当前播放，避免旧视频在后台继续出声。
   @override
@@ -594,6 +604,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
+      // 无界面嗅探 WebView 不随页面销毁，退到后台先掐掉，避免后台继续出声。
+      WebSniffService.abortAll(owner: this);
       // 这里的进度保存由 EchoVideoPlayer 的 onProgress 持续进行
     }
     if (mounted) setState(() {});
@@ -632,6 +644,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         fit: StackFit.expand,
         children: [
           _buildPlayerContent(),
+          // 画中画激活时画面已被系统挪到悬浮窗，用封面占位代替黑底。
+          if (_playerPipActive) _buildPipPlaceholder(),
           Positioned(
             top: 4,
             left: 4,
@@ -658,6 +672,45 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
         ],
       ),
     );
+  }
+
+  /// 画中画激活时的占位：封面 + 暗色蒙层 + 提示，避免播放区域黑成一片。
+  Widget _buildPipPlaceholder() {
+    final poster = _video?.poster ?? widget.subject.cover;
+    return GestureDetector(
+      onTap: _exitPipFromPlaceholder,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (poster.isNotEmpty)
+            CoverImage(imageUrl: poster)
+          else
+            const ColoredBox(color: Color(0xFF161016)),
+          const ColoredBox(color: Color(0x99000000)),
+          const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(LucideIcons.pictureInPicture2,
+                    size: 30, color: Colors.white70),
+                SizedBox(height: 8),
+                Text(
+                  '正在画中画播放，点按回到页面',
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 点占位封面时主动结束画中画，让画面回到页面内。
+  Future<void> _exitPipFromPlaceholder() async {
+    await _playerKey.currentState?.exitPip();
+    if (mounted) setState(() => _playerPipActive = false);
+    _playerKey.currentState?.resumePlayback();
   }
 
   /// 打开「一起看」主页弹层（大厅 / 创建 / 进入 / 我的房间）。
@@ -778,6 +831,11 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       referer: _resolvedReferer,
       initialPosition: _initialResumePosition,
       onPlaybackError: _handlePlaybackError,
+      onPipChanged: (active) {
+        if (mounted && _playerPipActive != active) {
+          setState(() => _playerPipActive = active);
+        }
+      },
       onLockChanged: (locked) {
         if (mounted) setState(() => _playerLocked = locked);
       },
@@ -986,7 +1044,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       return ListView(
         padding: const EdgeInsets.only(top: 120),
         children: [
-          Icon(Icons.forum_outlined,
+          Icon(LucideIcons.messageSquare,
               size: 46, color: theme.colorScheme.secondary),
           const SizedBox(height: 12),
           Center(
@@ -1310,7 +1368,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
                 Text('简介',
                     style: TextStyle(
                         fontSize: 13, color: theme.colorScheme.secondary)),
-                Icon(Icons.chevron_right_rounded,
+                Icon(LucideIcons.chevronRight,
                     size: 18, color: theme.colorScheme.secondary),
               ],
             ),
@@ -1372,7 +1430,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
           GestureDetector(
             onTap: () => _toggleFavorite(favorited),
             child: Icon(
-              favorited ? Icons.star_rounded : Icons.star_border_rounded,
+              LucideIcons.star,
               size: 26,
               color: favorited
                   ? AppColors.vipGold
@@ -1380,16 +1438,16 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
             ),
           ),
           const Spacer(),
-          _buildActionIcon(Icons.favorite_rounded, const Color(0xFFFF6B9D),
+          _buildActionIcon(LucideIcons.heart, const Color(0xFFFF6B9D),
               () => _toggleFavorite(favorited)),
           const SizedBox(width: 20),
-          _buildActionIcon(Icons.group_rounded, const Color(0xFF8B5CF6),
+          _buildActionIcon(LucideIcons.users, const Color(0xFF8B5CF6),
               _openWatchParty),
           const SizedBox(width: 20),
-          _buildActionIcon(Icons.download_rounded, const Color(0xFFFF9F43),
+          _buildActionIcon(LucideIcons.download, const Color(0xFFFF9F43),
               _cacheCurrentEpisode),
           const SizedBox(width: 20),
-          _buildActionIcon(Icons.share_rounded, const Color(0xFF3B82F6),
+          _buildActionIcon(LucideIcons.share, const Color(0xFF3B82F6),
               _shareVideo),
         ],
       ),
@@ -1482,7 +1540,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
             onTap: () => setState(() => _descending = !_descending),
             child: Row(
               children: [
-                Icon(Icons.swap_vert_rounded,
+                Icon(LucideIcons.arrowUpDown,
                     size: 16, color: theme.colorScheme.secondary),
                 const SizedBox(width: 2),
                 Text(_descending ? '倒序' : '正序',
@@ -1534,7 +1592,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (locked) ...[
-                      const Icon(Icons.lock,
+                      const Icon(LucideIcons.lock,
                           size: 11, color: Color(0xFFFF8A00)),
                       const SizedBox(width: 3),
                     ],
@@ -1548,7 +1606,8 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
                                 : theme.colorScheme.onSurface)),
                     if (active) ...[
                       const SizedBox(width: 4),
-                      const Icon(Icons.pause, size: 11, color: AppColors.pink),
+                      const Icon(LucideIcons.pause,
+                          size: 11, color: AppColors.pink),
                     ],
                   ],
                 ),
@@ -1575,11 +1634,17 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage> with WidgetsB
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SectionHead(
-          icon: const Icon(Icons.live_tv_rounded,
-              size: 18, color: AppColors.pink),
+          icon: const Icon(LucideIcons.tv, size: 18, color: AppColors.pink),
           title: '同类推荐',
           moreText: '更多',
-          onMore: () => context.push('/search'),
+          // 进入该分类的更多列表页，而不是搜索结果页。
+          onMore: () {
+            final name = _video?.typeName ?? '';
+            final query = name.isEmpty
+                ? 'id=$typeId'
+                : 'id=$typeId&title=${Uri.encodeComponent(name)}';
+            context.push('/category?$query');
+          },
         ),
         HScroll(
           child: Row(

@@ -7,6 +7,7 @@ import '../pages/short_drama_feed.dart';
 import '../pages/video_detail.dart';
 import '../services/cms_service.dart';
 import '../services/config_service.dart';
+import '../widgets/page_flip.dart';
 import 'content_kind.dart';
 
 /// 统一的视频打开入口。
@@ -118,6 +119,6 @@ class VideoRouter {
       .toLowerCase()
       .replaceAll(RegExp(r'[\s\-_·:：()（）【】\[\]]'), '');
 
-  static MaterialPageRoute<void> _route(Widget child) =>
-      MaterialPageRoute<void>(builder: (_) => child);
+  static PageRoute<void> _route(Widget child) =>
+      FlipPageRoute<void>(builder: (_) => child);
 }

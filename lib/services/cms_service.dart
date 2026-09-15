@@ -7,6 +7,7 @@ import '../models/douban_media.dart';
 import '../models/site.dart';
 import '../models/system_message.dart';
 import '../models/user.dart';
+import '../core/content_kind.dart';
 import 'app_api_service.dart';
 import 'config_service.dart';
 
@@ -319,15 +320,21 @@ class CmsService {
   }
 
   HomeFeed _homeFeedFromRaw(dynamic raw, SiteConfig site) {
-    final hero = _listFromItems(raw['hero'], site);
+    // 短剧是竖屏 Feed 形态，不进横版幻灯片与首页栏目。
+    final hero = _listFromItems(raw['hero'], site)
+        .where((v) => !isFeedCategory(typeId: v.typeId, typeName: v.typeName))
+        .toList();
     final sections = <HomeSection>[];
     final rawSections = raw['sections'];
     if (rawSections is List) {
       for (final s in rawSections) {
         if (s is! Map) continue;
+        final typeId = _asInt(s['type_id']);
+        final title = (s['title'] ?? '').toString();
+        if (isFeedCategory(typeId: typeId, typeName: title)) continue;
         sections.add(HomeSection(
-          typeId: _asInt(s['type_id']),
-          title: (s['title'] ?? '').toString(),
+          typeId: typeId,
+          title: title,
           items: _listFromItems(s['items'], site),
         ));
       }

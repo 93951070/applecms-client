@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/douban_media.dart';
 import '../core/theme.dart';
@@ -90,7 +91,7 @@ class SynopsisSheet extends StatelessWidget {
               ),
               GestureDetector(
                 onTap: () => Navigator.of(context).maybePop(),
-                child: Icon(Icons.close_rounded,
+                child: Icon(LucideIcons.x,
                     size: 22, color: theme.colorScheme.secondary),
               ),
             ],

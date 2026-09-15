@@ -5,6 +5,7 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:go_router/go_router.dart';
 import 'package:better_player_plus/better_player_plus.dart';
 
@@ -74,7 +75,8 @@ class _FeedEntry {
   });
 }
 
-class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
+class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage>
+    with WidgetsBindingObserver {
   final PageController _pageController = PageController();
   final List<_FeedEntry> _entries = [];
   final Map<int, String?> _urlCache = {};
@@ -104,12 +106,17 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   bool _liked = false;
   bool _hinted = false;
 
+  /// 应用前后台状态：退到后台时视为不可见，立即停播。
+  late AppLifecycleState _lifecycle =
+      WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed;
+
   @override
   void initState() {
     super.initState();
     // 短剧 Feed 是竖屏消费场景，锁定竖屏避免从全屏播放返回时残留横屏，
     // 横屏下竖屏视频会被裁切成横条。
     SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
+    WidgetsBinding.instance.addObserver(this);
     fullscreenRouteDepth.addListener(_onForegroundChanged);
     _detailSub =
         ref.read(cmsServiceProvider).detailUpdates.listen(_onDetailUpdated);
@@ -118,6 +125,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     fullscreenRouteDepth.removeListener(_onForegroundChanged);
     _detailSub?.cancel();
     _pageController.dispose();
@@ -128,9 +136,23 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
   /// 页面是否真的在前台：所在 Tab 被切走、或上面压了全屏页面（详情/搜索等）时
   /// 都算不可见，此时必须立刻停播，否则声音会在后台继续响。
   bool _isForeground(BuildContext context) {
+    if (_lifecycle != AppLifecycleState.resumed) return false;
     if (fullscreenRouteDepth.value > 0) return false;
     final active = MainTabScope.activePathOf(context);
     return active == null || active == shortDramaTabPath;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycle = state;
+    if (state == AppLifecycleState.resumed) {
+      if (mounted) setState(() {});
+      return;
+    }
+    // 退到后台先掐断在飞的嗅探，并让播放页按 isActive=false 立即停播，
+    // 避免应用在后台继续出声。
+    WebSniffService.abortAll(owner: this);
+    if (mounted) setState(() {});
   }
 
   void _onForegroundChanged() {
@@ -556,8 +578,8 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
         color: Colors.black38,
         shape: const CircleBorder(),
         child: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new,
-              color: Colors.white, size: 20),
+          icon: const Icon(LucideIcons.chevronLeft,
+              color: Colors.white, size: 22),
           onPressed: () => Navigator.of(context).maybePop(),
           tooltip: '返回',
         ),
@@ -577,7 +599,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: const [
-            Icon(Icons.keyboard_arrow_up, color: Colors.white70, size: 26),
+            Icon(LucideIcons.chevronUp, color: Colors.white70, size: 26),
             Text('上滑看下一集',
                 style: TextStyle(color: Colors.white70, fontSize: 12)),
           ],
@@ -594,26 +616,26 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
         mainAxisSize: MainAxisSize.min,
         children: [
           _RailButton(
-            icon: _liked ? Icons.favorite : Icons.favorite_border,
+            icon: LucideIcons.heart,
             color: _liked ? AppColors.pink : Colors.white,
             label: '点赞',
             onTap: () => setState(() => _liked = !_liked),
           ),
           const SizedBox(height: 18),
           _RailButton(
-            icon: Icons.mode_comment_outlined,
+            icon: LucideIcons.messageCircle,
             label: '评论',
             onTap: () => setState(() => _commentsOpen = true),
           ),
           const SizedBox(height: 18),
           _RailButton(
-            icon: Icons.video_library_outlined,
+            icon: LucideIcons.listVideo,
             label: '选集',
             onTap: _showEpisodes,
           ),
           const SizedBox(height: 18),
           _RailButton(
-            icon: Icons.share_outlined,
+            icon: LucideIcons.share,
             label: '分享',
             onTap: () {
               if (_entries.isEmpty) return;
@@ -684,7 +706,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.lock, color: Colors.white, size: 11),
+                          Icon(LucideIcons.lock, color: Colors.white, size: 12),
                           SizedBox(width: 3),
                           Text('开通会员观看',
                               style: TextStyle(
@@ -696,7 +718,7 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
                 ],
                 if (desc.isNotEmpty) ...[
                   const SizedBox(width: 8),
-                  const Icon(Icons.info_outline,
+                  const Icon(LucideIcons.info,
                       color: Colors.white70, size: 14),
                   const SizedBox(width: 2),
                   const Text('详情',
@@ -866,8 +888,8 @@ class _ShortDramaFeedPageState extends ConsumerState<ShortDramaFeedPage> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             if (locked) ...[
-                              const Icon(Icons.lock,
-                                  color: Color(0xFFFFC24B), size: 10),
+                              const Icon(LucideIcons.lock,
+                                  color: Color(0xFFFFC24B), size: 11),
                               const SizedBox(width: 2),
                             ],
                             Flexible(
@@ -1318,7 +1340,7 @@ class _DramaVideoPageState extends State<_DramaVideoPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              isLock ? Icons.lock_outline : Icons.error_outline,
+              isLock ? LucideIcons.lock : LucideIcons.circleAlert,
               color: isLock ? const Color(0xFFFFC24B) : Colors.white70,
               size: 34,
             ),

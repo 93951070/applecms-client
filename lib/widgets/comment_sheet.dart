@@ -3,6 +3,7 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/theme.dart';
 import '../models/comment.dart';
@@ -172,7 +173,7 @@ class _CommentSheetState extends ConsumerState<CommentSheet> {
           const Spacer(),
           IconButton(
             onPressed: widget.onClose ?? () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.close, color: Colors.white70),
+            icon: const Icon(LucideIcons.x, color: Colors.white70),
             tooltip: '关闭',
           ),
         ],
@@ -256,7 +257,7 @@ class _CommentSheetState extends ConsumerState<CommentSheet> {
                   )
                 : IconButton(
                     onPressed: _send,
-                    icon: const Icon(Icons.send, color: AppColors.pink),
+                    icon: const Icon(LucideIcons.send, color: AppColors.pink),
                     tooltip: '发送',
                   ),
           ],

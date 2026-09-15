@@ -114,3 +114,54 @@ class FlipPageView extends StatelessWidget {
     );
   }
 }
+
+/// 一级页面（列表 / 首页）进入二级页面（详情 / 播放页）时的 3D 翻页转场。
+///
+/// 参数与 [FlipPageView] 共用 [FlipConfig]，保证进入页面与切换分类的手感一致：
+/// 新页面以靠近中缝的左侧为轴从侧面转入并渐亮。
+class FlipPageRoute<T> extends PageRouteBuilder<T> {
+  FlipPageRoute({required WidgetBuilder builder, super.settings})
+      : super(
+          transitionDuration: FlipConfig.duration,
+          reverseTransitionDuration: FlipConfig.duration,
+          pageBuilder: (context, animation, secondaryAnimation) =>
+              builder(context),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            final curved = CurvedAnimation(
+              parent: animation,
+              curve: FlipConfig.curve,
+              reverseCurve: FlipConfig.curve.flipped,
+            );
+            return AnimatedBuilder(
+              animation: curved,
+              child: child,
+              builder: (context, inner) {
+                final t = curved.value.clamp(0.0, 1.0);
+                final depth = 1 - t;
+                if (depth <= 0.001) return inner!;
+                final transform = Matrix4.identity()
+                  ..setEntry(3, 2, FlipConfig.perspective)
+                  ..rotateY(-depth * FlipConfig.maxAngle);
+                return Transform(
+                  alignment: Alignment.centerLeft,
+                  transform: transform,
+                  child: Stack(
+                    fit: StackFit.passthrough,
+                    children: [
+                      inner!,
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: ColoredBox(
+                            color: Colors.black.withValues(
+                                alpha: FlipConfig.maxDim * depth),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+}
