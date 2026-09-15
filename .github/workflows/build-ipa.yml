@@ -2,9 +2,14 @@ name: 苹果cms客户端-未签名iOS构建
 
 on:
   workflow_dispatch:
+  # 打 tag 即可触发构建（git 推送即可，无需 Actions API 权限）；
+  # 构建产物会作为 Release 资源发布，公开仓库可直接下载。
+  push:
+    tags:
+      - 'ipa-*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-ipa:
@@ -44,3 +49,20 @@ jobs:
         with:
           name: applecms-client-unsigned-ipa
           path: applecms-client-unsigned.ipa
+
+      - name: 发布到 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # tag 触发时用 tag 名，手动触发时落到 ipa-latest，便于用固定链接取包。
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="ipa-latest"
+          fi
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" \
+              --notes "未签名 iOS 构建 ${GITHUB_SHA}"
+          fi
+          gh release upload "$TAG" applecms-client-unsigned.ipa --clobber
+          echo "已发布: https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/applecms-client-unsigned.ipa"
