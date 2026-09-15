@@ -8,7 +8,7 @@ import 'appad_widgets.dart';
 
 /// 手机端主框架：底部 4-Tab 导航（首页 / 排行榜 / 短剧 / 我的）。
 ///
-/// 页面用 [PageView] 托管，支持左右滑动切换；切换过程叠加 3D 抽屉式过渡效果。
+/// 页面用 [PageView] 托管，支持左右滑动切换；切换过程叠加缩放抽屉式过渡效果。
 class MainLayout extends StatefulWidget {
   final Widget child;
   final String currentPath;
@@ -78,8 +78,10 @@ class _MainLayoutState extends State<MainLayout> {
     context.go(_paths[i]);
   }
 
-  /// 3D 抽屉式过渡：当前页像抽出的面板保持正视，相邻页沿朝向当前页的
-  /// 边缘（铰链）向后退让——同时缩小、绕 Y 轴旋转并压暗，形成抽屉层叠纵深。
+  /// 缩放抽屉式过渡：当前页保持正视并停在正中，相邻页整体缩小、向侧向位移，
+  /// 形成“抽出的面板 + 后退的层叠”纵深。
+  ///
+  /// 只做缩放与位移：不旋转、不加透视，页面始终是规整矩形，不会出现斜面或斜切。
   Widget _buildDrawerPage(int index, Widget child) {
     return AnimatedBuilder(
       animation: _controller,
@@ -93,20 +95,14 @@ class _MainLayoutState extends State<MainLayout> {
         }
         final t = delta.clamp(-1.0, 1.0);
         final depth = t.abs();
-        // 铰链落在两页相接的一侧：相邻页绕该边缘向后退让。
-        final hinge = t >= 0 ? Alignment.centerRight : Alignment.centerLeft;
-        // 相邻页朝自己那一侧回抽，当前页停在正中。
+        // 相邻页朝自己那一侧回抽，当前页停下时正好居中。
         final offsetX = t * MediaQuery.sizeOf(context).width * 0.06;
-        final angle = t * 0.35;
-        final scale = 1.0 - depth * 0.12;
-        return Transform(
-          alignment: hinge,
-          transform: Matrix4.identity()
-            ..setEntry(3, 2, 0.0016)
-            ..rotateY(angle)
-            ..scaleByDouble(scale, scale, scale, 1),
-          child: Transform.translate(
-            offset: Offset(offsetX, 0),
+        // 背景页缩到 0.82（区间 0.78~0.86），当前页保持 1.0。
+        final scale = 1.0 - depth * 0.18;
+        return Transform.translate(
+          offset: Offset(offsetX, 0),
+          child: Transform.scale(
+            scale: scale,
             child: _DrawerDepth(
               depth: depth,
               side: t >= 0 ? 1.0 : -1.0,
@@ -140,9 +136,9 @@ class _MainLayoutState extends State<MainLayout> {
   }
 }
 
-/// 抽屉纵深：按 [depth] 压暗页面内容，并在朝向堆叠的一侧投下阴影。
+/// 抽屉纵深：给后退页加圆角与投影，并按 [depth] 压暗内容。
 ///
-/// [depth] 为 0 表示该页正被拉出（当前页），不压暗、不投影。
+/// [depth] 为 0 表示该页正被拉出（当前页），保持规整矩形，不压暗、不投影。
 class _DrawerDepth extends StatelessWidget {
   final double depth;
   final double side;
@@ -157,27 +153,35 @@ class _DrawerDepth extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (depth <= 0.001) return child;
-    return Stack(
-      fit: StackFit.passthrough,
-      children: [
-        child,
-        Positioned.fill(
-          child: IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.22 * depth),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.20 * depth),
-                    blurRadius: 24 * depth,
-                    offset: Offset(side * 8 * depth, 0),
-                  ),
-                ],
+    final radius = BorderRadius.circular(14 * depth);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.24 * depth),
+            blurRadius: 24 * depth,
+            spreadRadius: 2 * depth,
+            offset: Offset(side * 6 * depth, 0),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: radius,
+        child: Stack(
+          fit: StackFit.passthrough,
+          children: [
+            child,
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.18 * depth),
+                ),
               ),
             ),
-          ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }

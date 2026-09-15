@@ -56,9 +56,9 @@ class ZenTheme {
       textTheme: _buildTextTheme(AppColors.lightText, AppColors.lightText2),
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
-          TargetPlatform.iOS: Card3DPageTransitionsBuilder(),
-          TargetPlatform.macOS: Card3DPageTransitionsBuilder(),
-          TargetPlatform.android: Card3DPageTransitionsBuilder(),
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.android: CupertinoPageTransitionsBuilder(),
         },
       ),
       appBarTheme: const AppBarTheme(
@@ -106,9 +106,9 @@ class ZenTheme {
       textTheme: _buildTextTheme(AppColors.darkText, AppColors.darkText2),
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
-          TargetPlatform.iOS: Card3DPageTransitionsBuilder(),
-          TargetPlatform.macOS: Card3DPageTransitionsBuilder(),
-          TargetPlatform.android: Card3DPageTransitionsBuilder(),
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.android: CupertinoPageTransitionsBuilder(),
         },
       ),
       appBarTheme: const AppBarTheme(
@@ -180,62 +180,3 @@ class ZenTheme {
   }
 }
 
-/// 3D 卡片旋转入场：在 Cupertino 横滑基础上叠加绕 Y 轴旋转与轻微缩放。
-///
-/// 继承 [CupertinoPageTransitionsBuilder]，因此 iOS/macOS 的左滑返回手势保持不变。
-class Card3DPageTransitionsBuilder extends CupertinoPageTransitionsBuilder {
-  const Card3DPageTransitionsBuilder();
-
-  @override
-  Widget buildTransitions<T>(
-    PageRoute<T> route,
-    BuildContext context,
-    Animation<double> animation,
-    Animation<double> secondaryAnimation,
-    Widget child,
-  ) {
-    return _Card3DRotation(
-      animation: animation,
-      child: super.buildTransitions(
-        route,
-        context,
-        animation,
-        secondaryAnimation,
-        child,
-      ),
-    );
-  }
-}
-
-class _Card3DRotation extends StatelessWidget {
-  final Animation<double> animation;
-  final Widget child;
-
-  const _Card3DRotation({required this.animation, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: animation,
-      child: child,
-      builder: (context, inner) {
-        // 入场时动画值从 0 到 1，映射为 -1 到 0 的偏移量。
-        final t = (animation.value - 1.0).clamp(-1.0, 0.0);
-        final angle = t * 0.32;
-        final scale = 1.0 + t * 0.06;
-        final dx = -t * MediaQuery.of(context).size.width * 0.05;
-        return Transform.translate(
-          offset: Offset(dx, 0),
-          child: Transform(
-            alignment: Alignment.center,
-            transform: Matrix4.identity()
-              ..setEntry(3, 2, 0.0012)
-              ..rotateY(angle)
-              ..scaleByDouble(scale, scale, scale, 1),
-            child: inner,
-          ),
-        );
-      },
-    );
-  }
-}
