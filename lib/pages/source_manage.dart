@@ -108,7 +108,8 @@ class _SourceManagePageState extends ConsumerState<SourceManagePage> {
                               controller: _apiController,
                               keyboardType: TextInputType.url,
                               decoration: InputDecoration(
-                                hintText: 'http://your-domain.com/api/provide/vod',
+                                hintText:
+                                    '${ConfigService.defaultApiBaseUrl}/api/provide/vod',
                                 filled: true,
                                 fillColor: theme.colorScheme.onSurface.withValues(alpha: 0.05),
                                 border: OutlineInputBorder(
