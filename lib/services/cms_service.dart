@@ -502,6 +502,8 @@ class CmsService {
       desc: (item['vod_blurb'] ?? '').toString().trim(),
       typeName: item['type_name']?.toString(),
       typeId: _asInt(item['type_id']),
+      heat: _asInt(item['heat']),
+      likeCount: _asInt(item['like_count']),
     );
   }
 

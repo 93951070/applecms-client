@@ -14,7 +14,11 @@ class CategoryListPage extends ConsumerStatefulWidget {
   final int typeId;
   final String title;
 
-  const CategoryListPage({super.key, required this.typeId, required this.title});
+  const CategoryListPage({
+    super.key,
+    required this.typeId,
+    required this.title,
+  });
 
   @override
   ConsumerState<CategoryListPage> createState() => _CategoryListPageState();
@@ -87,8 +91,12 @@ class _CategoryListPageState extends ConsumerState<CategoryListPage> {
     final cms = ref.read(cmsServiceProvider);
     final site = await config.getPrimarySite();
     if (site.disabled) return [];
-    return cms.getCategoryList(site, widget.typeId,
-        page: page + 1, pageSize: 24);
+    return cms.getCategoryList(
+      site,
+      widget.typeId,
+      page: page + 1,
+      pageSize: 24,
+    );
   }
 
   void _openDetail(VideoDetail video) {
@@ -115,10 +123,7 @@ class _CategoryListPageState extends ConsumerState<CategoryListPage> {
       body: CustomScrollView(
         controller: _scroll,
         slivers: [
-          ZenSliverAppBar(
-            title: widget.title,
-            subtitle: '来自我的视频库',
-          ),
+          ZenSliverAppBar(title: widget.title, subtitle: '来自我的视频库'),
           if (_loading)
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -150,6 +155,7 @@ class _CategoryListPageState extends ConsumerState<CategoryListPage> {
                       title: _items[i].title,
                       imageUrl: _items[i].poster,
                       year: _items[i].year,
+                      heat: _items[i].heat,
                       width: width / columns,
                       height: width / columns * 1.45,
                     ),
@@ -184,9 +190,7 @@ class _SkeletonCard extends StatelessWidget {
           width: c.maxWidth,
           height: c.maxWidth * 1.45,
           decoration: BoxDecoration(
-            color: Theme.of(context)
-                .colorScheme
-                .onSurface
+            color: Theme.of(context).colorScheme.onSurface
                 .withValues(alpha: 0.06),
             borderRadius: BorderRadius.circular(12),
           ),

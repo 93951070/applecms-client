@@ -56,6 +56,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于搜索同一 Wi-Fi 下的电视、投影仪等投屏设备</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>需要访问相册以选择头像</string>
 	<key>NSCameraUsageDescription</key>

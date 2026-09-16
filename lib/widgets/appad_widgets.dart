@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
+import '../core/format_utils.dart';
 import '../core/theme.dart';
 import 'cover_image.dart';
 
@@ -7,13 +10,11 @@ import 'cover_image.dart';
 bool _isDark(BuildContext context) =>
     Theme.of(context).brightness == Brightness.dark;
 
-Color _text1(BuildContext context) => _isDark(context)
-    ? AppColors.darkText
-    : AppColors.lightText;
+Color _text1(BuildContext context) =>
+    _isDark(context) ? AppColors.darkText : AppColors.lightText;
 
-Color _text2(BuildContext context) => _isDark(context)
-    ? AppColors.darkText2
-    : AppColors.lightText2;
+Color _text2(BuildContext context) =>
+    _isDark(context) ? AppColors.darkText2 : AppColors.lightText2;
 
 /// 底部导航（扁平全宽，3 Tab：首页 / 排行榜 / 我的）
 class AppTabBar extends StatelessWidget {
@@ -77,7 +78,9 @@ class AppTabBar extends StatelessWidget {
                         label,
                         style: TextStyle(
                           fontSize: 10,
-                          fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                          fontWeight: active
+                              ? FontWeight.w600
+                              : FontWeight.w400,
                           color: color,
                         ),
                       ),
@@ -167,6 +170,7 @@ class VideoCard extends StatelessWidget {
     this.episode,
     this.score,
     this.year,
+    this.heat,
     this.onTap,
     this.width = 104,
     this.aspectRatio = 2 / 3,
@@ -177,6 +181,9 @@ class VideoCard extends StatelessWidget {
   final String? episode;
   final String? score;
   final String? year;
+
+  /// 服务端热度值，大于 0 时在海报角标展示。
+  final int? heat;
   final VoidCallback? onTap;
   final double width;
   final double aspectRatio;
@@ -195,6 +202,7 @@ class VideoCard extends StatelessWidget {
               imageUrl: imageUrl,
               title: title,
               year: year,
+              heat: heat,
               width: width,
               height: width / aspectRatio,
             ),
@@ -239,6 +247,7 @@ class PosterCard extends StatelessWidget {
     required this.title,
     this.imageUrl,
     this.year,
+    this.heat,
     this.width = 104,
     this.height = 156,
     this.titleFontSize = 13,
@@ -248,6 +257,9 @@ class PosterCard extends StatelessWidget {
   final String title;
   final String? imageUrl;
   final String? year;
+
+  /// 服务端热度值：播放次数 + 推荐数加权，大于 0 时展示。
+  final int? heat;
   final double width;
   final double height;
   final double titleFontSize;
@@ -275,10 +287,7 @@ class PosterCard extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             if (hasImage)
-              CoverImage(
-                imageUrl: imageUrl!,
-                aspectRatio: width / height,
-              )
+              CoverImage(imageUrl: imageUrl!, aspectRatio: width / height)
             else
               const DecoratedBox(
                 decoration: BoxDecoration(
@@ -307,7 +316,10 @@ class PosterCard extends StatelessWidget {
                 top: 6,
                 left: 6,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 1,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.yearRed,
                     borderRadius: BorderRadius.circular(4),
@@ -322,6 +334,8 @@ class PosterCard extends StatelessWidget {
                   ),
                 ),
               ),
+            if ((heat ?? 0) > 0)
+              Positioned(top: 6, right: 6, child: HeatBadge(heat: heat!)),
             Positioned(
               left: 8,
               right: 8,
@@ -335,10 +349,45 @@ class PosterCard extends StatelessWidget {
                   fontSize: titleFontSize,
                   fontWeight: FontWeight.w700,
                   height: 1.2,
-                  shadows: const [
-                    Shadow(color: Colors.black54, blurRadius: 6),
-                  ],
+                  shadows: const [Shadow(color: Colors.black54, blurRadius: 6)],
                 ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 热度角标：空心火花 + 折算后的数值，铺在海报右上角。
+class HeatBadge extends StatelessWidget {
+  const HeatBadge({super.key, required this.heat});
+
+  /// 服务端热度值（播放次数 + 推荐数加权）。
+  final int heat;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(LucideIcons.sparkles, size: 9, color: Color(0xFFFFC53D)),
+            const SizedBox(width: 3),
+            Text(
+              formatCount(heat),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
@@ -430,12 +479,7 @@ class SectionHead extends StatelessWidget {
 
 /// 继续观看/提示胶囊（粉色渐变）
 class ContinueBar extends StatelessWidget {
-  const ContinueBar({
-    super.key,
-    required this.text,
-    this.onTap,
-    this.onClose,
-  });
+  const ContinueBar({super.key, required this.text, this.onTap, this.onClose});
 
   final String text;
   final VoidCallback? onTap;
@@ -475,8 +519,11 @@ class ContinueBar extends StatelessWidget {
                     color: Colors.white.withValues(alpha: 0.25),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.play_arrow,
-                      size: 14, color: Colors.white),
+                  child: const Icon(
+                    Icons.play_arrow,
+                    size: 14,
+                    color: Colors.white,
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -494,8 +541,11 @@ class ContinueBar extends StatelessWidget {
                 if (onClose != null)
                   GestureDetector(
                     onTap: onClose,
-                    child: const Icon(Icons.close,
-                        size: 15, color: Colors.white),
+                    child: const Icon(
+                      Icons.close,
+                      size: 15,
+                      color: Colors.white,
+                    ),
                   ),
               ],
             ),

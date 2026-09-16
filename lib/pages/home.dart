@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
 import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../providers/history_provider.dart';
@@ -17,8 +18,10 @@ import '../widgets/cover_image.dart';
 import '../widgets/page_flip.dart';
 
 /// 按分类拉取 CMS 列表（1电影 / 2电视剧 / 3动漫 / 4综艺）
-final cmsCategoryProvider =
-    FutureProvider.family<List<VideoDetail>, int>((ref, typeId) async {
+final cmsCategoryProvider = FutureProvider.family<List<VideoDetail>, int>((
+  ref,
+  typeId,
+) async {
   final config = ref.read(configServiceProvider);
   final cms = ref.read(cmsServiceProvider);
   final sub = cms.listUpdates.listen((key) {
@@ -31,8 +34,9 @@ final cmsCategoryProvider =
 });
 
 /// 站点真实分类树（主分类 + 子分类）
-final categoryTreeProvider =
-    FutureProvider<List<CmsCategoryGroup>>((ref) async {
+final categoryTreeProvider = FutureProvider<List<CmsCategoryGroup>>((
+  ref,
+) async {
   final config = ref.read(configServiceProvider);
   final cms = ref.read(cmsServiceProvider);
   final sub = cms.listUpdates.listen((key) {
@@ -52,10 +56,12 @@ final homeFeedProvider = FutureProvider<HomeFeed?>((ref) async {
   if (site.disabled) return null;
   final tree = await ref.watch(categoryTreeProvider.future);
   final groups = tree
-      .where((g) => !isFeedCategory(
-            typeId: g.category.typeId,
-            typeName: g.category.typeName,
-          ))
+      .where(
+        (g) => !isFeedCategory(
+          typeId: g.category.typeId,
+          typeName: g.category.typeName,
+        ),
+      )
       .toList();
   final ids = groups.map((g) => g.category.typeId).toList();
   if (ids.isEmpty) return null;
@@ -172,8 +178,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       final velocity = n.dragDetails?.velocity.pixelsPerSecond.dx ?? 0;
       if (drag <= -_catSwipeThreshold || (drag < 0 && velocity <= -400)) {
         _selectCategory(_mainIndex + 1);
-      } else if (drag >= _catSwipeThreshold ||
-          (drag > 0 && velocity >= 400)) {
+      } else if (drag >= _catSwipeThreshold || (drag > 0 && velocity >= 400)) {
         _selectCategory(_mainIndex - 1);
       }
       return false;
@@ -260,10 +265,12 @@ class _HomePageState extends ConsumerState<HomePage> {
         ? treeAsync.value!
         : _fallbackGroups;
     final groups = allGroups
-        .where((g) => !isFeedCategory(
-              typeId: g.category.typeId,
-              typeName: g.category.typeName,
-            ))
+        .where(
+          (g) => !isFeedCategory(
+            typeId: g.category.typeId,
+            typeName: g.category.typeName,
+          ),
+        )
         .toList();
 
     final mainIndex = _mainIndex > groups.length ? 0 : _mainIndex;
@@ -276,10 +283,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       });
     }
 
-    final mainTabs = <String>[
-      '推荐',
-      ...groups.map((g) => g.category.typeName),
-    ];
+    final mainTabs = <String>['推荐', ...groups.map((g) => g.category.typeName)];
     _catPageCount = mainTabs.length;
 
     return ZenScaffold(
@@ -298,9 +302,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                     current: mainIndex,
                     onChanged: (i) => _selectCategory(i),
                   ),
-                  Expanded(
-                    child: _buildCategoryPages(groups),
-                  ),
+                  Expanded(child: _buildCategoryPages(groups)),
                 ],
               ),
               if (_continueVisible && historyList.isNotEmpty)
@@ -322,7 +324,6 @@ class _HomePageState extends ConsumerState<HomePage> {
     context.push('/category?id=$typeId&title=${Uri.encodeComponent(title)}');
   }
 
-
   Widget _buildTopBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -333,10 +334,9 @@ class _HomePageState extends ConsumerState<HomePage> {
             child: Consumer(
               builder: (context, ref, _) {
                 final user = ref.watch(authProvider).user;
-                final baseUrl = ref.watch(apiBaseUrlProvider).maybeWhen(
-                      data: (v) => v,
-                      orElse: () => '',
-                    );
+                final baseUrl = ref
+                    .watch(apiBaseUrlProvider)
+                    .maybeWhen(data: (v) => v, orElse: () => '');
                 final portrait = absoluteMediaUrl(baseUrl, user?.portrait);
                 return Container(
                   width: 34,
@@ -356,8 +356,11 @@ class _HomePageState extends ConsumerState<HomePage> {
                           width: 34,
                           height: 34,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => const Icon(Icons.pets,
-                              size: 17, color: Colors.white),
+                          errorBuilder: (_, __, ___) => const Icon(
+                            Icons.pets,
+                            size: 17,
+                            color: Colors.white,
+                          ),
                         )
                       : const Icon(Icons.pets, size: 17, color: Colors.white),
                 );
@@ -371,18 +374,18 @@ class _HomePageState extends ConsumerState<HomePage> {
               child: Container(
                 height: 36,
                 decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
+                  color: Theme.of(context).colorScheme.onSurface
                       .withValues(alpha: 0.06),
                   borderRadius: BorderRadius.circular(18),
                 ),
                 child: Row(
                   children: [
                     const SizedBox(width: 14),
-                    Icon(Icons.search,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.secondary),
+                    Icon(
+                      Icons.search,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.secondary,
+                    ),
                     const SizedBox(width: 8),
                     Text(
                       '搜索影视资源',
@@ -399,9 +402,11 @@ class _HomePageState extends ConsumerState<HomePage> {
           const SizedBox(width: 12),
           GestureDetector(
             onTap: () => context.push('/history'),
-            child: Icon(Icons.history,
-                size: 21,
-                color: Theme.of(context).colorScheme.onSurface),
+            child: Icon(
+              Icons.history,
+              size: 21,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
           ),
         ],
       ),
@@ -480,7 +485,9 @@ class _HomePageState extends ConsumerState<HomePage> {
           if (i == 1) return _categorySection('精品推荐', first.category.typeId);
           final g = groups[i - 2];
           return _categorySection(
-              '${g.category.typeName}推荐', g.category.typeId);
+            '${g.category.typeName}推荐',
+            g.category.typeId,
+          );
         }
         final g = groups[i];
         return _categorySection('${g.category.typeName}推荐', g.category.typeId);
@@ -507,13 +514,15 @@ class _HomePageState extends ConsumerState<HomePage> {
     final jingpin = picks.take(18).toList();
 
     final sections = feed.sections
-        .map((s) => HomeSection(
-              typeId: s.typeId,
-              title: s.title,
-              items: s.items
-                  .where((v) => !pickIds.contains('${v.source}:${v.id}'))
-                  .toList(),
-            ))
+        .map(
+          (s) => HomeSection(
+            typeId: s.typeId,
+            title: s.title,
+            items: s.items
+                .where((v) => !pickIds.contains('${v.source}:${v.id}'))
+                .toList(),
+          ),
+        )
         .where((s) => s.items.isNotEmpty)
         .toList();
 
@@ -529,15 +538,16 @@ class _HomePageState extends ConsumerState<HomePage> {
             title: '精品推荐',
             icon: Icons.local_fire_department,
             videos: jingpin,
-            onMore: () =>
-                _pushCategory(feed.sections.first.typeId, '精品推荐'),
+            onMore: () => _pushCategory(feed.sections.first.typeId, '精品推荐'),
           ),
-        ...sections.map((s) => _buildSection(
-              title: '${s.title}推荐',
-              icon: Icons.local_fire_department,
-              videos: s.items,
-              onMore: () => _pushCategory(s.typeId, '${s.title}推荐'),
-            )),
+        ...sections.map(
+          (s) => _buildSection(
+            title: '${s.title}推荐',
+            icon: Icons.local_fire_department,
+            videos: s.items,
+            onMore: () => _pushCategory(s.typeId, '${s.title}推荐'),
+          ),
+        ),
       ],
     );
   }
@@ -611,7 +621,8 @@ class _HomePageState extends ConsumerState<HomePage> {
     final page = _heroPage.clamp(0, items.length - 1).toInt();
     final item = items[page];
     final slide = (item.heroImage ?? '').trim();
-    final heroImage = _heroSlides[item.id] ??
+    final heroImage =
+        _heroSlides[item.id] ??
         (slide.startsWith('http') ? slide : null) ??
         item.poster;
     final year = (item.year ?? '').trim().isNotEmpty
@@ -689,7 +700,9 @@ class _HomePageState extends ConsumerState<HomePage> {
                           color: Colors.white,
                           fontSize: 19,
                           fontWeight: FontWeight.w800,
-                          shadows: [Shadow(blurRadius: 10, color: Colors.black54)],
+                          shadows: [
+                            Shadow(blurRadius: 10, color: Colors.black54),
+                          ],
                         ),
                       ),
                       if (meta.isNotEmpty) ...[
@@ -779,6 +792,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                   imageUrl: videos[i].poster,
                   year: videos[i].year,
                   episode: videos[i].typeName,
+                  heat: videos[i].heat,
                   onTap: () => _openDetail(videos[i]),
                 ),
                 if (i != videos.length - 1) const SizedBox(width: 10),
@@ -804,14 +818,17 @@ class _HomePageState extends ConsumerState<HomePage> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.only(top: 120),
         children: [
-          Icon(Icons.cloud_off,
-              size: 44,
-              color: Theme.of(context).colorScheme.secondary),
+          Icon(
+            Icons.cloud_off,
+            size: 44,
+            color: Theme.of(context).colorScheme.secondary,
+          ),
           const SizedBox(height: 12),
           Center(
-            child: Text('加载失败，下拉重试',
-                style: TextStyle(
-                    color: Theme.of(context).colorScheme.secondary)),
+            child: Text(
+              '加载失败，下拉重试',
+              style: TextStyle(color: Theme.of(context).colorScheme.secondary),
+            ),
           ),
         ],
       ),
@@ -821,14 +838,19 @@ class _HomePageState extends ConsumerState<HomePage> {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.only(top: 120),
             children: [
-              Icon(Icons.inbox_outlined,
-                  size: 44,
-                  color: Theme.of(context).colorScheme.secondary),
+              Icon(
+                Icons.inbox_outlined,
+                size: 44,
+                color: Theme.of(context).colorScheme.secondary,
+              ),
               const SizedBox(height: 12),
               Center(
-                child: Text('暂无内容',
-                    style: TextStyle(
-                        color: Theme.of(context).colorScheme.secondary)),
+                child: Text(
+                  '暂无内容',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.secondary,
+                  ),
+                ),
               ),
             ],
           );
@@ -840,10 +862,8 @@ class _HomePageState extends ConsumerState<HomePage> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           gridDelegate: _gridDelegate(context),
           itemCount: list.length,
-          itemBuilder: (context, i) => _GridCard(
-            video: list[i],
-            onTap: () => _openDetail(list[i]),
-          ),
+          itemBuilder: (context, i) =>
+              _GridCard(video: list[i], onTap: () => _openDetail(list[i])),
         );
       },
     );
@@ -871,8 +891,8 @@ class _HomePageState extends ConsumerState<HomePage> {
             width: 120,
             height: 18,
             decoration: BoxDecoration(
-              color:
-                  Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06),
+              color: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(4),
             ),
           ),
@@ -887,9 +907,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                 height: 156,
                 margin: const EdgeInsets.only(right: 10),
                 decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
+                  color: Theme.of(context).colorScheme.onSurface
                       .withValues(alpha: 0.06),
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -942,8 +960,8 @@ class _GridSkeleton extends StatelessWidget {
           width: w,
           height: w * 1.45,
           decoration: BoxDecoration(
-            color:
-                Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06),
+            color: Theme.of(context).colorScheme.onSurface
+                .withValues(alpha: 0.06),
             borderRadius: BorderRadius.circular(12),
           ),
         );

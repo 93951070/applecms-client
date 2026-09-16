@@ -1,7 +1,10 @@
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+
+import '../core/format_utils.dart';
 import '../core/theme.dart';
 import '../models/movie.dart';
 import 'cover_image.dart';
@@ -45,7 +48,9 @@ class ZenAuroraBackground extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final baseTop = isDark ? const Color(0xFF140F13) : const Color(0xFFFDF7FA);
-    final baseBottom = isDark ? const Color(0xFF0B080A) : const Color(0xFFF3F5FA);
+    final baseBottom = isDark
+        ? const Color(0xFF0B080A)
+        : const Color(0xFFF3F5FA);
     final blobAlpha = isDark ? 0.22 : 0.32;
 
     return Stack(
@@ -105,10 +110,7 @@ class _AuroraBlob extends StatelessWidget {
         child: Container(
           width: size,
           height: size,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
       ),
     );
@@ -143,18 +145,21 @@ class ZenSwitch extends StatelessWidget {
         child: Switch(
           value: value,
           onChanged: onChanged,
-        activeThumbColor: theme.colorScheme.onPrimary,
-        activeTrackColor: activeTrackColor ?? theme.colorScheme.primary,
-        inactiveThumbColor: isDark ? Colors.white38 : Colors.white,
-        inactiveTrackColor: isDark ? Colors.white12 : Colors.black12,
-        trackOutlineColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) return Colors.transparent;
-          return isDark ? Colors.white24 : Colors.black.withValues(alpha: 0.1);
-        }),
+          activeThumbColor: theme.colorScheme.onPrimary,
+          activeTrackColor: activeTrackColor ?? theme.colorScheme.primary,
+          inactiveThumbColor: isDark ? Colors.white38 : Colors.white,
+          inactiveTrackColor: isDark ? Colors.white12 : Colors.black12,
+          trackOutlineColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected))
+              return Colors.transparent;
+            return isDark
+                ? Colors.white24
+                : Colors.black.withValues(alpha: 0.1);
+          }),
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 }
 
 class ZenButton extends StatefulWidget {
@@ -191,14 +196,19 @@ class _ZenButtonState extends State<ZenButton> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    
+
     Color bgColor;
     Color fgColor;
 
     if (widget.isSecondary) {
-      bgColor = widget.backgroundColor ?? (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05));
+      bgColor =
+          widget.backgroundColor ??
+          (isDark
+              ? Colors.white.withValues(alpha: 0.05)
+              : Colors.black.withValues(alpha: 0.05));
       fgColor = widget.foregroundColor ?? theme.colorScheme.onSurface;
-      if (_isHovered) bgColor = bgColor.withValues(alpha: bgColor.opacity + 0.05);
+      if (_isHovered)
+        bgColor = bgColor.withValues(alpha: bgColor.opacity + 0.05);
     } else {
       bgColor = widget.backgroundColor ?? theme.colorScheme.primary;
       fgColor = widget.foregroundColor ?? Colors.white;
@@ -225,13 +235,15 @@ class _ZenButtonState extends State<ZenButton> {
             decoration: BoxDecoration(
               color: bgColor,
               borderRadius: BorderRadius.circular(widget.borderRadius),
-              boxShadow: !widget.isSecondary && _isHovered ? [
-                BoxShadow(
-                  color: bgColor.withValues(alpha: 0.3),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ] : null,
+              boxShadow: !widget.isSecondary && _isHovered
+                  ? [
+                      BoxShadow(
+                        color: bgColor.withValues(alpha: 0.3),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ]
+                  : null,
             ),
             child: DefaultTextStyle(
               style: TextStyle(
@@ -268,11 +280,12 @@ class ZenGlassContainer extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final baseColor = backgroundColor ??
-        (isDark ? theme.colorScheme.surface : Colors.white);
+    final baseColor =
+        backgroundColor ?? (isDark ? theme.colorScheme.surface : Colors.white);
     // 浅色态用较高不透明度形成“磨砂白玻璃”，深色态保持原有低透明度
-    final effectiveOpacity =
-        isDark ? opacity : (opacity <= 0.15 ? 0.62 : opacity);
+    final effectiveOpacity = isDark
+        ? opacity
+        : (opacity <= 0.15 ? 0.62 : opacity);
     final borderColor = isDark
         ? theme.dividerColor
         : Colors.white.withValues(alpha: 0.65);
@@ -315,7 +328,7 @@ class ZenSliverAppBar extends StatelessWidget {
     final horizontalPadding = isPC ? 48.0 : 24.0;
     final canPop = Navigator.canPop(context);
     final topPadding = MediaQuery.of(context).padding.top;
-    
+
     // 采用更紧凑的固定高度，匹配“收缩后”的视觉感
     final headerHeight = expandedHeight ?? (isPC ? 72.0 : 64.0);
 
@@ -372,7 +385,9 @@ class ZenSliverAppBar extends StatelessWidget {
                         fontSize: 10,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 1.2,
-                        color: theme.colorScheme.secondary.withValues(alpha: 0.6),
+                        color: theme.colorScheme.secondary.withValues(
+                          alpha: 0.6,
+                        ),
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -431,13 +446,15 @@ class HighlightedTitle extends StatelessWidget {
       if (idx > start) {
         spans.add(TextSpan(text: text.substring(start, idx)));
       }
-      spans.add(TextSpan(
-        text: text.substring(idx, idx + q.length),
-        style: style.copyWith(
-          color: AppColors.pink,
-          fontWeight: FontWeight.w800,
+      spans.add(
+        TextSpan(
+          text: text.substring(idx, idx + q.length),
+          style: style.copyWith(
+            color: AppColors.pink,
+            fontWeight: FontWeight.w800,
+          ),
         ),
-      ));
+      );
       start = idx + q.length;
     }
     return Text.rich(
@@ -456,12 +473,16 @@ class MovieCard extends ConsumerWidget {
   /// 命中的搜索关键词：非空时在标题中高亮显示。
   final String? highlight;
 
+  /// 服务端热度值，大于 0 时在评分后展示。
+  final int? heat;
+
   const MovieCard({
     super.key,
     required this.movie,
     required this.onTap,
     this.badge,
     this.highlight,
+    this.heat,
   });
 
   @override
@@ -471,59 +492,88 @@ class MovieCard extends ConsumerWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Stack(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: CoverImage(imageUrl: movie.cover),
-              ),
-              if (badge != null)
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.4),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          badge!,
-                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: CoverImage(imageUrl: movie.cover),
+                ),
+                if (badge != null)
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.4),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            badge!,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            HighlightedTitle(
+              text: movie.title,
+              query: highlight ?? '',
+              maxLines: 1,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+            Row(
+              children: [
+                Text(
+                  '⭐ ${movie.rate}',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.secondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          HighlightedTitle(
-            text: movie.title,
-            query: highlight ?? '',
-            maxLines: 1,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 13,
-              color: Theme.of(context).colorScheme.primary,
+                if ((heat ?? 0) > 0) ...[
+                  const SizedBox(width: 6),
+                  Icon(
+                    LucideIcons.sparkles,
+                    size: 11,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 2),
+                  Text(
+                    formatCount(heat!),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ),
-          Text(
-            '⭐ ${movie.rate}',
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.secondary,
-              fontSize: 11,
-              fontWeight: FontWeight.bold
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ));
+    );
   }
 }

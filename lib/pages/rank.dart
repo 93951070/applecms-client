@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../core/theme.dart';
 import '../core/video_router.dart';
 import '../models/site.dart';
@@ -11,19 +12,15 @@ import '../widgets/page_flip.dart';
 import 'home.dart';
 
 /// 排行榜数据：按每日热度（vod_hits_day）由服务端真实排序。
-final _rankProvider =
-    FutureProvider.family<List<VideoDetail>, int>((ref, typeId) async {
+final _rankProvider = FutureProvider.family<List<VideoDetail>, int>((
+  ref,
+  typeId,
+) async {
   final config = ref.read(configServiceProvider);
   final cms = ref.read(cmsServiceProvider);
   final site = await config.getPrimarySite();
   if (site.disabled) return [];
-  return cms.getCategoryList(
-    site,
-    typeId,
-    page: 1,
-    pageSize: 50,
-    sort: 'day',
-  );
+  return cms.getCategoryList(site, typeId, page: 1, pageSize: 50, sort: 'day');
 });
 
 /// 排行榜：分类 Tab + Top 榜单列表（数据来自 CMS）
@@ -130,7 +127,9 @@ class _RankList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return ref.watch(_rankProvider(typeId)).when(
+    return ref
+        .watch(_rankProvider(typeId))
+        .when(
           data: (list) => list.isEmpty
               ? const _RankEmpty()
               : RefreshIndicator(
@@ -165,8 +164,11 @@ class _RankEmpty extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.inbox_outlined,
-              size: 44, color: Theme.of(context).colorScheme.secondary),
+          Icon(
+            Icons.inbox_outlined,
+            size: 44,
+            color: Theme.of(context).colorScheme.secondary,
+          ),
           const SizedBox(height: 12),
           Text(
             '暂无数据，请检查视频源配置',
@@ -182,11 +184,7 @@ class _RankEmpty extends StatelessWidget {
 }
 
 class _RankItem extends StatelessWidget {
-  const _RankItem({
-    required this.no,
-    required this.video,
-    required this.onTap,
-  });
+  const _RankItem({required this.no, required this.video, required this.onTap});
 
   final int no;
   final VideoDetail video;
@@ -228,6 +226,7 @@ class _RankItem extends StatelessWidget {
             PosterCard(
               imageUrl: video.poster,
               title: video.title,
+              heat: video.heat,
               width: 76,
               height: 104,
               titleFontSize: 11,

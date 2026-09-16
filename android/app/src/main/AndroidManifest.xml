@@ -2,6 +2,9 @@
     <!-- 网络权限 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 投屏：SSDP 搜索局域网 DLNA 设备需要接收组播 -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- 应用内下载 APK 后调起系统安装器（侧载分发，非应用商店渠道） -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 

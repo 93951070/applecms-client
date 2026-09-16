@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../services/cms_service.dart';
 import '../services/config_service.dart';
 import '../core/theme.dart';
@@ -20,10 +21,10 @@ class SearchPage extends ConsumerStatefulWidget {
 class _SearchPageState extends ConsumerState<SearchPage> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
-  
+
   List<VideoDetail> _results = [];
   List<String> _history = [];
-  
+
   bool _isLoading = false;
   bool _isSearching = false;
   bool _noSitesConfigured = false;
@@ -97,10 +98,10 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   void _handleSearch([String? query]) async {
     final searchText = query ?? _controller.text.trim();
     if (searchText.isEmpty) return;
-    
+
     if (query != null) _controller.text = query;
     _focusNode.unfocus();
-    
+
     setState(() {
       _isLoading = true;
       _isSearching = true;
@@ -128,8 +129,12 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       return;
     }
 
-    final result =
-        await cmsService.searchPaged(site, searchText, page: 1, pageSize: _pageSize);
+    final result = await cmsService.searchPaged(
+      site,
+      searchText,
+      page: 1,
+      pageSize: _pageSize,
+    );
     if (!mounted) return;
 
     setState(() {
@@ -157,15 +162,20 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     final configService = ref.read(configServiceProvider);
     final site = await configService.getPrimarySite();
     final nextPage = _page + 1;
-    final result =
-        await cmsService.searchPaged(site, _query, page: nextPage, pageSize: _pageSize);
+    final result = await cmsService.searchPaged(
+      site,
+      _query,
+      page: nextPage,
+      pageSize: _pageSize,
+    );
     if (!mounted) {
       _loadingMore = false;
       return;
     }
     final existing = _results.map((e) => '${e.source}:${e.id}').toSet();
-    final appended =
-        result.items.where((e) => existing.add('${e.source}:${e.id}')).toList();
+    final appended = result.items
+        .where((e) => existing.add('${e.source}:${e.id}'))
+        .toList();
     setState(() {
       _results = [..._results, ...appended];
       _page = nextPage;
@@ -178,16 +188,15 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   /// 仅用于把精确命中与新年份排前，不再过滤结果（避免漏掉别名/译名）。
   List<VideoDetail> _sortResults(List<VideoDetail> results, String query) {
     final q = query.replaceAll(' ', '').toLowerCase();
-    return List<VideoDetail>.from(results)
-      ..sort((a, b) {
-        final aExact = a.title.replaceAll(' ', '').toLowerCase() == q;
-        final bExact = b.title.replaceAll(' ', '').toLowerCase() == q;
-        if (aExact && !bExact) return -1;
-        if (!aExact && bExact) return 1;
-        final aY = int.tryParse(a.year ?? '0') ?? 0;
-        final bY = int.tryParse(b.year ?? '0') ?? 0;
-        return bY.compareTo(aY);
-      });
+    return List<VideoDetail>.from(results)..sort((a, b) {
+      final aExact = a.title.replaceAll(' ', '').toLowerCase() == q;
+      final bExact = b.title.replaceAll(' ', '').toLowerCase() == q;
+      if (aExact && !bExact) return -1;
+      if (!aExact && bExact) return 1;
+      final aY = int.tryParse(a.year ?? '0') ?? 0;
+      final bY = int.tryParse(b.year ?? '0') ?? 0;
+      return bY.compareTo(aY);
+    });
   }
 
   @override
@@ -197,20 +206,25 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     final isPC = screenWidth > 800;
     final horizontalPadding = isPC ? 48.0 : 24.0;
 
-    final availableWidth = screenWidth - (isPC ? 240 : 0) - (horizontalPadding * 2);
-    final crossAxisCount = availableWidth > 800 ? 5 : (availableWidth > 600 ? 4 : (availableWidth > 400 ? 3 : 2));
+    final availableWidth =
+        screenWidth - (isPC ? 240 : 0) - (horizontalPadding * 2);
+    final crossAxisCount = availableWidth > 800
+        ? 5
+        : (availableWidth > 600 ? 4 : (availableWidth > 400 ? 3 : 2));
 
     return ZenScaffold(
       body: CustomScrollView(
         controller: _scrollController,
         slivers: [
-          const ZenSliverAppBar(
-            title: '搜索',
-            subtitle: '探索海量影视资源',
-          ),
+          const ZenSliverAppBar(title: '搜索', subtitle: '探索海量影视资源'),
           SliverToBoxAdapter(
             child: Padding(
-              padding: EdgeInsets.fromLTRB(horizontalPadding, 4, horizontalPadding, 0),
+              padding: EdgeInsets.fromLTRB(
+                horizontalPadding,
+                4,
+                horizontalPadding,
+                0,
+              ),
               child: _buildSearchBar(theme),
             ),
           ),
@@ -218,7 +232,12 @@ class _SearchPageState extends ConsumerState<SearchPage> {
           if (_isSearching && _results.isNotEmpty)
             SliverToBoxAdapter(
               child: Padding(
-                padding: EdgeInsets.fromLTRB(horizontalPadding, 12, horizontalPadding, 8),
+                padding: EdgeInsets.fromLTRB(
+                  horizontalPadding,
+                  12,
+                  horizontalPadding,
+                  8,
+                ),
                 child: Text(
                   '共找到 ${_total > 0 ? _total : _results.length} 个资源',
                   style: TextStyle(
@@ -233,7 +252,10 @@ class _SearchPageState extends ConsumerState<SearchPage> {
           if (!_isSearching)
             SliverToBoxAdapter(
               child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 16),
+                padding: EdgeInsets.symmetric(
+                  horizontal: horizontalPadding,
+                  vertical: 16,
+                ),
                 child: _buildHistorySection(theme),
               ),
             )
@@ -262,7 +284,11 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     );
   }
 
-  Widget _buildResultsGrid(List<VideoDetail> results, double padding, int crossAxisCount) {
+  Widget _buildResultsGrid(
+    List<VideoDetail> results,
+    double padding,
+    int crossAxisCount,
+  ) {
     return SliverPadding(
       padding: EdgeInsets.symmetric(horizontal: padding, vertical: 16),
       sliver: SliverGrid(
@@ -285,8 +311,9 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     return Container(
       height: 48,
       decoration: BoxDecoration(
-        color: (isDark ? theme.colorScheme.surface : Colors.white)
-            .withValues(alpha: isDark ? 0.6 : 0.72),
+        color: (isDark ? theme.colorScheme.surface : Colors.white).withValues(
+          alpha: isDark ? 0.6 : 0.72,
+        ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isDark
@@ -305,17 +332,27 @@ class _SearchPageState extends ConsumerState<SearchPage> {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           const SizedBox(width: 14),
-          Icon(LucideIcons.search, size: 18, color: AppColors.pink.withValues(alpha: 0.85)),
+          Icon(
+            LucideIcons.search,
+            size: 18,
+            color: AppColors.pink.withValues(alpha: 0.85),
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: TextField(
               controller: _controller,
               focusNode: _focusNode,
               onSubmitted: (val) => _handleSearch(),
-              style: const TextStyle(fontSize: 15, decoration: TextDecoration.none),
+              style: const TextStyle(
+                fontSize: 15,
+                decoration: TextDecoration.none,
+              ),
               decoration: InputDecoration(
                 hintText: '搜索电影、剧集、综艺...',
-                hintStyle: TextStyle(color: theme.colorScheme.secondary.withValues(alpha: 0.5), fontSize: 14),
+                hintStyle: TextStyle(
+                  color: theme.colorScheme.secondary.withValues(alpha: 0.5),
+                  fontSize: 14,
+                ),
                 border: InputBorder.none,
                 isDense: true,
                 contentPadding: EdgeInsets.zero,
@@ -332,7 +369,11 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                 },
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Icon(LucideIcons.xCircle, size: 16, color: theme.colorScheme.secondary.withValues(alpha: 0.6)),
+                  child: Icon(
+                    LucideIcons.xCircle,
+                    size: 16,
+                    color: theme.colorScheme.secondary.withValues(alpha: 0.6),
+                  ),
                 ),
               ),
             )
@@ -351,12 +392,21 @@ class _SearchPageState extends ConsumerState<SearchPage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text('最近搜索', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+            const Text(
+              '最近搜索',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+            ),
             MouseRegion(
               cursor: SystemMouseCursors.click,
               child: TextButton(
                 onPressed: _clearHistory,
-                child: Text('清空', style: TextStyle(color: theme.colorScheme.secondary, fontSize: 12)),
+                child: Text(
+                  '清空',
+                  style: TextStyle(
+                    color: theme.colorScheme.secondary,
+                    fontSize: 12,
+                  ),
+                ),
               ),
             ),
           ],
@@ -392,7 +442,11 @@ class _SearchPageState extends ConsumerState<SearchPage> {
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
               onTap: () => _deleteHistory(text),
-              child: Icon(LucideIcons.x, size: 12, color: theme.colorScheme.secondary.withValues(alpha: 0.5)),
+              child: Icon(
+                LucideIcons.x,
+                size: 12,
+                color: theme.colorScheme.secondary.withValues(alpha: 0.5),
+              ),
             ),
           ),
         ],
@@ -410,7 +464,10 @@ class _SearchPageState extends ConsumerState<SearchPage> {
           crossAxisSpacing: 16,
           childAspectRatio: 0.53,
         ),
-        delegate: SliverChildBuilderDelegate((c, i) => _buildSkeletonCard(Theme.of(c)), childCount: 10),
+        delegate: SliverChildBuilderDelegate(
+          (c, i) => _buildSkeletonCard(Theme.of(c)),
+          childCount: 10,
+        ),
       ),
     );
   }
@@ -418,8 +475,15 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   Widget _buildMovieCard(VideoDetail item, {String? badge}) {
     // 必须携带 CMS 条目 ID，详情页据此拉取播放源；短剧则进入竖屏 Feed。
     return MovieCard(
-      movie: DoubanSubject(id: item.id, title: item.title, rate: '0.0', cover: item.poster, year: item.year),
+      movie: DoubanSubject(
+        id: item.id,
+        title: item.title,
+        rate: '0.0',
+        cover: item.poster,
+        year: item.year,
+      ),
       badge: badge,
+      heat: item.heat,
       highlight: _query,
       onTap: () => VideoRouter.open(context, item),
     );
@@ -432,14 +496,16 @@ class _SearchPageState extends ConsumerState<SearchPage> {
         child: Column(
           children: [
             Icon(
-              _noSitesConfigured ? LucideIcons.alertCircle : LucideIcons.searchX, 
-              size: 48, 
-              color: theme.colorScheme.secondary.withValues(alpha: 0.3)
+              _noSitesConfigured
+                  ? LucideIcons.alertCircle
+                  : LucideIcons.searchX,
+              size: 48,
+              color: theme.colorScheme.secondary.withValues(alpha: 0.3),
             ),
             const SizedBox(height: 16),
             Text(
-              _noSitesConfigured ? '未配置有效视频源' : '未搜到匹配资源', 
-              style: TextStyle(color: theme.colorScheme.secondary)
+              _noSitesConfigured ? '未配置有效视频源' : '未搜到匹配资源',
+              style: TextStyle(color: theme.colorScheme.secondary),
             ),
           ],
         ),
@@ -458,15 +524,28 @@ class _SearchPageState extends ConsumerState<SearchPage> {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
-                theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.3,
+                ),
+                theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.6,
+                ),
+                theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.3,
+                ),
               ],
-              stops: [(value - 1).clamp(0.0, 1.0), value.clamp(0.0, 1.0), (value + 1).clamp(0.0, 1.0)],
+              stops: [
+                (value - 1).clamp(0.0, 1.0),
+                value.clamp(0.0, 1.0),
+                (value + 1).clamp(0.0, 1.0),
+              ],
             ).createShader(bounds);
           },
           child: Container(
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
         );
       },

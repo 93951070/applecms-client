@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:airplay_route_picker/airplay_route_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/movie.dart';
@@ -19,11 +18,12 @@ import '../services/config_service.dart';
 import '../providers/history_provider.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/likes_provider.dart';
+import '../providers/cast_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/download_service.dart';
 import '../core/theme.dart';
 import '../core/navigation.dart';
-import '../core/share_utils.dart';
+import '../core/format_utils.dart';
 import '../core/video_router.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/zen_ui.dart';
@@ -32,6 +32,7 @@ import '../widgets/video_player.dart';
 import '../widgets/bili_loading.dart';
 import '../widgets/synopsis_sheet.dart';
 import '../widgets/watch_party_sheet.dart';
+import '../widgets/cast_sheet.dart';
 import '../services/web_sniff_service.dart';
 
 /// 播放页「同类推荐」数据源：按当前视频所属分类拉取同分类内容。
@@ -1465,15 +1466,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage>
                 ),
               ),
               GestureDetector(
-                onTap: _shareVideo,
-                child: Icon(
-                  LucideIcons.share,
-                  size: 18,
-                  color: theme.colorScheme.secondary,
-                ),
-              ),
-              const SizedBox(width: 14),
-              GestureDetector(
                 onTap: _showSynopsisSheet,
                 child: Row(
                   children: [
@@ -1511,7 +1503,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage>
         Icon(LucideIcons.sparkles, size: 13, color: accent),
         const SizedBox(width: 4),
         Text(
-          '热度 ${_formatCount(_heat)}',
+          '热度 ${formatCount(_heat)}',
           style: TextStyle(fontSize: 12, color: accent),
         ),
         if (_likeCount > 0) ...[
@@ -1523,21 +1515,12 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage>
           ),
           const SizedBox(width: 4),
           Text(
-            '推荐 ${_formatCount(_likeCount)}',
+            '推荐 ${formatCount(_likeCount)}',
             style: TextStyle(fontSize: 12, color: theme.colorScheme.secondary),
           ),
         ],
       ],
     );
-  }
-
-  /// 热度/推荐数展示：过万折算为「万」，与视频站习惯一致。
-  String _formatCount(int value) {
-    if (value >= 100000000) {
-      return '${(value / 100000000).toStringAsFixed(1)}亿';
-    }
-    if (value >= 10000) return '${(value / 10000).toStringAsFixed(1)}万';
-    return '$value';
   }
 
   /// 腾讯风格的「简介」底部弹层：按需拉取豆瓣评分/简介/演职员头像，失败静默降级。
@@ -1617,51 +1600,18 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage>
             ),
           ),
           Expanded(
-            child: airplayRoutePickerSupported
-                ? _buildNativeCastButton(theme)
-                : _ActionButton(
-                    iconWidget: _CastTvIcon(color: theme.colorScheme.secondary),
-                    label: '投屏',
-                    onTap: _openCastSheet,
-                  ),
+            child: _ActionButton(
+              iconWidget: _CastTvIcon(color: theme.colorScheme.secondary),
+              label: _casting ? '投屏中' : '投屏',
+              active: _casting,
+              onTap: _openCastSheet,
+            ),
           ),
           Expanded(
             child: _ActionButton(
               icon: LucideIcons.users,
               label: '一起看',
               onTap: _openWatchParty,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// iOS 原生投屏按钮：系统 AVRoutePickerView 直接弹出 AirPlay 设备列表。
-  ///
-  /// 平台视图自身消费点击，因此不再包 InkWell；外观与 [_ActionButton] 对齐。
-  Widget _buildNativeCastButton(ThemeData theme) {
-    final color = theme.colorScheme.secondary;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            height: 24,
-            child: Center(
-              child: AirplayRoutePickerButton(size: 24, color: color),
-            ),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            '投屏',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 11,
-              color: color,
-              fontWeight: FontWeight.w500,
             ),
           ),
         ],
@@ -1734,74 +1684,35 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage>
       );
   }
 
-  /// 投屏：系统未提供 AirPlay 直连能力，这里给出三条可用路径。
+  /// 投屏：搜索局域网 DLNA 电视并把当前播放地址推给电视。
   Future<void> _openCastSheet() async {
-    final theme = Theme.of(context);
     final url = _resolvedUrl ?? '';
+    final video = _video;
+    final episode = (video != null && video.playGroups.isNotEmpty)
+        ? video.playGroups.first.titles[_currentEpisodeIndex]
+        : '';
+    final title = episode.isEmpty
+        ? widget.subject.title
+        : '${widget.subject.title} - $episode';
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: theme.cardColor,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 14),
-            const Text(
-              '投屏到电视',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 4),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Text(
-                'iOS 未开放应用内直接枚举投屏设备，可用下面任一方式投到电视。',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: theme.colorScheme.secondary,
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            ListTile(
-              leading: const Icon(LucideIcons.tv, size: 22),
-              title: const Text('系统屏幕镜像'),
-              subtitle: const Text('下拉控制中心 → 屏幕镜像 → 选择电视'),
-              onTap: () => Navigator.pop(sheetContext),
-            ),
-            ListTile(
-              leading: const Icon(LucideIcons.cast, size: 22),
-              title: const Text('在浏览器中播放并投屏'),
-              subtitle: const Text('Safari 播放时会出现系统投屏按钮'),
-              enabled: url.isNotEmpty,
-              onTap: url.isEmpty
-                  ? null
-                  : () async {
-                      Navigator.pop(sheetContext);
-                      await _openInBrowser(url);
-                    },
-            ),
-            ListTile(
-              leading: const Icon(LucideIcons.share, size: 22),
-              title: const Text('复制播放地址'),
-              subtitle: const Text('粘贴到支持投屏的播放器'),
-              enabled: url.isNotEmpty,
-              onTap: url.isEmpty
-                  ? null
-                  : () async {
-                      Navigator.pop(sheetContext);
-                      await _copyPlayUrl(url);
-                    },
-            ),
-            const SizedBox(height: 6),
-          ],
-        ),
+      builder: (_) => CastSheet(
+        url: url,
+        title: title,
+        // 投屏后电视独立播放，本机暂停避免两边同时出声。
+        onCastStarted: () => _playerKey.currentState?.pausePlayback(),
+        onOpenInBrowser: url.isEmpty ? null : () => _openInBrowser(url),
       ),
     );
   }
+
+  /// 是否正在投屏：用于操作区高亮。
+  bool get _casting => ref.watch(dlnaCastProvider).casting;
 
   Future<void> _openInBrowser(String url) async {
     final messenger = ScaffoldMessenger.of(context);
@@ -1812,29 +1723,6 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage>
       if (!ok) await launchUrl(uri, mode: LaunchMode.platformDefault);
     } catch (_) {
       messenger.showSnackBar(const SnackBar(content: Text('无法打开播放地址')));
-    }
-  }
-
-  Future<void> _copyPlayUrl(String url) async {
-    final messenger = ScaffoldMessenger.of(context);
-    await Clipboard.setData(ClipboardData(text: url));
-    messenger
-      ..removeCurrentSnackBar()
-      ..showSnackBar(const SnackBar(content: Text('播放地址已复制')));
-  }
-
-  Future<void> _shareVideo() async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final base = await ref.read(configServiceProvider).getApiBaseUrl();
-      final title = widget.subject.title;
-      await shareText(
-        context,
-        '我正在看「$title」，一起来看：$base',
-        subject: '推荐你看 $title',
-      );
-    } catch (_) {
-      messenger.showSnackBar(const SnackBar(content: Text('分享失败，请稍后重试')));
     }
   }
 
@@ -2036,6 +1924,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage>
                   imageUrl: list[i].poster,
                   year: list[i].year,
                   episode: list[i].typeName,
+                  heat: list[i].heat,
                   // 用 pushReplacement 打开，避免同类推荐层层压栈导致返回时旧页面无法回收
                   onTap: () =>
                       VideoRouter.open(context, list[i], replace: true),
