@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -14,7 +13,6 @@ class CastSheet extends ConsumerStatefulWidget {
     required this.url,
     required this.title,
     this.onCastStarted,
-    this.onOpenInBrowser,
   });
 
   /// 当前解析出的播放地址；为空时不允许投屏。
@@ -25,9 +23,6 @@ class CastSheet extends ConsumerStatefulWidget {
 
   /// 投屏成功回调，用于暂停本机播放。
   final VoidCallback? onCastStarted;
-
-  /// 兜底：在浏览器中打开播放地址。
-  final VoidCallback? onOpenInBrowser;
 
   @override
   ConsumerState<CastSheet> createState() => _CastSheetState();
@@ -91,7 +86,6 @@ class _CastSheetState extends ConsumerState<CastSheet> {
             Flexible(child: _buildDeviceList(theme, state, notifier)),
             if (state.error != null) _buildError(theme, state.error!),
             _buildManualEntry(notifier, ready),
-            _buildSecondaryActions(),
             const SizedBox(height: 6),
           ],
         ),
@@ -261,25 +255,6 @@ class _CastSheetState extends ConsumerState<CastSheet> {
     );
   }
 
-  Widget _buildSecondaryActions() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        TextButton.icon(
-          onPressed: widget.url.isEmpty ? null : _copyUrl,
-          icon: const Icon(LucideIcons.copy, size: 16),
-          label: const Text('复制播放地址'),
-        ),
-        if (widget.onOpenInBrowser != null)
-          TextButton.icon(
-            onPressed: widget.onOpenInBrowser,
-            icon: const Icon(LucideIcons.globe, size: 16),
-            label: const Text('浏览器打开'),
-          ),
-      ],
-    );
-  }
-
   Future<void> _cast(DlnaCastNotifier notifier, DlnaCastDevice device) async {
     final error = await notifier.cast(
       device,
@@ -311,12 +286,6 @@ class _CastSheetState extends ConsumerState<CastSheet> {
     } else {
       _toast(error);
     }
-  }
-
-  Future<void> _copyUrl() async {
-    await Clipboard.setData(ClipboardData(text: widget.url));
-    if (!mounted) return;
-    _toast('播放地址已复制');
   }
 
   void _toast(String message) {

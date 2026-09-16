@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../models/movie.dart';
 import '../models/comment.dart';
@@ -1601,7 +1600,9 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage>
           ),
           Expanded(
             child: _ActionButton(
-              iconWidget: _CastTvIcon(color: theme.colorScheme.secondary),
+              iconWidget: _CastTvIcon(
+                color: _casting ? AppColors.pink : theme.colorScheme.secondary,
+              ),
               label: _casting ? '投屏中' : '投屏',
               active: _casting,
               onTap: _openCastSheet,
@@ -1706,25 +1707,12 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage>
         title: title,
         // 投屏后电视独立播放，本机暂停避免两边同时出声。
         onCastStarted: () => _playerKey.currentState?.pausePlayback(),
-        onOpenInBrowser: url.isEmpty ? null : () => _openInBrowser(url),
       ),
     );
   }
 
   /// 是否正在投屏：用于操作区高亮。
   bool get _casting => ref.watch(dlnaCastProvider).casting;
-
-  Future<void> _openInBrowser(String url) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final uri = Uri.tryParse(url);
-    if (uri == null) return;
-    try {
-      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!ok) await launchUrl(uri, mode: LaunchMode.platformDefault);
-    } catch (_) {
-      messenger.showSnackBar(const SnackBar(content: Text('无法打开播放地址')));
-    }
-  }
 
   Future<void> _cacheCurrentEpisode() async {
     final resolved = _resolvedUrl;
