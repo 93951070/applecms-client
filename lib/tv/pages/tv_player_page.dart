@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../models/comment.dart';
 import '../../models/site.dart';
+import '../../pages/login_page.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/history_provider.dart';
 import '../../services/app_api_service.dart';
+import '../../services/cms_service.dart';
 import '../../services/config_service.dart';
 import '../../widgets/video_player.dart';
 import '../tv_focus.dart';
@@ -34,6 +37,14 @@ class TvPlayerPage extends ConsumerStatefulWidget {
 
 class _TvPlayerPageState extends ConsumerState<TvPlayerPage> {
   final Map<int, String> _urlCache = {};
+  final GlobalKey<EchoVideoPlayerState> _playerKey =
+      GlobalKey<EchoVideoPlayerState>();
+  final TextEditingController _danmakuController = TextEditingController();
+  final FocusNode _danmakuFocus = FocusNode();
+  List<DanmakuItem> _danmaku = const [];
+  String _danmakuEpisodeKey = '';
+  bool _danmakuEnabled = true;
+  bool _danmakuInputActive = false;
   late int _index;
   String? _resolvedUrl;
   String _referer = '';
@@ -61,7 +72,102 @@ class _TvPlayerPageState extends ConsumerState<TvPlayerPage> {
     final total = _episodeCount;
     _index = total <= 0 ? 0 : widget.initialIndex.clamp(0, total - 1);
     _resumePosition = widget.resumePosition;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _resolve());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _resolve();
+      _loadDanmaku();
+    });
+  }
+
+  @override
+  void dispose() {
+    _danmakuController.dispose();
+    _danmakuFocus.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadDanmaku({bool force = false}) async {
+    final key = '${widget.video.id}-$_index';
+    if (!force && key == _danmakuEpisodeKey) return;
+    _danmakuEpisodeKey = key;
+    try {
+      final items = await ref
+          .read(cmsServiceProvider)
+          .getDanmaku(widget.video.id, episode: _index);
+      if (!mounted) return;
+      setState(() => _danmaku = items);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _danmaku = const []);
+    }
+  }
+
+  void _toggleDanmaku() {
+    setState(() {
+      _danmakuEnabled = !_danmakuEnabled;
+      if (!_danmakuEnabled) {
+        _danmakuFocus.unfocus();
+        _danmakuInputActive = false;
+      }
+    });
+  }
+
+  void _closeDanmakuInput() {
+    _danmakuFocus.unfocus();
+    setState(() => _danmakuInputActive = false);
+  }
+
+  /// 在播放器上就地唤起弹幕输入框；未登录先去登录。
+  Future<void> _openDanmakuInput() async {
+    if (widget.video.id.isEmpty) return;
+    final token = await ref.read(configServiceProvider).getAuthToken();
+    if (!mounted) return;
+    if (token == null || token.isEmpty) {
+      Navigator.of(context)
+          .push(MaterialPageRoute<void>(builder: (_) => const LoginPage()));
+      return;
+    }
+    setState(() {
+      _danmakuEnabled = true;
+      _danmakuInputActive = true;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _danmakuFocus.requestFocus();
+    });
+  }
+
+  Future<void> _submitDanmaku() async {
+    final text = _danmakuController.text.trim();
+    if (text.isEmpty) return;
+    final position = _playerKey.currentState?.currentPosition ?? Duration.zero;
+    try {
+      final result = await ref
+          .read(cmsServiceProvider)
+          .postDanmaku(
+            widget.video.id,
+            episode: _index,
+            timeMs: position.inMilliseconds,
+            content: text,
+          );
+      if (!mounted) return;
+      if (result.ok && !result.pending) {
+        setState(() {
+          _danmaku = [
+            ..._danmaku,
+            DanmakuItem(timeMs: position.inMilliseconds, content: text),
+          ]..sort((a, b) => a.timeMs.compareTo(b.timeMs));
+        });
+      }
+      _danmakuController.clear();
+      _danmakuFocus.requestFocus();
+      final msg = !result.ok
+          ? '弹幕发送失败'
+          : (result.pending ? '弹幕已提交，等待审核' : '弹幕已发送');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('弹幕发送失败')));
+    }
   }
 
   Future<void> _resolve({bool forceRefresh = false}) async {
@@ -162,6 +268,7 @@ class _TvPlayerPageState extends ConsumerState<TvPlayerPage> {
       _resumePosition = null;
     });
     _resolve();
+    _loadDanmaku();
   }
 
   void _saveProgress(
@@ -227,6 +334,7 @@ class _TvPlayerPageState extends ConsumerState<TvPlayerPage> {
     }
 
     return EchoVideoPlayer(
+      key: _playerKey,
       url: url,
       title: '${widget.video.title} - $_episodeTitle',
       referer: _referer,
@@ -236,6 +344,15 @@ class _TvPlayerPageState extends ConsumerState<TvPlayerPage> {
       episodeNeedVip: widget.group.needVip,
       isVip: isVip,
       currentEpisodeIndex: _index,
+      danmaku: _danmaku,
+      danmakuEnabled: _danmakuEnabled,
+      onDanmakuToggle: _toggleDanmaku,
+      danmakuInputActive: _danmakuInputActive,
+      danmakuController: _danmakuController,
+      danmakuFocus: _danmakuFocus,
+      onDanmakuInputActivate: _openDanmakuInput,
+      onDanmakuInputClose: _closeDanmakuInput,
+      onDanmakuSubmit: _submitDanmaku,
       onSelectEpisode: (index, _) => _switchEpisode(index),
       onPlaybackError: _handlePlaybackError,
       onProgress: _saveProgress,

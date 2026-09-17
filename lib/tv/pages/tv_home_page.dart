@@ -30,7 +30,7 @@ class _TvHomePageState extends ConsumerState<TvHomePage> {
   @override
   void initState() {
     super.initState();
-    _heroTimer = Timer.periodic(const Duration(seconds: 9), (_) {
+    _heroTimer = Timer.periodic(TvMetrics.heroInterval, (_) {
       if (!mounted || _heroLength <= 1) return;
       setState(() => _heroIndex = (_heroIndex + 1) % _heroLength);
     });
@@ -137,28 +137,31 @@ class _TvHomePageState extends ConsumerState<TvHomePage> {
     final backdrop = (video.heroImage ?? '').isNotEmpty
         ? video.heroImage!
         : video.poster;
+    // 幻灯片占满导航栏以下的绝大部分首屏，露出下一行的一角提示可下翻。
+    final available = size.height - TvMetrics.navHeight;
+    final bannerHeight = available * 0.82;
 
     return SizedBox(
-      height: size.height * 0.56,
+      height: bannerHeight,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          if (backdrop.isNotEmpty)
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 500),
-              child: CachedNetworkImage(
-                key: ValueKey(video.id),
-                imageUrl: backdrop,
-                fit: BoxFit.cover,
-                alignment: Alignment.topCenter,
-                placeholder: (_, __) => const SizedBox.shrink(),
-                errorWidget: (_, __, ___) => const SizedBox.shrink(),
-              ),
-            )
-          else
-            const DecoratedBox(
-              decoration: BoxDecoration(gradient: TvGradients.page),
-            ),
+          AnimatedSwitcher(
+            duration: TvMetrics.heroFade,
+            child: backdrop.isNotEmpty
+                ? CachedNetworkImage(
+                    key: ValueKey(video.id),
+                    imageUrl: backdrop,
+                    fit: BoxFit.cover,
+                    alignment: Alignment.topCenter,
+                    placeholder: (_, __) => const SizedBox.shrink(),
+                    errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                  )
+                : const DecoratedBox(
+                    key: ValueKey('placeholder'),
+                    decoration: BoxDecoration(gradient: TvGradients.page),
+                  ),
+          ),
           const DecoratedBox(
             decoration: BoxDecoration(gradient: TvGradients.heroLeftScrim),
           ),
@@ -177,11 +180,15 @@ class _TvHomePageState extends ConsumerState<TvHomePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 780),
+                  constraints: const BoxConstraints(maxWidth: 760),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      if (_heroTag(video) != null) ...[
+                        _buildHeroTag(_heroTag(video)!),
+                        const SizedBox(height: 14),
+                      ],
                       Text(
                         video.title,
                         maxLines: 2,
@@ -244,6 +251,33 @@ class _TvHomePageState extends ConsumerState<TvHomePage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 幻灯片右上角的粉底角标文案（分类名，缺省为热播）。
+  String? _heroTag(VideoDetail video) {
+    final typeName = video.typeName ?? '';
+    if (typeName.isNotEmpty) return typeName;
+    if (video.heat > 0) return '热播';
+    return null;
+  }
+
+  Widget _buildHeroTag(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      decoration: BoxDecoration(
+        gradient: TvGradients.brand,
+        borderRadius: BorderRadius.circular(TvMetrics.radiusPill),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
+          letterSpacing: 0.5,
+        ),
       ),
     );
   }

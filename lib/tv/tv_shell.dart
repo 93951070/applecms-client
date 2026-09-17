@@ -14,10 +14,10 @@ import 'tv_focus.dart';
 import 'tv_mode.dart';
 import 'tv_theme.dart';
 
-/// TV 版外壳：左侧常驻导航栏 + 右侧内容区。
+/// TV 版外壳：顶部横向导航 + 下方内容区。
 ///
-/// 与手机版的底部 4 Tab 不同，遥控器在电视上更习惯左侧竖向导航，
-/// 且各 Tab 内容全程复用同一外壳，避免整页重建导致的焦点丢失。
+/// 采用市面主流 TV 端的顶部 Tab 布局：左侧品牌标识，中间 Tab 导航，
+/// 右侧固定入口（手机版），内容区整屏展示。
 class TvShell extends ConsumerStatefulWidget {
   const TvShell({super.key});
 
@@ -80,9 +80,9 @@ class _TvShellState extends ConsumerState<TvShell> {
               decoration: BoxDecoration(gradient: TvGradients.page),
             ),
           ),
-          Row(
+          Column(
             children: [
-              _Rail(
+              _TopNav(
                 current: _tab,
                 onSelect: _selectTab,
                 onPhoneMode: () => ref
@@ -159,16 +159,17 @@ class _TvShellState extends ConsumerState<TvShell> {
   }
 }
 
-class _RailEntry {
-  const _RailEntry(this.label, this.icon, this.tab);
+class _NavEntry {
+  const _NavEntry(this.label, this.icon, this.tab);
 
   final String label;
   final IconData icon;
   final int tab;
 }
 
-class _Rail extends StatelessWidget {
-  const _Rail({
+/// 顶部导航栏：品牌标识 + Tab + 右侧固定入口。
+class _TopNav extends StatelessWidget {
+  const _TopNav({
     required this.current,
     required this.onSelect,
     required this.onPhoneMode,
@@ -178,68 +179,41 @@ class _Rail extends StatelessWidget {
   final ValueChanged<int> onSelect;
   final VoidCallback onPhoneMode;
 
-  static const List<_RailEntry> _entries = [
-    _RailEntry('首页', LucideIcons.home, 0),
-    _RailEntry('分类', LucideIcons.layoutGrid, 1),
-    _RailEntry('排行', LucideIcons.trophy, 2),
-    _RailEntry('搜索', LucideIcons.search, 3),
-    _RailEntry('我的', LucideIcons.user, 4),
+  static const List<_NavEntry> _entries = [
+    _NavEntry('首页', LucideIcons.home, 0),
+    _NavEntry('分类', LucideIcons.layoutGrid, 1),
+    _NavEntry('排行', LucideIcons.trophy, 2),
+    _NavEntry('搜索', LucideIcons.search, 3),
+    _NavEntry('我的', LucideIcons.user, 4),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: TvMetrics.railWidth,
+      height: TvMetrics.navHeight,
+      padding: const EdgeInsets.symmetric(horizontal: TvMetrics.safeH),
       decoration: const BoxDecoration(
-        color: TvColors.surface,
-        border: Border(right: BorderSide(color: TvColors.divider)),
+        color: Color(0xF2150F13),
+        border: Border(bottom: BorderSide(color: TvColors.divider)),
       ),
-      child: Column(
+      child: Row(
         children: [
-          const SizedBox(height: 28),
-          const Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(LucideIcons.play, size: 22, color: TvColors.accent),
-              SizedBox(width: 8),
-              Text(
-                'EchoTV',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: TvColors.text1,
-                ),
+          const _BrandLogo(),
+          const SizedBox(width: 30),
+          for (final entry in _entries)
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: _NavItem(
+                entry: entry,
+                selected: entry.tab == current,
+                onSelect: () => onSelect(entry.tab),
               ),
-            ],
-          ),
-          const SizedBox(height: 26),
-          Expanded(
-            child: ListView(
-              padding: EdgeInsets.zero,
-              physics: const BouncingScrollPhysics(),
-              children: [
-                for (final entry in _entries)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    child: _RailButton(
-                      entry: entry,
-                      selected: entry.tab == current,
-                      onSelect: () => onSelect(entry.tab),
-                    ),
-                  ),
-              ],
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 22),
-            child: _RailButton(
-              entry: const _RailEntry('手机版', LucideIcons.smartphone, -1),
-              selected: false,
-              onSelect: onPhoneMode,
-            ),
+          const Spacer(),
+          _NavItem(
+            entry: const _NavEntry('手机版', LucideIcons.smartphone, -1),
+            selected: false,
+            onSelect: onPhoneMode,
           ),
         ],
       ),
@@ -247,14 +221,47 @@ class _Rail extends StatelessWidget {
   }
 }
 
-class _RailButton extends StatelessWidget {
-  const _RailButton({
+class _BrandLogo extends StatelessWidget {
+  const _BrandLogo();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: TvMetrics.navLogoSize,
+          height: TvMetrics.navLogoSize,
+          decoration: BoxDecoration(
+            gradient: TvGradients.brand,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(LucideIcons.play, size: 20, color: Colors.white),
+        ),
+        const SizedBox(width: 10),
+        const Text(
+          'EchoTV',
+          style: TextStyle(
+            fontSize: 21,
+            fontWeight: FontWeight.w800,
+            color: TvColors.text1,
+            letterSpacing: 0.4,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 顶部导航项：选中粉色描边胶囊，聚焦实心粉色。
+class _NavItem extends StatelessWidget {
+  const _NavItem({
     required this.entry,
     required this.selected,
     required this.onSelect,
   });
 
-  final _RailEntry entry;
+  final _NavEntry entry;
   final bool selected;
   final VoidCallback onSelect;
 
@@ -262,16 +269,8 @@ class _RailButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return TvFocusable(
       onSelect: onSelect,
-      focusedScale: 1.04,
+      focusedScale: 1.05,
       builder: (context, focused) {
-        final Color bg;
-        if (focused) {
-          bg = TvColors.accent;
-        } else if (selected) {
-          bg = TvColors.surfaceHigh;
-        } else {
-          bg = Colors.transparent;
-        }
         final Color fg;
         if (focused) {
           fg = Colors.white;
@@ -282,32 +281,40 @@ class _RailButton extends StatelessWidget {
         }
         return AnimatedContainer(
           duration: TvMetrics.focusDuration,
-          height: TvMetrics.railItemHeight,
+          height: TvMetrics.navItemHeight,
+          padding: const EdgeInsets.symmetric(horizontal: 18),
           decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(TvMetrics.radiusPanel),
+            gradient: focused ? TvGradients.brand : null,
+            color: focused
+                ? null
+                : (selected
+                      ? TvColors.accent.withValues(alpha: 0.16)
+                      : Colors.transparent),
+            borderRadius: BorderRadius.circular(TvMetrics.radiusPill),
             border: Border.all(
-              color: focused ? TvColors.focus : Colors.transparent,
-              width: 2,
+              color: focused
+                  ? Colors.white
+                  : (selected ? TvColors.accent : Colors.transparent),
+              width: focused ? 2 : 1.4,
             ),
             boxShadow: focused
                 ? [
                     BoxShadow(
-                      color: TvColors.accent.withValues(alpha: 0.4),
+                      color: TvColors.accent.withValues(alpha: 0.45),
                       blurRadius: 18,
                     ),
                   ]
                 : null,
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(entry.icon, size: 26, color: fg),
-              const SizedBox(height: 6),
+              Icon(entry.icon, size: 19, color: fg),
+              const SizedBox(width: 8),
               Text(
                 entry.label,
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 17,
                   fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                   color: fg,
                 ),

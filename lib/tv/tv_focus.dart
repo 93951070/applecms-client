@@ -217,7 +217,7 @@ class TvPosterCard extends StatelessWidget {
                             gradient: LinearGradient(
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
-                              colors: [Color(0xFF2A3A5C), Color(0xFF16203A)],
+                              colors: [Color(0xFF3A2130), Color(0xFF1F141C)],
                             ),
                           ),
                         ),
@@ -295,7 +295,7 @@ class TvPosterCard extends StatelessWidget {
                 style: TextStyle(
                   fontSize: TvMetrics.cardTitle,
                   fontWeight: FontWeight.w600,
-                  color: focused ? TvColors.text1 : TvColors.text2,
+                  color: focused ? TvColors.accent : TvColors.text2,
                 ),
               ),
               if (subtitle != null && subtitle!.isNotEmpty) ...[
@@ -352,7 +352,8 @@ class TvActionButton extends StatelessWidget {
           duration: TvMetrics.focusDuration,
           padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 14),
           decoration: BoxDecoration(
-            color: base,
+            color: primary && !gold ? null : base,
+            gradient: primary && !gold ? TvGradients.brand : null,
             borderRadius: BorderRadius.circular(TvMetrics.radiusPill),
             border: Border.all(
               color: focused ? TvColors.focus : Colors.transparent,
@@ -498,7 +499,7 @@ class TvSectionHeader extends StatelessWidget {
       child: Row(
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 22, color: TvColors.cyan),
+            Icon(icon, size: 22, color: TvColors.highlight),
             const SizedBox(width: 10),
           ],
           Text(
@@ -521,11 +522,11 @@ class TvSectionHeader extends StatelessWidget {
                 ),
                 decoration: BoxDecoration(
                   color: focused
-                      ? Colors.white.withValues(alpha: 0.18)
+                      ? TvColors.accent.withValues(alpha: 0.18)
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(TvMetrics.radiusPill),
                   border: Border.all(
-                    color: focused ? TvColors.focus : TvColors.divider,
+                    color: focused ? TvColors.accent : TvColors.divider,
                     width: focused ? 2 : 1,
                   ),
                 ),
@@ -536,14 +537,14 @@ class TvSectionHeader extends StatelessWidget {
                       moreText ?? '更多',
                       style: TextStyle(
                         fontSize: 14,
-                        color: focused ? TvColors.text1 : TvColors.text3,
+                        color: focused ? TvColors.accent : TvColors.text3,
                       ),
                     ),
                     const SizedBox(width: 4),
                     Icon(
                       LucideIcons.chevronRight,
                       size: 16,
-                      color: focused ? TvColors.text1 : TvColors.text3,
+                      color: focused ? TvColors.accent : TvColors.text3,
                     ),
                   ],
                 ),

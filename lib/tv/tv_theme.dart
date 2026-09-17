@@ -1,30 +1,36 @@
 import 'package:flutter/material.dart';
 
-/// TV 版视觉令牌：深色底 + 蓝青强调 + 金色会员，走 10 尺 UI 的量级。
+import '../core/theme.dart';
+
+/// TV 版视觉令牌：深色底 + 粉色主色，与手机端 [AppColors.pink] 同一套品牌色。
 class TvColors {
   TvColors._();
 
-  /// 页面底色（上浅下深的深空蓝黑）
-  static const Color bg = Color(0xFF0B1220);
-  static const Color bgDeep = Color(0xFF05080F);
+  /// 页面底色（粉调深黑，上浅下深）
+  static const Color bg = Color(0xFF150F13);
+  static const Color bgDeep = Color(0xFF0A0709);
+  static const Color bgDeepStart = Color(0xFF211419);
 
   /// 容器层级
-  static const Color surface = Color(0xFF141C2E);
-  static const Color surfaceHigh = Color(0xFF1E283D);
+  static const Color surface = Color(0xFF1F1720);
+  static const Color surfaceHigh = Color(0xFF2C212A);
   static const Color divider = Color(0x1FFFFFFF);
 
-  /// 强调色：焦点/主按钮用蓝，进度与热度点缀用青
-  static const Color accent = Color(0xFF3D8BFF);
-  static const Color accentDeep = Color(0xFF1E6BE0);
-  static const Color cyan = Color(0xFF00C2FF);
+  /// 主色：与手机端一致的品牌粉
+  static const Color accent = AppColors.pink;
+  static const Color accentDeep = AppColors.pinkDeep;
+  static const Color accentLight = AppColors.pinkLight;
+
+  /// 点缀紫（区块图标、渐变过渡）
+  static const Color highlight = AppColors.auroraPurple;
 
   /// 会员金
-  static const Color gold = Color(0xFFFFB300);
+  static const Color gold = AppColors.vipGold;
 
   /// 文字层级
-  static const Color text1 = Color(0xFFF2F5FA);
-  static const Color text2 = Color(0xFFA9B3C6);
-  static const Color text3 = Color(0xFF6C7789);
+  static const Color text1 = Color(0xFFF7F3F6);
+  static const Color text2 = Color(0xFFB5A9B2);
+  static const Color text3 = Color(0xFF7A6E77);
 
   /// 焦点描边
   static const Color focus = Color(0xFFFFFFFF);
@@ -42,14 +48,19 @@ class TvMetrics {
     vertical: safeV,
   );
 
-  /// 左侧导航栏
-  static const double railWidth = 112;
-  static const double railItemHeight = 78;
+  /// 顶部导航栏
+  static const double navHeight = 76;
+  static const double navItemHeight = 44;
+  static const double navLogoSize = 34;
 
   /// 焦点放大倍数与动画时长
   static const double focusScale = 1.08;
   static const Duration focusDuration = Duration(milliseconds: 160);
   static const Duration scrollDuration = Duration(milliseconds: 240);
+
+  /// 幻灯片自动轮播间隔
+  static const Duration heroInterval = Duration(seconds: 6);
+  static const Duration heroFade = Duration(milliseconds: 600);
 
   /// 字号（10 尺 UI，整体比手机端大一档）
   static const double heroTitle = 42;
@@ -81,7 +92,14 @@ class TvGradients {
   static const LinearGradient page = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    colors: [TvColors.bg, TvColors.bgDeep],
+    colors: [TvColors.bgDeepStart, TvColors.bgDeep],
+  );
+
+  /// 品牌粉渐变（主按钮、选中态）
+  static const LinearGradient brand = LinearGradient(
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+    colors: [TvColors.accent, TvColors.accentDeep],
   );
 
   /// 海报/剧照底部压暗，保证文字可读
@@ -92,20 +110,20 @@ class TvGradients {
     colors: [Colors.transparent, Color(0xCC000000)],
   );
 
-  /// 详情页左侧压暗（右向渐隐，给标题留出可读区）
+  /// 幻灯片左侧压暗（右向渐隐，给标题留出可读区）
   static const LinearGradient heroLeftScrim = LinearGradient(
     begin: Alignment.centerLeft,
     end: Alignment.centerRight,
-    stops: [0.0, 0.62, 1.0],
-    colors: [Color(0xF205080F), Color(0x9905080F), Color(0x0005080F)],
+    stops: [0.0, 0.55, 1.0],
+    colors: [Color(0xF20A0709), Color(0x990A0709), Color(0x000A0709)],
   );
 
-  /// 详情页底部压暗
+  /// 幻灯片底部压暗（接入页面底色，避免断层）
   static const LinearGradient heroBottomScrim = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    stops: [0.55, 1.0],
-    colors: [Colors.transparent, Color(0xF205080F)],
+    stops: [0.5, 1.0],
+    colors: [Colors.transparent, Color(0xFF150F13)],
   );
 }
 
