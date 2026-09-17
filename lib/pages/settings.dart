@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/config_service.dart';
 import '../providers/settings_provider.dart';
+import '../tv/tv_mode.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/edit_dialog.dart';
 import '../widgets/update_gate.dart';
@@ -64,6 +65,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     title: '主题模式',
                     value: _getThemeModeLabel(ref.watch(themeModelProvider)),
                     onTap: () => _showThemePicker(),
+                  ),
+                  _buildSelectionItem(
+                    icon: LucideIcons.tv,
+                    title: '界面模式',
+                    value: _getTvModeLabel(ref.watch(tvModeSettingProvider)),
+                    onTap: _showTvModePicker,
                   ),
                   _buildNavigationItem(
                     icon: LucideIcons.shieldCheck,
@@ -232,6 +239,24 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       case ThemeMode.light: return '浅色';
       case ThemeMode.dark: return '深色';
     }
+  }
+
+  String _getTvModeLabel(TvModeSetting mode) {
+    switch (mode) {
+      case TvModeSetting.auto: return '自动识别';
+      case TvModeSetting.on: return 'TV 横屏版';
+      case TvModeSetting.off: return '手机版';
+    }
+  }
+
+  void _showTvModePicker() {
+    _showSimplePicker('选择界面模式', {
+      TvModeSetting.auto: '自动识别（大屏横屏走 TV 版）',
+      TvModeSetting.on: 'TV 横屏版',
+      TvModeSetting.off: '手机版',
+    }, ref.read(tvModeSettingProvider), (mode) {
+      ref.read(tvModeSettingProvider.notifier).setMode(mode as TvModeSetting);
+    });
   }
 
   void _showThemePicker() {
