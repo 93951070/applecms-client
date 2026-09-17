@@ -19,6 +19,7 @@ import 'pages/play_history_page.dart';
 import 'providers/settings_provider.dart';
 import 'services/config_service.dart';
 import 'services/preload_service.dart';
+import 'tv/tv_adaptive.dart';
 import 'tv/tv_mode.dart';
 import 'tv/tv_shell.dart';
 import 'widgets/main_layout.dart';
@@ -62,7 +63,9 @@ class _EchoTVAppState extends ConsumerState<EchoTVApp> {
       themeMode: themeMode,
       routerConfig: _router,
       builder: (context, child) {
-        return UpdateGate(child: TermsGate(child: child!));
+        return UpdateGate(
+          child: TermsGate(child: TvAdaptiveScope(child: child!)),
+        );
       },
     );
   }

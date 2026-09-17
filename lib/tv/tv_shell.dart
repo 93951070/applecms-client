@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -34,6 +35,23 @@ class _TvShellState extends ConsumerState<TvShell> {
   int _tab = _tabHome;
   int _typeId = 0;
   String _typeName = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // TV 版是横屏布局，手机等小屏上强制横屏，避免竖屏下被挤压到无法操作。
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+  }
+
+  @override
+  void dispose() {
+    // 退出 TV 版交还给系统自动旋转（手机版各页自行控制方向）。
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    super.dispose();
+  }
 
   void _selectTab(int tab) {
     if (tab == _tab) return;

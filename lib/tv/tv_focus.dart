@@ -112,6 +112,13 @@ class _TvFocusableState extends State<TvFocusable> {
     return KeyEventResult.ignored;
   }
 
+  /// 触摸屏（手机/平板）上的点击：遥控器走 [_onKeyEvent]，手指走这里。
+  void _handleTap() {
+    if (!widget.enabled) return;
+    _node.requestFocus();
+    widget.onSelect?.call();
+  }
+
   void _handleFocusChange(bool focused) {
     if (!mounted) return;
     setState(() => _focused = focused);
@@ -131,18 +138,26 @@ class _TvFocusableState extends State<TvFocusable> {
 
   @override
   Widget build(BuildContext context) {
+    Widget current = AnimatedScale(
+      scale: _focused ? widget.focusedScale : 1.0,
+      duration: TvMetrics.focusDuration,
+      curve: Curves.easeOut,
+      child: widget.builder(context, _focused),
+    );
+    if (widget.enabled && widget.onSelect != null) {
+      current = GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _handleTap,
+        child: current,
+      );
+    }
     return Focus(
       focusNode: _node,
       autofocus: widget.autofocus,
       canRequestFocus: widget.enabled,
       onFocusChange: _handleFocusChange,
       onKeyEvent: _onKeyEvent,
-      child: AnimatedScale(
-        scale: _focused ? widget.focusedScale : 1.0,
-        duration: TvMetrics.focusDuration,
-        curve: Curves.easeOut,
-        child: widget.builder(context, _focused),
-      ),
+      child: current,
     );
   }
 }
