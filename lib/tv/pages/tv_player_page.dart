@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../models/comment.dart';
 import '../../models/site.dart';
@@ -39,12 +40,9 @@ class _TvPlayerPageState extends ConsumerState<TvPlayerPage> {
   final Map<int, String> _urlCache = {};
   final GlobalKey<EchoVideoPlayerState> _playerKey =
       GlobalKey<EchoVideoPlayerState>();
-  final TextEditingController _danmakuController = TextEditingController();
-  final FocusNode _danmakuFocus = FocusNode();
   List<DanmakuItem> _danmaku = const [];
   String _danmakuEpisodeKey = '';
   bool _danmakuEnabled = true;
-  bool _danmakuInputActive = false;
   late int _index;
   String? _resolvedUrl;
   String _referer = '';
@@ -78,13 +76,6 @@ class _TvPlayerPageState extends ConsumerState<TvPlayerPage> {
     });
   }
 
-  @override
-  void dispose() {
-    _danmakuController.dispose();
-    _danmakuFocus.dispose();
-    super.dispose();
-  }
-
   Future<void> _loadDanmaku({bool force = false}) async {
     final key = '${widget.video.id}-$_index';
     if (!force && key == _danmakuEpisodeKey) return;
@@ -102,21 +93,14 @@ class _TvPlayerPageState extends ConsumerState<TvPlayerPage> {
   }
 
   void _toggleDanmaku() {
-    setState(() {
-      _danmakuEnabled = !_danmakuEnabled;
-      if (!_danmakuEnabled) {
-        _danmakuFocus.unfocus();
-        _danmakuInputActive = false;
-      }
-    });
+    setState(() => _danmakuEnabled = !_danmakuEnabled);
   }
 
-  void _closeDanmakuInput() {
-    _danmakuFocus.unfocus();
-    setState(() => _danmakuInputActive = false);
-  }
-
-  /// 在播放器上就地唤起弹幕输入框；未登录先去登录。
+  /// 弹出独立输入框写弹幕；未登录先去登录。
+  ///
+  /// TV 端不用播放器内嵌输入条：那条输入条依赖播放器控件的键盘焦点，
+  /// 遥控器与系统输入法会互相抢焦点，输入条反复显隐，看起来就是「功能条
+  /// 一直闪」。这里用独立对话框收敛焦点，输入完直接提交。
   Future<void> _openDanmakuInput() async {
     if (widget.video.id.isEmpty) return;
     final token = await ref.read(configServiceProvider).getAuthToken();
@@ -126,18 +110,18 @@ class _TvPlayerPageState extends ConsumerState<TvPlayerPage> {
           .push(MaterialPageRoute<void>(builder: (_) => const LoginPage()));
       return;
     }
-    setState(() {
-      _danmakuEnabled = true;
-      _danmakuInputActive = true;
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _danmakuFocus.requestFocus();
-    });
+    final text = await showDialog<String>(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (_) => const _DanmakuInputDialog(),
+    );
+    if (text == null || !mounted) return;
+    await _submitDanmaku(text);
   }
 
-  Future<void> _submitDanmaku() async {
-    final text = _danmakuController.text.trim();
-    if (text.isEmpty) return;
+  Future<void> _submitDanmaku(String text) async {
+    final content = text.trim();
+    if (content.isEmpty) return;
     final position = _playerKey.currentState?.currentPosition ?? Duration.zero;
     try {
       final result = await ref
@@ -146,19 +130,18 @@ class _TvPlayerPageState extends ConsumerState<TvPlayerPage> {
             widget.video.id,
             episode: _index,
             timeMs: position.inMilliseconds,
-            content: text,
+            content: content,
           );
       if (!mounted) return;
       if (result.ok && !result.pending) {
         setState(() {
+          _danmakuEnabled = true;
           _danmaku = [
             ..._danmaku,
-            DanmakuItem(timeMs: position.inMilliseconds, content: text),
+            DanmakuItem(timeMs: position.inMilliseconds, content: content),
           ]..sort((a, b) => a.timeMs.compareTo(b.timeMs));
         });
       }
-      _danmakuController.clear();
-      _danmakuFocus.requestFocus();
       final msg = !result.ok
           ? '弹幕发送失败'
           : (result.pending ? '弹幕已提交，等待审核' : '弹幕已发送');
@@ -311,7 +294,12 @@ class _TvPlayerPageState extends ConsumerState<TvPlayerPage> {
     final isVip = ref.watch(authProvider).user?.isVip ?? false;
     return PopScope(
       canPop: true,
-      child: Scaffold(backgroundColor: Colors.black, body: _buildBody(isVip)),
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        // 键盘弹出时不压缩播放器区域，避免画面跳动，弹幕输入框浮在画面上层。
+        resizeToAvoidBottomInset: false,
+        body: _buildBody(isVip),
+      ),
     );
   }
 
@@ -347,12 +335,7 @@ class _TvPlayerPageState extends ConsumerState<TvPlayerPage> {
       danmaku: _danmaku,
       danmakuEnabled: _danmakuEnabled,
       onDanmakuToggle: _toggleDanmaku,
-      danmakuInputActive: _danmakuInputActive,
-      danmakuController: _danmakuController,
-      danmakuFocus: _danmakuFocus,
       onDanmakuInputActivate: _openDanmakuInput,
-      onDanmakuInputClose: _closeDanmakuInput,
-      onDanmakuSubmit: _submitDanmaku,
       onSelectEpisode: (index, _) => _switchEpisode(index),
       onPlaybackError: _handlePlaybackError,
       onProgress: _saveProgress,
@@ -415,6 +398,82 @@ class _TvPlayerPageState extends ConsumerState<TvPlayerPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// TV 端的弹幕输入对话框：系统输入法直接浮在画面上，不干扰播放器控件。
+class _DanmakuInputDialog extends StatefulWidget {
+  const _DanmakuInputDialog();
+
+  @override
+  State<_DanmakuInputDialog> createState() => _DanmakuInputDialogState();
+}
+
+class _DanmakuInputDialogState extends State<_DanmakuInputDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() => Navigator.of(context).pop(_controller.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: TvColors.surfaceHigh,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(TvMetrics.radiusPanel),
+      ),
+      title: const Text(
+        '发送弹幕',
+        style: TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.w700,
+          color: TvColors.text1,
+        ),
+      ),
+      content: SizedBox(
+        width: 560,
+        child: TextField(
+          controller: _controller,
+          autofocus: true,
+          maxLength: 50,
+          maxLines: 2,
+          minLines: 1,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _submit(),
+          cursorColor: TvColors.accent,
+          style: const TextStyle(fontSize: 18, color: TvColors.text1),
+          decoration: const InputDecoration(
+            hintText: '发个友善的弹幕见证当下',
+            hintStyle: TextStyle(fontSize: 18, color: TvColors.text3),
+            counterStyle: TextStyle(fontSize: 14, color: TvColors.text3),
+            focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: TvColors.accent, width: 2),
+            ),
+            enabledBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: TvColors.divider),
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TvActionButton(
+          label: '取消',
+          icon: LucideIcons.x,
+          onSelect: () => Navigator.of(context).pop(),
+        ),
+        TvActionButton(
+          label: '发送',
+          icon: LucideIcons.send,
+          primary: true,
+          onSelect: _submit,
+        ),
+      ],
     );
   }
 }

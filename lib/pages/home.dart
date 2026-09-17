@@ -11,6 +11,7 @@ import '../providers/auth_provider.dart';
 import '../models/site.dart';
 import '../core/video_router.dart';
 import '../core/content_kind.dart';
+import '../core/format_utils.dart';
 import '../core/theme.dart';
 import '../widgets/zen_ui.dart';
 import '../widgets/appad_widgets.dart';
@@ -208,8 +209,7 @@ class _HomePageState extends ConsumerState<HomePage> {
         _heroBlurbs[id] = intro;
         if (year.isNotEmpty) _heroYears[id] = year;
         if (slide.isNotEmpty) {
-          _heroSlides[id] =
-              '$base/api/douban/image?u=${Uri.encodeQueryComponent(slide)}';
+          _heroSlides[id] = doubanImageUrl(base, slide);
         }
       });
     } catch (_) {

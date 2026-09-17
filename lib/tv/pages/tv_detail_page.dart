@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,9 +8,12 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/format_utils.dart';
 import '../../models/site.dart';
 import '../../pages/home.dart';
+import '../../pages/login_page.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/history_provider.dart';
 import '../../services/cms_service.dart';
 import '../../services/config_service.dart';
+import '../../widgets/watch_party_sheet.dart';
 import '../tv_focus.dart';
 import '../tv_router.dart';
 import '../tv_theme.dart';
@@ -27,8 +32,13 @@ class TvDetailPage extends ConsumerStatefulWidget {
 }
 
 class _TvDetailPageState extends ConsumerState<TvDetailPage> {
+  /// 每 30 集一个模块，与腾讯视频一致：先选区间再选集。
+  static const int _episodesPerModule = 30;
+
   late VideoDetail _video;
   bool _loading = true;
+  int _episodePage = 0;
+  bool _episodePagePinned = false;
 
   @override
   void initState() {
@@ -102,6 +112,24 @@ class _TvDetailPageState extends ConsumerState<TvDetailPage> {
     );
   }
 
+  /// 打开「一起看」弹层：未登录先去登录，进度从播放记录续起。
+  Future<void> _openWatchParty(PlayRecord? resume) async {
+    final video = _video;
+    if (video.id.isEmpty) return;
+    if (!ref.read(authProvider).isLoggedIn) {
+      Navigator.of(context)
+          .push(MaterialPageRoute<void>(builder: (_) => const LoginPage()));
+      return;
+    }
+    await showWatchPartyHome(
+      context,
+      ref,
+      vodId: video.id,
+      episode: resume?.index ?? 0,
+      positionMs: ((resume?.playTime ?? 0) * 1000).round(),
+    );
+  }
+
   List<({String label, bool locked})> _episodeEntries() {
     final group = _group;
     if (group == null) return const [];
@@ -116,6 +144,64 @@ class _TvDetailPageState extends ConsumerState<TvDetailPage> {
       out.add((label: label, locked: locked));
     }
     return out;
+  }
+
+  /// 选集区：集数多时先展示区间模块，只渲染当前模块内的集数宫格。
+  Widget _buildEpisodes(
+    PlayRecord? resume,
+    List<({String label, bool locked})> episodes,
+  ) {
+    final total = episodes.length;
+    final modules = (total + _episodesPerModule - 1) ~/ _episodesPerModule;
+    final preferred =
+        !_episodePagePinned && resume != null && resume.index < total
+        ? resume.index ~/ _episodesPerModule
+        : _episodePage;
+    final page = modules <= 1 ? 0 : preferred.clamp(0, modules - 1).toInt();
+    final start = page * _episodesPerModule;
+    final end = math.min(start + _episodesPerModule, total);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (modules > 1) ...[
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              for (var module = 0; module < modules; module++)
+                TvChip(
+                  label:
+                      '${module * _episodesPerModule + 1}-'
+                      '${math.min((module + 1) * _episodesPerModule, total)}',
+                  selected: module == page,
+                  onSelect: () => setState(() {
+                    _episodePage = module;
+                    _episodePagePinned = true;
+                  }),
+                ),
+            ],
+          ),
+          const SizedBox(height: 18),
+        ],
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1180),
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              for (var i = start; i < end; i++)
+                TvChip(
+                  label: episodes[i].label,
+                  locked: episodes[i].locked,
+                  selected: resume != null && resume.index == i,
+                  onSelect: () => _play(i),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -178,22 +264,7 @@ class _TvDetailPageState extends ConsumerState<TvDetailPage> {
               const SizedBox(height: 34),
               const TvSectionHeader(title: '选集', icon: LucideIcons.layoutGrid),
               const SizedBox(height: 4),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1180),
-                child: Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    for (var i = 0; i < episodes.length; i++)
-                      TvChip(
-                        label: episodes[i].label,
-                        locked: episodes[i].locked,
-                        selected: resume != null && resume.index == i,
-                        onSelect: () => _play(i),
-                      ),
-                  ],
-                ),
-              ),
+              _buildEpisodes(resume, episodes),
             ] else if (_loading) ...[
               const SizedBox(height: 34),
               const Center(
@@ -308,6 +379,11 @@ class _TvDetailPageState extends ConsumerState<TvDetailPage> {
             icon: LucideIcons.rotateCcw,
             onSelect: hasSource ? () => _play(0) : null,
           ),
+        TvActionButton(
+          label: '一起看',
+          icon: LucideIcons.users,
+          onSelect: hasSource ? () => _openWatchParty(resume) : null,
+        ),
         TvActionButton(
           label: '搜索',
           icon: LucideIcons.search,

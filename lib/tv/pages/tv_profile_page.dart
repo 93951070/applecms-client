@@ -4,10 +4,13 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../models/site.dart';
 import '../../models/user.dart';
+import '../../pages/downloads_page.dart';
 import '../../pages/favorites_page.dart';
+import '../../pages/feedback_page.dart';
 import '../../pages/login_page.dart';
 import '../../pages/play_history_page.dart';
 import '../../pages/settings.dart';
+import '../../pages/watch.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/favorites_provider.dart';
 import '../../providers/history_provider.dart';
@@ -39,6 +42,7 @@ class TvProfilePage extends ConsumerWidget {
               ref.read(tvModeSettingProvider.notifier).setMode(mode),
         ),
         const SizedBox(height: 28),
+        const TvSectionHeader(title: '快捷入口', icon: LucideIcons.layoutGrid),
         _ShortcutSection(context: context),
         if (history.isNotEmpty) ...[
           const SizedBox(height: 12),
@@ -228,6 +232,21 @@ class _ShortcutSection extends StatelessWidget {
           label: '我的收藏',
           icon: LucideIcons.sparkles,
           onSelect: () => push(const FavoritesPage()),
+        ),
+        TvActionButton(
+          label: '一起看',
+          icon: LucideIcons.users,
+          onSelect: () => push(const WatchPage()),
+        ),
+        TvActionButton(
+          label: '离线缓存',
+          icon: LucideIcons.download,
+          onSelect: () => push(const DownloadsPage()),
+        ),
+        TvActionButton(
+          label: '意见反馈',
+          icon: LucideIcons.messageSquare,
+          onSelect: () => push(const FeedbackPage()),
         ),
         TvActionButton(
           label: '播放设置',

@@ -42,12 +42,22 @@ class TvAdaptiveScope extends ConsumerWidget {
         if (scale >= 1 || real.isEmpty) return child;
 
         final design = Size(real.width / scale, real.height / scale);
+        final media = MediaQuery.of(context);
+        // 设计画布比实际屏幕大 1/scale 倍，安全区与键盘高度也要按同一比例
+        // 放大，否则弹层会被键盘遮挡、内容会被挖掉一块。
+        final insetScale = 1 / scale;
         return ClipRect(
           child: FittedBox(
             fit: BoxFit.contain,
             alignment: Alignment.topLeft,
             child: MediaQuery(
-              data: MediaQuery.of(context).copyWith(size: design),
+              data: media.copyWith(
+                size: design,
+                padding: media.padding * insetScale,
+                viewPadding: media.viewPadding * insetScale,
+                viewInsets: media.viewInsets * insetScale,
+                systemGestureInsets: media.systemGestureInsets * insetScale,
+              ),
               child: SizedBox(
                 width: design.width,
                 height: design.height,

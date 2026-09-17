@@ -1552,8 +1552,7 @@ class _VideoDetailPageState extends ConsumerState<VideoDetailPage>
           localActors: _video?.actors ?? '',
           localDirectors: _video?.directors ?? '',
           future: future,
-          proxyImageUrl: (raw) =>
-              '$base/api/douban/image?u=${Uri.encodeQueryComponent(raw)}',
+          proxyImageUrl: (raw) => doubanImageUrl(base, raw),
         ),
       );
     } finally {

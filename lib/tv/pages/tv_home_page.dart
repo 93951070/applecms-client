@@ -9,6 +9,7 @@ import '../../core/format_utils.dart';
 import '../../models/site.dart';
 import '../../pages/home.dart';
 import '../../services/cms_service.dart';
+import '../../services/config_service.dart';
 import '../tv_focus.dart';
 import '../tv_router.dart';
 import '../tv_theme.dart';
@@ -26,6 +27,12 @@ class _TvHomePageState extends ConsumerState<TvHomePage> {
   Timer? _heroTimer;
   int _heroIndex = 0;
   int _heroLength = 0;
+  final Map<String, String> _heroSlides = {};
+  final Map<String, String> _heroBlurbs = {};
+  final Map<String, String> _heroYears = {};
+  final Set<String> _heroFetched = {};
+  final Set<String> _heroLoading = {};
+  String _heroPrefetchKey = '';
 
   @override
   void initState() {
@@ -40,6 +47,49 @@ class _TvHomePageState extends ConsumerState<TvHomePage> {
   void dispose() {
     _heroTimer?.cancel();
     super.dispose();
+  }
+
+  /// 按需拉取豆瓣横版剧照，作为幻灯片的背景图。
+  ///
+  /// 首页数据里的 `vod_pic_slide` 经常为空，退回竖版海报铺满全屏会显得
+  /// 「没有图片」；这里与手机端首页一致，用豆瓣剧照补齐横版图 + 简介。
+  Future<void> _loadHeroSlide(VideoDetail item) async {
+    final id = item.id.trim();
+    if (id.isEmpty || _heroFetched.contains(id) || _heroLoading.contains(id)) {
+      return;
+    }
+    _heroLoading.add(id);
+    try {
+      final base = await ref.read(configServiceProvider).getApiBaseUrl();
+      final media = await ref.read(cmsServiceProvider).fetchDouban(id);
+      if (!mounted) return;
+      _heroFetched.add(id);
+      final slide = (media?.slide ?? '').trim();
+      final intro = (media?.intro ?? '').trim();
+      final year = (media?.year ?? '').trim();
+      setState(() {
+        if (intro.isNotEmpty) _heroBlurbs[id] = intro;
+        if (year.isNotEmpty) _heroYears[id] = year;
+        if (slide.isNotEmpty) _heroSlides[id] = doubanImageUrl(base, slide);
+      });
+    } catch (_) {
+      // 忽略：保持本地横版图或竖版海报
+    } finally {
+      _heroLoading.remove(id);
+    }
+  }
+
+  /// 幻灯片条目变化时预取各自剧照，加载完成后自动重建。
+  void _prefetchHeroSlides(List<VideoDetail> items) {
+    final key = items.map((item) => item.id).join(',');
+    if (key == _heroPrefetchKey) return;
+    _heroPrefetchKey = key;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      for (final item in items) {
+        _loadHeroSlide(item);
+      }
+    });
   }
 
   List<VideoDetail> _heroItems(HomeFeed? feed) {
@@ -90,6 +140,7 @@ class _TvHomePageState extends ConsumerState<TvHomePage> {
     final hero = _heroItems(feed);
     _heroLength = hero.length;
     final sections = _sections(feed, groups);
+    _prefetchHeroSlides(hero);
 
     if (feedAsync.isLoading &&
         feed == null &&
@@ -134,9 +185,16 @@ class _TvHomePageState extends ConsumerState<TvHomePage> {
   Widget _buildHero(List<VideoDetail> items) {
     final video = items[_heroIndex % items.length];
     final size = MediaQuery.sizeOf(context);
-    final backdrop = (video.heroImage ?? '').isNotEmpty
-        ? video.heroImage!
-        : video.poster;
+    final slide = (_heroSlides[video.id] ?? '').trim();
+    final backdrop = slide.isNotEmpty
+        ? slide
+        : ((video.heroImage ?? '').isNotEmpty
+              ? video.heroImage!
+              : video.poster);
+    final localDesc = (video.desc ?? '').trim();
+    final blurb = localDesc.isNotEmpty
+        ? localDesc
+        : (_heroBlurbs[video.id] ?? '').trim();
     // 幻灯片占满导航栏以下的绝大部分首屏，露出下一行的一角提示可下翻。
     final available = size.height - TvMetrics.navHeight;
     final bannerHeight = available * 0.82;
@@ -211,10 +269,10 @@ class _TvHomePageState extends ConsumerState<TvHomePage> {
                           color: TvColors.text2,
                         ),
                       ),
-                      if ((video.desc ?? '').isNotEmpty) ...[
+                      if (blurb.isNotEmpty) ...[
                         const SizedBox(height: 12),
                         Text(
-                          video.desc!,
+                          blurb,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -284,7 +342,7 @@ class _TvHomePageState extends ConsumerState<TvHomePage> {
 
   String _heroMeta(VideoDetail video) {
     final parts = <String>[];
-    final year = video.year ?? '';
+    final year = (_heroYears[video.id] ?? video.year ?? '').trim();
     if (year.isNotEmpty) parts.add(year);
     final typeName = video.typeName ?? '';
     if (typeName.isNotEmpty) parts.add(typeName);
