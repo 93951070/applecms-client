@@ -19,6 +19,8 @@ import 'pages/play_history_page.dart';
 import 'providers/settings_provider.dart';
 import 'services/config_service.dart';
 import 'services/preload_service.dart';
+import 'tv/tv_mode.dart';
+import 'tv/tv_shell.dart';
 import 'widgets/main_layout.dart';
 import 'widgets/edit_dialog.dart';
 import 'widgets/update_gate.dart';
@@ -202,9 +204,17 @@ final _router = GoRouter(
     // 仅 4 个主 Tab 使用底部导航
     ShellRoute(
       builder: (context, state, child) {
-        return MainLayout(
-          currentPath: state.matchedLocation,
-          child: child,
+        return Consumer(
+          builder: (context, ref, _) {
+            final setting = ref.watch(tvModeSettingProvider);
+            if (resolveTvMode(context, setting)) {
+              return const TvShell();
+            }
+            return MainLayout(
+              currentPath: state.matchedLocation,
+              child: child,
+            );
+          },
         );
       },
       routes: [

@@ -293,7 +293,14 @@ class _ZenVideoControlsState extends State<ZenVideoControls> {
     final key = event.logicalKey;
     if (_isLocked && key != LogicalKeyboardKey.keyL) return;
 
-    if (key == LogicalKeyboardKey.space) {
+    // 遥控器「OK / 确认」与手柄 A：播放/暂停（电视端最常用的按键）
+    final isConfirm = key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
+        key == LogicalKeyboardKey.gameButtonA ||
+        key == LogicalKeyboardKey.mediaPlayPause;
+
+    if (key == LogicalKeyboardKey.space || isConfirm) {
       if (_isPlaying) {
         _controller.pause();
         _showActionHint('已暂停', LucideIcons.pause);
