@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'core/theme.dart';
@@ -63,8 +64,15 @@ class _EchoTVAppState extends ConsumerState<EchoTVApp> {
       themeMode: themeMode,
       routerConfig: _router,
       builder: (context, child) {
-        return UpdateGate(
-          child: TermsGate(child: TvAdaptiveScope(child: child!)),
+        // Android TV 遥控器中央键（select）映射为激活：Material 按钮 / InkWell
+        // 等原生控件也能被遥控器选中；自绘 TvFocusable / ZenButton 自行处理该键。
+        return Shortcuts(
+          shortcuts: const <ShortcutActivator, Intent>{
+            SingleActivator(LogicalKeyboardKey.select): ActivateIntent(),
+          },
+          child: UpdateGate(
+            child: TermsGate(child: TvAdaptiveScope(child: child!)),
+          ),
         );
       },
     );
@@ -108,6 +116,8 @@ class _TermsGateState extends ConsumerState<TermsGate> {
   }
 
   Widget _buildTermsOverlay(BuildContext context) {
+    // TV 上给「同意并继续」自动聚焦，遥控器可直接确认；触摸端不自动聚焦。
+    final isTv = resolveTvMode(context, ref.watch(tvModeSettingProvider));
     return Container(
       color: Colors.black.withValues(alpha: 0.5),
       child: Center(
@@ -146,6 +156,7 @@ class _TermsGateState extends ConsumerState<TermsGate> {
             const SizedBox(width: 8),
             ZenButton(
               onPressed: _onAgree,
+              autofocus: isTv,
               padding: const EdgeInsets.symmetric(horizontal: 20),
               height: 44,
               borderRadius: 16,
@@ -179,7 +190,8 @@ class _TermsGateState extends ConsumerState<TermsGate> {
     
     return Stack(
       children: [
-        widget.child,
+        // 未同意条款前禁止底层页面参与焦点，确保遥控器只在协议弹窗内导航。
+        ExcludeFocus(excluding: !_hasAgreed, child: widget.child),
         if (!_hasAgreed) _buildTermsOverlay(context),
       ],
     );

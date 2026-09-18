@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -172,6 +173,9 @@ class ZenButton extends StatefulWidget {
   final double? height;
   final bool isSecondary;
 
+  /// 是否在出现时自动获取焦点（TV 遥控器/键盘场景需要，触摸场景保持 false）。
+  final bool autofocus;
+
   const ZenButton({
     super.key,
     required this.child,
@@ -182,6 +186,7 @@ class ZenButton extends StatefulWidget {
     this.padding = const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
     this.height,
     this.isSecondary = false,
+    this.autofocus = false,
   });
 
   @override
@@ -191,11 +196,29 @@ class ZenButton extends StatefulWidget {
 class _ZenButtonState extends State<ZenButton> {
   bool _isPressed = false;
   bool _isHovered = false;
+  bool _isFocused = false;
+
+  /// 遥控器/键盘的确认键（select 为 Android TV 遥控器中央键），
+  /// 让自绘按钮在没有 Material 按钮 Action 的情况下也能被遥控器激活。
+  KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
+        key == LogicalKeyboardKey.gameButtonA ||
+        key == LogicalKeyboardKey.space) {
+      widget.onPressed();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final bool active = _isHovered || _isFocused;
 
     Color bgColor;
     Color fgColor;
@@ -207,51 +230,75 @@ class _ZenButtonState extends State<ZenButton> {
               ? Colors.white.withValues(alpha: 0.05)
               : Colors.black.withValues(alpha: 0.05));
       fgColor = widget.foregroundColor ?? theme.colorScheme.onSurface;
-      if (_isHovered)
-        bgColor = bgColor.withValues(alpha: bgColor.opacity + 0.05);
+      if (active) bgColor = bgColor.withValues(alpha: bgColor.opacity + 0.05);
     } else {
       bgColor = widget.backgroundColor ?? theme.colorScheme.primary;
       fgColor = widget.foregroundColor ?? Colors.white;
-      if (_isHovered) bgColor = bgColor.withValues(alpha: 0.9);
+      if (active) bgColor = bgColor.withValues(alpha: 0.9);
     }
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _isPressed = true),
-        onTapUp: (_) => setState(() => _isPressed = false),
-        onTapCancel: () => setState(() => _isPressed = false),
-        onTap: widget.onPressed,
-        child: AnimatedScale(
-          scale: _isPressed ? 0.96 : (_isHovered ? 1.02 : 1.0),
-          duration: const Duration(milliseconds: 200),
-          child: AnimatedContainer(
+    // 聚焦描边：主按钮用白色，次级按钮用主题色。
+    final focusRing = widget.isSecondary
+        ? theme.colorScheme.primary
+        : Colors.white;
+
+    return Focus(
+      autofocus: widget.autofocus,
+      onFocusChange: (focused) {
+        if (mounted) setState(() => _isFocused = focused);
+      },
+      onKeyEvent: _onKeyEvent,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTapDown: (_) => setState(() => _isPressed = true),
+          onTapUp: (_) => setState(() => _isPressed = false),
+          onTapCancel: () => setState(() => _isPressed = false),
+          onTap: widget.onPressed,
+          child: AnimatedScale(
+            scale: _isPressed
+                ? 0.96
+                : (_isFocused ? 1.06 : (_isHovered ? 1.02 : 1.0)),
             duration: const Duration(milliseconds: 200),
-            height: widget.height,
-            padding: widget.padding,
-            alignment: widget.height != null ? Alignment.center : null,
-            decoration: BoxDecoration(
-              color: bgColor,
-              borderRadius: BorderRadius.circular(widget.borderRadius),
-              boxShadow: !widget.isSecondary && _isHovered
-                  ? [
-                      BoxShadow(
-                        color: bgColor.withValues(alpha: 0.3),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ]
-                  : null,
-            ),
-            child: DefaultTextStyle(
-              style: TextStyle(
-                color: fgColor,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              height: widget.height,
+              padding: widget.padding,
+              alignment: widget.height != null ? Alignment.center : null,
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(widget.borderRadius),
+                border: _isFocused
+                    ? Border.all(color: focusRing, width: 2)
+                    : null,
+                boxShadow: _isFocused
+                    ? [
+                        BoxShadow(
+                          color: focusRing.withValues(alpha: 0.5),
+                          blurRadius: 18,
+                          spreadRadius: 1,
+                        ),
+                      ]
+                    : (!widget.isSecondary && _isHovered
+                          ? [
+                              BoxShadow(
+                                color: bgColor.withValues(alpha: 0.3),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ]
+                          : null),
               ),
-              child: widget.child,
+              child: DefaultTextStyle(
+                style: TextStyle(
+                  color: fgColor,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+                child: widget.child,
+              ),
             ),
           ),
         ),

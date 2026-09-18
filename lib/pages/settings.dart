@@ -365,6 +365,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   // --- 逻辑操作 (保持原有) ---
 
   void _showDisclaimer() {
+    final isTv = resolveTvMode(context, ref.read(tvModeSettingProvider));
     showDialog(
       context: context,
       builder: (context) => EditDialog(
@@ -392,6 +393,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         actions: [
           ZenButton(
             isSecondary: true,
+            autofocus: isTv,
             onPressed: () => Navigator.pop(context),
             child: const Text('关闭'),
           ),
@@ -401,6 +403,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   void _showClearDataConfirm() {
+    final isTv = resolveTvMode(context, ref.read(tvModeSettingProvider));
     showDialog(
       context: context,
       builder: (context) => EditDialog(
@@ -409,6 +412,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         actions: [
           ZenButton(
             isSecondary: true,
+            autofocus: isTv,
             onPressed: () => Navigator.pop(context),
             child: const Text('取消'),
           ),

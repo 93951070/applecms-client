@@ -11,6 +11,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/navigation.dart';
 import '../services/app_api_service.dart';
 import '../services/config_service.dart';
+import '../tv/tv_mode.dart';
+import 'zen_ui.dart';
 
 /// 启动时通过 App 网关检查版本，必要时提示更新。
 ///
@@ -78,7 +80,13 @@ Future<void> checkAppUpdate(
     );
     if (!context.mounted) return;
     if (info.forceUpdate || info.needUpdate) {
-      _showUpdateDialog(info, force: info.forceUpdate, fallbackUrl: base);
+      final isTv = resolveTvMode(context, ref.read(tvModeSettingProvider));
+      _showUpdateDialog(
+        info,
+        force: info.forceUpdate,
+        fallbackUrl: base,
+        isTv: isTv,
+      );
     } else if (showNoUpdate) {
       _snack(context, '已是最新版本 v${pkg.version}');
     }
@@ -185,6 +193,7 @@ void _showUpdateDialog(
   AppVersionInfo info, {
   required bool force,
   String? fallbackUrl,
+  bool isTv = false,
 }) {
   final navigator = rootNavigatorKey.currentState;
   final overlayContext = navigator?.overlay?.context;
@@ -206,11 +215,13 @@ void _showUpdateDialog(
         ),
         actions: [
           if (!force)
-            TextButton(
+            ZenButton(
+              isSecondary: true,
               onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('稍后'),
             ),
-          TextButton(
+          ZenButton(
+            autofocus: isTv,
             onPressed: () {
               Navigator.of(ctx).pop();
               _runUpdate(url, fallbackUrl: fallbackUrl);
