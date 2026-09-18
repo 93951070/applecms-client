@@ -91,6 +91,7 @@ class TermsGate extends ConsumerStatefulWidget {
 class _TermsGateState extends ConsumerState<TermsGate> {
   bool _hasAgreed = false;
   bool _isChecking = true;
+  bool _dialogOpen = false;
 
   @override
   void initState() {
@@ -100,70 +101,136 @@ class _TermsGateState extends ConsumerState<TermsGate> {
 
   Future<void> _checkTerms() async {
     final agreed = await ref.read(configServiceProvider).getHasAgreedTerms();
-    if (mounted) {
-      setState(() {
-        _hasAgreed = agreed;
-        _isChecking = false;
-      });
-    }
+    if (!mounted) return;
+    setState(() {
+      _hasAgreed = agreed;
+      _isChecking = false;
+    });
+    if (!agreed) _scheduleDialog();
   }
 
-  void _onAgree() async {
-    await ref.read(configServiceProvider).setHasAgreedTerms(true);
-    if (mounted) {
-      setState(() => _hasAgreed = true);
-    }
+  void _scheduleDialog() {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openTermsDialog());
   }
 
-  Widget _buildTermsOverlay(BuildContext context) {
-    // TV 上给「同意并继续」自动聚焦，遥控器可直接确认；触摸端不自动聚焦。
-    final isTv = resolveTvMode(context, ref.watch(tvModeSettingProvider));
-    return Container(
-      color: Colors.black.withValues(alpha: 0.5),
-      child: Center(
-        child: EditDialog(
-          title: const Text('用户条款'),
-          width: 460,
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '欢迎使用 EchoTV。在您开始之前，请务必阅读并理解以下条款：',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-              const SizedBox(height: 16),
-              _buildTermsItem('1. 工具性质', 'EchoTV 仅作为一个本地/远程资源管理工具，不内置、不提供、不分发任何影视或直播内容。'),
-              _buildTermsItem('2. 数据来源', '应用内展示的所有资源均由用户自行配置，用户需对所配置资源的合法性承担全部法律责任。'),
-              _buildTermsItem('3. 隐私声明', '我们不会收集您的个人隐私数据，您的配置信息仅存储在您的设备本地或您指定的云端。'),
-              const SizedBox(height: 16),
-              Text(
-                '点击“同意”即代表您已阅读并同意上述条款。若您不同意，请选择“退出应用”。',
-                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.secondary),
-              ),
-            ],
-          ),
-          actions: [
-            ZenButton(
-              onPressed: () => exit(0),
-              backgroundColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.05),
-              foregroundColor: Theme.of(context).colorScheme.secondary,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              height: 44,
-              borderRadius: 16,
-              child: const Text('退出应用', style: TextStyle(fontSize: 14)),
+  /// 通过根 Navigator 弹出不可取消的模态对话框。
+  ///
+  /// 相比 Stack 覆盖层，模态路由自带独立 FocusScope 与针对底层页面的焦点拦截，
+  /// Android TV 遥控器的方向键/确认键只会在协议弹窗内的按钮间移动。
+  Future<void> _openTermsDialog() async {
+    if (!mounted || _hasAgreed || _dialogOpen) return;
+    final overlayContext = rootNavigatorKey.currentState?.overlay?.context;
+    if (overlayContext == null) {
+      // Navigator 尚未就绪时短暂等待后重试。
+      await Future.delayed(const Duration(milliseconds: 50));
+      if (!mounted || _hasAgreed) return;
+      return _openTermsDialog();
+    }
+    _dialogOpen = true;
+    await showDialog<void>(
+      context: overlayContext,
+      useRootNavigator: true,
+      barrierDismissible: false,
+      builder: (_) => _TermsDialog(
+        onAgree: () async {
+          await ref.read(configServiceProvider).setHasAgreedTerms(true);
+          if (mounted) setState(() => _hasAgreed = true);
+        },
+      ),
+    );
+    _dialogOpen = false;
+    // 若弹窗被异常关闭且仍未同意，则重新弹出，避免用户绕过条款。
+    if (mounted && !_hasAgreed) _scheduleDialog();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isChecking) {
+      return Container(color: Theme.of(context).scaffoldBackgroundColor);
+    }
+    return widget.child;
+  }
+}
+
+/// 用户条款模态弹窗：打开后显式聚焦「同意并继续」，
+/// 保证 Android TV 遥控器无需先按方向键即可直接确认。
+class _TermsDialog extends ConsumerStatefulWidget {
+  final Future<void> Function() onAgree;
+
+  const _TermsDialog({required this.onAgree});
+
+  @override
+  ConsumerState<_TermsDialog> createState() => _TermsDialogState();
+}
+
+class _TermsDialogState extends ConsumerState<_TermsDialog> {
+  final FocusNode _agreeFocus = FocusNode(debugLabel: 'terms_agree');
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _agreeFocus.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _agreeFocus.dispose();
+    super.dispose();
+  }
+
+  Future<void> _agree() async {
+    await widget.onAgree();
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      child: EditDialog(
+        title: const Text('用户条款'),
+        width: 460,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '欢迎使用 EchoTV。在您开始之前，请务必阅读并理解以下条款：',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
             ),
-            const SizedBox(width: 8),
-            ZenButton(
-              onPressed: _onAgree,
-              autofocus: isTv,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              height: 44,
-              borderRadius: 16,
-              child: const Text('同意并继续', style: TextStyle(fontSize: 14)),
+            const SizedBox(height: 16),
+            _buildTermsItem('1. 工具性质', 'EchoTV 仅作为一个本地/远程资源管理工具，不内置、不提供、不分发任何影视或直播内容。'),
+            _buildTermsItem('2. 数据来源', '应用内展示的所有资源均由用户自行配置，用户需对所配置资源的合法性承担全部法律责任。'),
+            _buildTermsItem('3. 隐私声明', '我们不会收集您的个人隐私数据，您的配置信息仅存储在您的设备本地或您指定的云端。'),
+            const SizedBox(height: 16),
+            Text(
+              '点击“同意”即代表您已阅读并同意上述条款。若您不同意，请选择“退出应用”。',
+              style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.secondary),
             ),
           ],
         ),
+        actions: [
+          ZenButton(
+            onPressed: () => exit(0),
+            backgroundColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.05),
+            foregroundColor: Theme.of(context).colorScheme.secondary,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            height: 44,
+            borderRadius: 16,
+            child: const Text('退出应用', style: TextStyle(fontSize: 14)),
+          ),
+          const SizedBox(width: 8),
+          ZenButton(
+            focusNode: _agreeFocus,
+            onPressed: _agree,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            height: 44,
+            borderRadius: 16,
+            child: const Text('同意并继续', style: TextStyle(fontSize: 14)),
+          ),
+        ],
       ),
     );
   }
@@ -179,21 +246,6 @@ class _TermsGateState extends ConsumerState<TermsGate> {
           Text(content, style: const TextStyle(fontSize: 13, height: 1.4)),
         ],
       ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_isChecking) {
-      return Container(color: Theme.of(context).scaffoldBackgroundColor);
-    }
-    
-    return Stack(
-      children: [
-        // 未同意条款前禁止底层页面参与焦点，确保遥控器只在协议弹窗内导航。
-        ExcludeFocus(excluding: !_hasAgreed, child: widget.child),
-        if (!_hasAgreed) _buildTermsOverlay(context),
-      ],
     );
   }
 }

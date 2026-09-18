@@ -176,6 +176,10 @@ class ZenButton extends StatefulWidget {
   /// 是否在出现时自动获取焦点（TV 遥控器/键盘场景需要，触摸场景保持 false）。
   final bool autofocus;
 
+  /// 外部焦点节点，便于调用方在弹窗出现后显式 `requestFocus`，
+  /// 保证 Android TV 遥控器无需先按方向键即可直接确认。
+  final FocusNode? focusNode;
+
   const ZenButton({
     super.key,
     required this.child,
@@ -187,6 +191,7 @@ class ZenButton extends StatefulWidget {
     this.height,
     this.isSecondary = false,
     this.autofocus = false,
+    this.focusNode,
   });
 
   @override
@@ -243,6 +248,7 @@ class _ZenButtonState extends State<ZenButton> {
         : Colors.white;
 
     return Focus(
+      focusNode: widget.focusNode,
       autofocus: widget.autofocus,
       onFocusChange: (focused) {
         if (mounted) setState(() => _isFocused = focused);

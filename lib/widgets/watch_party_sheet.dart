@@ -9,6 +9,7 @@ import '../models/watch_party.dart';
 import '../pages/watch_room.dart';
 import '../services/config_service.dart';
 import '../services/watch_party_service.dart';
+import '../tv/tv_mode.dart';
 
 /// 从播放页打开「一起看」主页底部弹层。
 ///
@@ -73,6 +74,10 @@ class _WatchPartyHomeState extends ConsumerState<_WatchPartyHome> {
   bool _busy = false;
 
   WatchPartyService get _service => ref.read(watchPartyServiceProvider);
+
+  /// 当前是否处于 TV 模式（横屏大屏）：用于给首个可操作项自动聚焦，
+  /// 使遥控器进入弹层后无需先按方向键即可操作。
+  bool get _isTv => resolveTvMode(context, ref.read(tvModeSettingProvider));
 
   String _err(Object e) => e.toString().replaceFirst('AppApiException: ', '');
 
@@ -190,20 +195,28 @@ class _WatchPartyHomeState extends ConsumerState<_WatchPartyHome> {
   }
 
   Widget _buildHeader(_Palette p) {
+    Widget leading;
+    if (_view != _View.home) {
+      leading = IconButton(
+        icon: const Icon(Icons.arrow_back_ios_new, size: 18),
+        color: p.text,
+        onPressed: () => setState(() => _view = _View.home),
+      );
+    } else if (_isTv) {
+      // TV 模式：提供可见的关闭按钮，遥控器可直接退出弹层。
+      leading = IconButton(
+        icon: const Icon(Icons.close_rounded, size: 20),
+        color: p.text,
+        onPressed: () => Navigator.of(context).pop(false),
+      );
+    } else {
+      leading = const SizedBox.shrink();
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 4, 12, 8),
       child: Row(
         children: [
-          SizedBox(
-            width: 40,
-            child: _view == _View.home
-                ? const SizedBox.shrink()
-                : IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_new, size: 18),
-                    color: p.text,
-                    onPressed: () => setState(() => _view = _View.home),
-                  ),
-          ),
+          SizedBox(width: 40, child: leading),
           Expanded(
             child: Text(
               _title,
@@ -249,12 +262,14 @@ class _WatchPartyHomeState extends ConsumerState<_WatchPartyHome> {
   }
 
   Widget _buildHome() {
+    final isTv = _isTv;
     final tiles = <Widget>[
       _homeTile(
         icon: Icons.groups_rounded,
         color: AppColors.pink,
         title: '进去大厅',
         subtitle: '看看大家正在一起看什么',
+        autofocus: isTv,
         onTap: () => setState(() => _view = _View.hall),
       ),
       _homeTile(
@@ -291,6 +306,7 @@ class _WatchPartyHomeState extends ConsumerState<_WatchPartyHome> {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
+    bool autofocus = false,
   }) {
     final p = _Palette(Theme.of(context).colorScheme);
     return Padding(
@@ -300,6 +316,7 @@ class _WatchPartyHomeState extends ConsumerState<_WatchPartyHome> {
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
+          autofocus: autofocus,
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -342,6 +359,7 @@ class _WatchPartyHomeState extends ConsumerState<_WatchPartyHome> {
   Widget _buildCreate() {
     return _CreateForm(
       busy: _busy,
+      autofocus: _isTv,
       onCreate: _createRoom,
     );
   }
@@ -349,6 +367,7 @@ class _WatchPartyHomeState extends ConsumerState<_WatchPartyHome> {
   Widget _buildJoin() {
     return _JoinForm(
       busy: _busy,
+      autofocus: _isTv,
       onJoin: (code, password) => _joinRoom(code, password: password),
     );
   }
@@ -370,6 +389,8 @@ class _HallViewState extends ConsumerState<_HallView> {
   bool _loading = true;
   Timer? _timer;
   String _mediaBase = '';
+
+  bool get _isTv => resolveTvMode(context, ref.read(tvModeSettingProvider));
 
   @override
   void initState() {
@@ -521,6 +542,7 @@ class _HallViewState extends ConsumerState<_HallView> {
           borderRadius: BorderRadius.circular(14),
           child: InkWell(
             borderRadius: BorderRadius.circular(14),
+            autofocus: i == 0 && _isTv,
             onTap: () => _onTap(room),
             child: Padding(
               padding: const EdgeInsets.all(12),
@@ -620,6 +642,8 @@ class _MineViewState extends ConsumerState<_MineView> {
   List<WatchRoomInfo> _rooms = const [];
   bool _loading = true;
 
+  bool get _isTv => resolveTvMode(context, ref.read(tvModeSettingProvider));
+
   @override
   void initState() {
     super.initState();
@@ -672,6 +696,7 @@ class _MineViewState extends ConsumerState<_MineView> {
           borderRadius: BorderRadius.circular(14),
           child: InkWell(
             borderRadius: BorderRadius.circular(14),
+            autofocus: i == 0 && _isTv,
             onTap: () => widget.onEnter(room.code),
             child: Padding(
               padding: const EdgeInsets.all(14),
@@ -712,6 +737,7 @@ class _MineViewState extends ConsumerState<_MineView> {
 /// 创建房间表单。
 class _CreateForm extends StatefulWidget {
   final bool busy;
+  final bool autofocus;
   final Future<void> Function({
     required bool isPublic,
     required String password,
@@ -719,7 +745,11 @@ class _CreateForm extends StatefulWidget {
     required bool allowMemberControl,
   }) onCreate;
 
-  const _CreateForm({required this.busy, required this.onCreate});
+  const _CreateForm({
+    required this.busy,
+    required this.onCreate,
+    this.autofocus = false,
+  });
 
   @override
   State<_CreateForm> createState() => _CreateFormState();
@@ -813,6 +843,7 @@ class _CreateFormState extends State<_CreateForm> {
           SizedBox(
             width: double.infinity,
             child: FilledButton(
+              autofocus: widget.autofocus,
               style: FilledButton.styleFrom(
                 backgroundColor: AppColors.pink,
                 padding: const EdgeInsets.symmetric(vertical: 14),
@@ -846,9 +877,14 @@ class _CreateFormState extends State<_CreateForm> {
 /// 输入房间号加入。
 class _JoinForm extends StatefulWidget {
   final bool busy;
+  final bool autofocus;
   final Future<void> Function(String code, String password) onJoin;
 
-  const _JoinForm({required this.busy, required this.onJoin});
+  const _JoinForm({
+    required this.busy,
+    required this.onJoin,
+    this.autofocus = false,
+  });
 
   @override
   State<_JoinForm> createState() => _JoinFormState();
@@ -919,6 +955,7 @@ class _JoinFormState extends State<_JoinForm> {
           SizedBox(
             width: double.infinity,
             child: FilledButton(
+              autofocus: widget.autofocus,
               style: FilledButton.styleFrom(
                 backgroundColor: AppColors.pink,
                 padding: const EdgeInsets.symmetric(vertical: 14),
