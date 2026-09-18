@@ -325,6 +325,7 @@ class TvActionButton extends StatelessWidget {
     this.primary = false,
     this.autofocus = false,
     this.gold = false,
+    this.focusNode,
   });
 
   final String label;
@@ -334,10 +335,14 @@ class TvActionButton extends StatelessWidget {
   final bool autofocus;
   final bool gold;
 
+  /// 外部焦点节点，便于弹窗出现后显式聚焦。
+  final FocusNode? focusNode;
+
   @override
   Widget build(BuildContext context) {
     return TvFocusable(
       autofocus: autofocus,
+      focusNode: focusNode,
       onSelect: onSelect,
       builder: (context, focused) {
         final Color base;

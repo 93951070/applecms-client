@@ -21,6 +21,7 @@ import 'providers/settings_provider.dart';
 import 'services/config_service.dart';
 import 'services/preload_service.dart';
 import 'tv/tv_adaptive.dart';
+import 'tv/tv_focus.dart';
 import 'tv/tv_mode.dart';
 import 'tv/tv_shell.dart';
 import 'widgets/main_layout.dart';
@@ -187,6 +188,41 @@ class _TermsDialogState extends ConsumerState<_TermsDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // TV 模式直接使用已验证可遥控的 TvActionButton；触摸端保持 ZenButton。
+    final isTv = resolveTvMode(context, ref.watch(tvModeSettingProvider));
+    final actions = isTv
+        ? <Widget>[
+            TvActionButton(label: '退出应用', onSelect: () => exit(0)),
+            const SizedBox(width: 12),
+            TvActionButton(
+              label: '同意并继续',
+              primary: true,
+              focusNode: _agreeFocus,
+              onSelect: _agree,
+            ),
+          ]
+        : <Widget>[
+            ZenButton(
+              onPressed: () => exit(0),
+              backgroundColor: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.05),
+              foregroundColor: Theme.of(context).colorScheme.secondary,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              height: 44,
+              borderRadius: 16,
+              child: const Text('退出应用', style: TextStyle(fontSize: 14)),
+            ),
+            const SizedBox(width: 8),
+            ZenButton(
+              focusNode: _agreeFocus,
+              onPressed: _agree,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              height: 44,
+              borderRadius: 16,
+              child: const Text('同意并继续', style: TextStyle(fontSize: 14)),
+            ),
+          ];
     return PopScope(
       canPop: false,
       child: EditDialog(
@@ -211,26 +247,7 @@ class _TermsDialogState extends ConsumerState<_TermsDialog> {
             ),
           ],
         ),
-        actions: [
-          ZenButton(
-            onPressed: () => exit(0),
-            backgroundColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.05),
-            foregroundColor: Theme.of(context).colorScheme.secondary,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            height: 44,
-            borderRadius: 16,
-            child: const Text('退出应用', style: TextStyle(fontSize: 14)),
-          ),
-          const SizedBox(width: 8),
-          ZenButton(
-            focusNode: _agreeFocus,
-            onPressed: _agree,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            height: 44,
-            borderRadius: 16,
-            child: const Text('同意并继续', style: TextStyle(fontSize: 14)),
-          ),
-        ],
+        actions: actions,
       ),
     );
   }
