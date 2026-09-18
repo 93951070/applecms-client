@@ -666,7 +666,7 @@ class _TvControlsLayerState extends ConsumerState<_TvControlsLayer> {
 
   void _changeVolume(double delta) {
     final player = _player;
-    final current = player?.volume ?? ref.read(playerVolumeProvider);
+    final current = player?.volume ?? ref.read<double>(playerVolumeProvider);
     final next = (current + delta).clamp(0.0, 1.0).toDouble();
     player?.setVolume(next);
     unawaited(ref.read(playerVolumeProvider.notifier).setVolume(next));
