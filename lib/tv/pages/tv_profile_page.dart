@@ -158,6 +158,7 @@ class _UserCard extends StatelessWidget {
             label: user == null ? '登录' : '设置',
             icon: user == null ? LucideIcons.user : LucideIcons.settings,
             primary: user == null,
+            autofocus: true,
             onSelect: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) =>

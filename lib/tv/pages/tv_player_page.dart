@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -7,6 +10,7 @@ import '../../models/site.dart';
 import '../../pages/login_page.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/history_provider.dart';
+import '../../providers/settings_provider.dart';
 import '../../services/app_api_service.dart';
 import '../../services/cms_service.dart';
 import '../../services/config_service.dart';
@@ -321,27 +325,41 @@ class _TvPlayerPageState extends ConsumerState<TvPlayerPage> {
       );
     }
 
-    return EchoVideoPlayer(
-      key: _playerKey,
-      url: url,
-      title: '${widget.video.title} - $_episodeTitle',
-      referer: _referer,
-      isLive: false,
-      initialPosition: _resumePosition,
+    return _TvControlsLayer(
+      playerKey: _playerKey,
+      title: widget.video.title,
+      subtitle: _episodeTitle,
       episodeTitles: widget.group.titles,
-      episodeNeedVip: widget.group.needVip,
-      isVip: isVip,
-      currentEpisodeIndex: _index,
-      danmaku: _danmaku,
+      index: _index,
+      episodeCount: _episodeCount,
       danmakuEnabled: _danmakuEnabled,
-      onDanmakuToggle: _toggleDanmaku,
-      onDanmakuInputActivate: _openDanmakuInput,
-      onSelectEpisode: (index, _) => _switchEpisode(index),
-      onPlaybackError: _handlePlaybackError,
-      onProgress: _saveProgress,
-      hasNextEpisode: _index < _episodeCount - 1,
-      onNextEpisode: () => _switchEpisode(_index + 1),
-      onEnded: () => _switchEpisode(_index + 1),
+      onToggleDanmaku: _toggleDanmaku,
+      onOpenDanmaku: _openDanmakuInput,
+      onSelectEpisode: _switchEpisode,
+      onExit: () => Navigator.of(context).maybePop(),
+      child: EchoVideoPlayer(
+        key: _playerKey,
+        url: url,
+        title: '${widget.video.title} - $_episodeTitle',
+        referer: _referer,
+        isLive: false,
+        initialPosition: _resumePosition,
+        episodeTitles: widget.group.titles,
+        episodeNeedVip: widget.group.needVip,
+        isVip: isVip,
+        currentEpisodeIndex: _index,
+        danmaku: _danmaku,
+        danmakuEnabled: _danmakuEnabled,
+        onDanmakuToggle: _toggleDanmaku,
+        onDanmakuInputActivate: _openDanmakuInput,
+        onSelectEpisode: (index, _) => _switchEpisode(index),
+        onPlaybackError: _handlePlaybackError,
+        onProgress: _saveProgress,
+        hasNextEpisode: _index < _episodeCount - 1,
+        onNextEpisode: () => _switchEpisode(_index + 1),
+        onEnded: () => _switchEpisode(_index + 1),
+        showBuiltInControls: false,
+      ),
     );
   }
 
@@ -399,6 +417,730 @@ class _TvPlayerPageState extends ConsumerState<TvPlayerPage> {
         ],
       ),
     );
+  }
+}
+
+/// TV 播放器控制条上的按钮。
+enum _Ctl {
+  play,
+  back15,
+  fwd15,
+  prev,
+  next,
+  episodes,
+  danmaku,
+  sendDanmaku,
+  exit,
+}
+
+/// TV 播放器自绘遥控器控制层。
+///
+/// 播放器内置的触摸控制条会 3 秒自动隐藏、又依赖播放器控件的键盘焦点，
+/// 遥控器上表现为「功能条闪一下就没」。这里改成面向遥控器的一套：
+/// - 焦点由本层独占，方向键在控制条按钮间移动光标，不触发系统焦点遍历；
+/// - 控制条显示后 7 秒无操作才隐藏，任何按键都会重新计时；
+/// - 控制条隐藏时：左右快进退、上下调音量、确认键唤出控制条；
+/// - 控制条显示时：左右移动光标、确认键触发，选集用独立面板（面板内恢复系统焦点遍历）。
+class _TvControlsLayer extends ConsumerStatefulWidget {
+  const _TvControlsLayer({
+    required this.playerKey,
+    required this.title,
+    required this.subtitle,
+    required this.episodeTitles,
+    required this.index,
+    required this.episodeCount,
+    required this.danmakuEnabled,
+    required this.onToggleDanmaku,
+    required this.onOpenDanmaku,
+    required this.onSelectEpisode,
+    required this.onExit,
+    required this.child,
+  });
+
+  final GlobalKey<EchoVideoPlayerState> playerKey;
+  final String title;
+  final String subtitle;
+  final List<String> episodeTitles;
+  final int index;
+  final int episodeCount;
+  final bool danmakuEnabled;
+  final VoidCallback onToggleDanmaku;
+  final Future<void> Function() onOpenDanmaku;
+  final void Function(int index) onSelectEpisode;
+  final VoidCallback onExit;
+  final Widget child;
+
+  @override
+  ConsumerState<_TvControlsLayer> createState() => _TvControlsLayerState();
+}
+
+class _TvControlsLayerState extends ConsumerState<_TvControlsLayer> {
+  static const Duration _hideDelay = Duration(seconds: 7);
+  static const int _seekStep = 15;
+
+  final FocusNode _rootFocus = FocusNode(debugLabel: 'tv-player-root');
+  final ValueNotifier<int> _tick = ValueNotifier<int>(0);
+  Timer? _hideTimer;
+  Timer? _ticker;
+  Timer? _hintTimer;
+
+  bool _barVisible = true;
+  int _cursor = 0;
+  bool _episodePanel = false;
+  String? _hintText;
+  IconData _hintIcon = LucideIcons.play;
+  String _hintKind = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // 每 0.5 秒刷新一次进度 / 播放状态，供控制层读取。
+    _ticker = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (mounted) _tick.value++;
+    });
+    _restartHideTimer();
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    _ticker?.cancel();
+    _hintTimer?.cancel();
+    _tick.dispose();
+    _rootFocus.dispose();
+    super.dispose();
+  }
+
+  EchoVideoPlayerState? get _player => widget.playerKey.currentState;
+
+  List<_Ctl> get _items => <_Ctl>[
+    _Ctl.play,
+    _Ctl.back15,
+    _Ctl.fwd15,
+    if (widget.index > 0) _Ctl.prev,
+    if (widget.index < widget.episodeCount - 1) _Ctl.next,
+    _Ctl.episodes,
+    _Ctl.danmaku,
+    _Ctl.sendDanmaku,
+    _Ctl.exit,
+  ];
+
+  int get _safeCursor {
+    final list = _items;
+    if (list.isEmpty) return 0;
+    return _cursor.clamp(0, list.length - 1);
+  }
+
+  bool _isSelect(LogicalKeyboardKey key) =>
+      key == LogicalKeyboardKey.select ||
+      key == LogicalKeyboardKey.enter ||
+      key == LogicalKeyboardKey.numpadEnter ||
+      key == LogicalKeyboardKey.gameButtonA ||
+      key == LogicalKeyboardKey.space;
+
+  bool _isMenu(LogicalKeyboardKey key) =>
+      key == LogicalKeyboardKey.contextMenu ||
+      key == LogicalKeyboardKey.info ||
+      key == LogicalKeyboardKey.escape;
+
+  void _showBar({int? cursor}) {
+    _hideTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _barVisible = true;
+      if (cursor != null) _cursor = cursor;
+    });
+    _restartHideTimer();
+    if (!_episodePanel) _rootFocus.requestFocus();
+  }
+
+  void _hideBar() {
+    _hideTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _barVisible = false;
+      _episodePanel = false;
+    });
+    _rootFocus.requestFocus();
+  }
+
+  void _restartHideTimer() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(_hideDelay, () {
+      if (!mounted || _episodePanel) return;
+      _hideBar();
+    });
+  }
+
+  void _showHint(String text, IconData icon, {String kind = ''}) {
+    _hintTimer?.cancel();
+    setState(() {
+      _hintText = text;
+      _hintIcon = icon;
+      _hintKind = kind;
+    });
+    _hintTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (!mounted) return;
+      setState(() {
+        _hintText = null;
+        _hintKind = '';
+      });
+    });
+  }
+
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+
+    // 选集面板打开时把方向键交回系统焦点遍历，面板内只处理关闭。
+    if (_episodePanel) {
+      if (key == LogicalKeyboardKey.escape) {
+        _closeEpisodePanel();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+
+    if (!_barVisible) {
+      if (key == LogicalKeyboardKey.mediaPlayPause) {
+        _togglePlay();
+      } else if (_isSelect(key)) {
+        _showBar(cursor: _items.indexOf(_Ctl.play));
+      } else if (key == LogicalKeyboardKey.arrowLeft) {
+        _seek(-_seekStep);
+      } else if (key == LogicalKeyboardKey.arrowRight) {
+        _seek(_seekStep);
+      } else if (key == LogicalKeyboardKey.arrowUp) {
+        _changeVolume(0.1);
+      } else if (key == LogicalKeyboardKey.arrowDown) {
+        _changeVolume(-0.1);
+      } else if (_isMenu(key)) {
+        _showBar();
+      } else {
+        return KeyEventResult.ignored;
+      }
+      return KeyEventResult.handled;
+    }
+
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      _moveCursor(-1);
+    } else if (key == LogicalKeyboardKey.arrowRight) {
+      _moveCursor(1);
+    } else if (key == LogicalKeyboardKey.arrowUp) {
+      _changeVolume(0.1);
+    } else if (key == LogicalKeyboardKey.arrowDown) {
+      _changeVolume(-0.1);
+    } else if (key == LogicalKeyboardKey.mediaPlayPause) {
+      _togglePlay();
+    } else if (_isSelect(key)) {
+      _activate(_items[_safeCursor]);
+    } else {
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
+  }
+
+  void _moveCursor(int delta) {
+    final list = _items;
+    if (list.isEmpty) return;
+    final next = (_safeCursor + delta) % list.length;
+    setState(() => _cursor = next < 0 ? next + list.length : next);
+    _restartHideTimer();
+  }
+
+  void _seek(int seconds) {
+    final player = _player;
+    if (player == null) return;
+    var target = player.currentPosition + Duration(seconds: seconds);
+    if (target < Duration.zero) target = Duration.zero;
+    final total = player.duration;
+    if (total > Duration.zero && target > total) target = total;
+    player.seekToPosition(target);
+    _showHint(
+      seconds >= 0 ? '快进 ${seconds}s' : '快退 ${-seconds}s',
+      seconds >= 0 ? LucideIcons.fastForward : LucideIcons.rewind,
+      kind: 'seek',
+    );
+    if (_barVisible) _restartHideTimer();
+  }
+
+  void _changeVolume(double delta) {
+    final player = _player;
+    final current = player?.volume ?? ref.read(playerVolumeProvider);
+    final next = (current + delta).clamp(0.0, 1.0).toDouble();
+    player?.setVolume(next);
+    unawaited(ref.read(playerVolumeProvider.notifier).setVolume(next));
+    _showHint(
+      '音量 ${(next * 100).round()}%',
+      next == 0
+          ? LucideIcons.volumeX
+          : (next < 0.5 ? LucideIcons.volume1 : LucideIcons.volume2),
+      kind: 'volume',
+    );
+    if (_barVisible) _restartHideTimer();
+  }
+
+  void _togglePlay() {
+    final player = _player;
+    if (player == null) return;
+    if (player.isPlaying) {
+      player.pausePlayback();
+      _showHint('已暂停', LucideIcons.pause);
+    } else {
+      player.resumePlayback();
+      _showHint('播放中', LucideIcons.play);
+    }
+  }
+
+  void _activate(_Ctl ctl) {
+    switch (ctl) {
+      case _Ctl.play:
+        _togglePlay();
+        break;
+      case _Ctl.back15:
+        _seek(-_seekStep);
+        break;
+      case _Ctl.fwd15:
+        _seek(_seekStep);
+        break;
+      case _Ctl.prev:
+        widget.onSelectEpisode(widget.index - 1);
+        break;
+      case _Ctl.next:
+        widget.onSelectEpisode(widget.index + 1);
+        break;
+      case _Ctl.episodes:
+        _openEpisodePanel();
+        return;
+      case _Ctl.danmaku:
+        widget.onToggleDanmaku();
+        _showHint(
+          widget.danmakuEnabled ? '弹幕已关闭' : '弹幕已开启',
+          widget.danmakuEnabled
+              ? LucideIcons.messageSquareOff
+              : LucideIcons.messageSquare,
+        );
+        break;
+      case _Ctl.sendDanmaku:
+        unawaited(widget.onOpenDanmaku());
+        break;
+      case _Ctl.exit:
+        widget.onExit();
+        return;
+    }
+    _restartHideTimer();
+  }
+
+  void _openEpisodePanel() {
+    if (widget.episodeTitles.isEmpty) return;
+    _hideTimer?.cancel();
+    setState(() => _episodePanel = true);
+  }
+
+  void _closeEpisodePanel() {
+    if (!mounted) return;
+    setState(() => _episodePanel = false);
+    _showBar();
+  }
+
+  void _handleSurfaceTap() {
+    if (_episodePanel) return;
+    if (_barVisible) {
+      _hideBar();
+    } else {
+      _showBar();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = _items;
+    final cursor = _safeCursor;
+    return PopScope(
+      canPop: !_episodePanel,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _episodePanel) _closeEpisodePanel();
+      },
+      child: Focus(
+        focusNode: _rootFocus,
+        autofocus: true,
+        canRequestFocus: true,
+        skipTraversal: true,
+        onKeyEvent: _onKey,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            widget.child,
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _handleSurfaceTap,
+              ),
+            ),
+            if (_hintText != null) _buildHint(),
+            if (_barVisible) _buildBar(items, cursor),
+            if (_episodePanel) _buildEpisodePanel(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHint() {
+    return IgnorePointer(
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 22),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.72),
+            borderRadius: BorderRadius.circular(TvMetrics.radiusPanel),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_hintIcon, color: Colors.white, size: 40),
+              const SizedBox(height: 12),
+              Text(
+                _hintText!,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: TvMetrics.body,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (_hintKind == 'seek' || _hintKind == 'volume') ...[
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: 260,
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: _tick,
+                    builder: (_, __, ___) => _buildTrack(
+                      _hintKind == 'volume'
+                          ? (_player?.volume ?? 0)
+                          : _progressFraction(),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBar(List<_Ctl> items, int cursor) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: [0.0, 0.28, 0.6, 1.0],
+                colors: [
+                  Color(0xCC000000),
+                  Color(0x00000000),
+                  Color(0x33000000),
+                  Color(0xE6000000),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Align(
+          alignment: Alignment.topLeft,
+          child: Padding(
+            padding: TvMetrics.safePadding.add(const EdgeInsets.only(top: 16)),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 820),
+                  child: Text(
+                    widget.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: TvMetrics.sectionTitle,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                if (widget.subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    widget.subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: TvMetrics.body,
+                      color: TvColors.text2,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        Align(
+          alignment: Alignment.bottomCenter,
+          child: Padding(
+            padding: TvMetrics.safePadding.add(
+              const EdgeInsets.only(bottom: 18),
+            ),
+            child: ValueListenableBuilder<int>(
+              valueListenable: _tick,
+              builder: (_, __, ___) => Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildProgress(),
+                  const SizedBox(height: 18),
+                  _buildButtons(items, cursor),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProgress() {
+    final position = _player?.currentPosition ?? Duration.zero;
+    final total = _player?.duration ?? Duration.zero;
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: total.inMilliseconds <= 0
+                  ? 0
+                  : (position.inMilliseconds / total.inMilliseconds).clamp(
+                      0.0,
+                      1.0,
+                    ),
+              minHeight: 5,
+              backgroundColor: Colors.white24,
+              valueColor: const AlwaysStoppedAnimation<Color>(TvColors.accent),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Text(_formatDuration(position), style: _timeStyle),
+            const Spacer(),
+            Text(_formatDuration(total), style: _timeStyle),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildButtons(List<_Ctl> items, int cursor) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        for (var i = 0; i < items.length; i++)
+          _buildButton(items[i], i == cursor),
+      ],
+    );
+  }
+
+  Widget _buildButton(_Ctl ctl, bool focused) {
+    return GestureDetector(
+      onTap: () {
+        setState(() => _cursor = _items.indexOf(ctl));
+        _activate(ctl);
+      },
+      child: AnimatedContainer(
+        duration: TvMetrics.focusDuration,
+        curve: Curves.easeOut,
+        width: 66,
+        height: 66,
+        margin: const EdgeInsets.symmetric(horizontal: 6),
+        decoration: BoxDecoration(
+          color: focused
+              ? TvColors.accent
+              : Colors.white.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(TvMetrics.radiusPanel),
+          border: Border.all(
+            color: focused ? Colors.white : Colors.transparent,
+            width: 2,
+          ),
+          boxShadow: focused
+              ? [
+                  BoxShadow(
+                    color: TvColors.accent.withValues(alpha: 0.5),
+                    blurRadius: 20,
+                  ),
+                ]
+              : null,
+        ),
+        child: Icon(
+          _iconOf(ctl),
+          size: 30,
+          color: focused ? Colors.white : TvColors.text1,
+        ),
+      ),
+    );
+  }
+
+  IconData _iconOf(_Ctl ctl) {
+    switch (ctl) {
+      case _Ctl.play:
+        return (_player?.isPlaying ?? false)
+            ? LucideIcons.pause
+            : LucideIcons.play;
+      case _Ctl.back15:
+        return LucideIcons.rewind;
+      case _Ctl.fwd15:
+        return LucideIcons.fastForward;
+      case _Ctl.prev:
+        return LucideIcons.skipBack;
+      case _Ctl.next:
+        return LucideIcons.skipForward;
+      case _Ctl.episodes:
+        return LucideIcons.listVideo;
+      case _Ctl.danmaku:
+        return widget.danmakuEnabled
+            ? LucideIcons.messageSquare
+            : LucideIcons.messageSquareOff;
+      case _Ctl.sendDanmaku:
+        return LucideIcons.send;
+      case _Ctl.exit:
+        return LucideIcons.logOut;
+    }
+  }
+
+  Widget _buildEpisodePanel() {
+    final titles = widget.episodeTitles;
+    return ColoredBox(
+      color: Colors.black.withValues(alpha: 0.72),
+      child: Center(
+        child: Container(
+          constraints: BoxConstraints(
+            maxWidth: 980,
+            maxHeight: MediaQuery.sizeOf(context).height * 0.72,
+          ),
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: TvColors.surface,
+            borderRadius: BorderRadius.circular(TvMetrics.radiusPanel),
+            border: Border.all(color: TvColors.divider),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Text(
+                    '选集',
+                    style: TextStyle(
+                      fontSize: TvMetrics.sectionTitle,
+                      fontWeight: FontWeight.w700,
+                      color: TvColors.text1,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    '共 ${titles.length} 集',
+                    style: const TextStyle(
+                      fontSize: TvMetrics.body,
+                      color: TvColors.text3,
+                    ),
+                  ),
+                  const Spacer(),
+                  TvActionButton(
+                    label: '关闭',
+                    icon: LucideIcons.x,
+                    onSelect: _closeEpisodePanel,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Flexible(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final columns = (constraints.maxWidth / 132).floor().clamp(
+                      4,
+                      10,
+                    );
+                    return GridView.builder(
+                      shrinkWrap: true,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: columns,
+                        mainAxisExtent: 56,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                      ),
+                      itemCount: titles.length,
+                      itemBuilder: (context, i) {
+                        final title = titles[i].isNotEmpty
+                            ? titles[i]
+                            : '第 ${i + 1} 集';
+                        return TvChip(
+                          label: title,
+                          selected: i == widget.index,
+                          autofocus: i == widget.index,
+                          onSelect: () {
+                            _closeEpisodePanel();
+                            widget.onSelectEpisode(i);
+                          },
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  double _progressFraction() {
+    final player = _player;
+    if (player == null) return 0;
+    final total = player.duration.inMilliseconds;
+    if (total <= 0) return 0;
+    return (player.currentPosition.inMilliseconds / total).clamp(0.0, 1.0);
+  }
+
+  Widget _buildTrack(double value) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(3),
+      child: LinearProgressIndicator(
+        value: value.clamp(0.0, 1.0),
+        minHeight: 6,
+        backgroundColor: Colors.white24,
+        valueColor: const AlwaysStoppedAnimation<Color>(TvColors.accent),
+      ),
+    );
+  }
+
+  static const TextStyle _timeStyle = TextStyle(
+    fontSize: 14,
+    color: TvColors.text2,
+  );
+
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final minutes = twoDigits(duration.inMinutes.remainder(60));
+    final seconds = twoDigits(duration.inSeconds.remainder(60));
+    if (duration.inHours > 0) {
+      return '${twoDigits(duration.inHours)}:$minutes:$seconds';
+    }
+    return '$minutes:$seconds';
   }
 }
 

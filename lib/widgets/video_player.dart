@@ -48,6 +48,9 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
   final void Function(String message)? onPlaybackError;
   final void Function(bool locked)? onLockChanged;
 
+  /// 是否使用内置控制条。TV 端关掉后由播放页自绘遥控器控制层。
+  final bool showBuiltInControls;
+
   /// 画中画激活状态变化回调，父级据此切换占位封面。
   final ValueChanged<bool>? onPipChanged;
 
@@ -88,6 +91,7 @@ class EchoVideoPlayer extends ConsumerStatefulWidget {
     this.showFullscreenControl = true,
     this.showPlaybackStatus = true,
     this.startPaused = false,
+    this.showBuiltInControls = true,
   });
 
   @override
@@ -167,6 +171,17 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
   void seekToPosition(Duration position) {
     try {
       _controller?.seekTo(position);
+    } catch (_) {}
+  }
+
+  /// 当前音量（0.0-1.0），供 TV 自绘控制层读取。
+  double get volume => _value?.volume ?? 1.0;
+
+  /// 直接设置音量，供 TV 自绘控制层调用（内置控制条已关闭时无其他入口）。
+  void setVolume(double value) {
+    final safe = value.clamp(0.0, 1.0).toDouble();
+    try {
+      _controller?.setVolume(safe);
     } catch (_) {}
   }
 
@@ -349,6 +364,14 @@ class EchoVideoPlayerState extends ConsumerState<EchoVideoPlayer>
   }
 
   BetterPlayerControlsConfiguration _buildControlsConfiguration() {
+    // TV 端由播放页自绘遥控器控制层，这里把内核控制条整体关掉，
+    // 只保留视频渲染，避免触摸版控制条的键盘焦点与自动隐藏干扰遥控器操作。
+    if (!widget.showBuiltInControls) {
+      return const BetterPlayerControlsConfiguration(
+        playerTheme: BetterPlayerTheme.custom,
+        showControls: false,
+      );
+    }
     // 换内核前的自研控制条：内核只负责视频渲染，控制条通过
     // customControlsBuilder 注入，保持原有布局与功能。
     return BetterPlayerControlsConfiguration(

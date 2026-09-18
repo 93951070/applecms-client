@@ -318,6 +318,7 @@ class _TvSearchPageState extends ConsumerState<TvSearchPage> {
                       child: TvChip(
                         label: key,
                         width: 64,
+                        autofocus: key == '1',
                         onSelect: () => _type(key),
                       ),
                     ),
